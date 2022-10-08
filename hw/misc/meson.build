@@ -1,3 +1,5 @@
+softmmu_ss.add(when: 'CONFIG_UPPER_IO_PLUGIN', if_true: files('upper_io_plugin.c'))
+softmmu_ss.add(when: 'CONFIG_YQE_PLUGIN', if_true: files('yqe_plugin.c'))
 softmmu_ss.add(when: 'CONFIG_APPLESMC', if_true: files('applesmc.c'))
 softmmu_ss.add(when: 'CONFIG_EDU', if_true: files('edu.c'))
 softmmu_ss.add(when: 'CONFIG_FW_CFG_DMA', if_true: files('vmcoreinfo.c'))

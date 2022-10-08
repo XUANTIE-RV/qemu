@@ -60,7 +60,9 @@ enum {
     VIRT_DRAM,
     VIRT_PCIE_MMIO,
     VIRT_PCIE_PIO,
-    VIRT_PCIE_ECAM
+    VIRT_PCIE_ECAM,
+    VIRT_UPPER_IO_PLUGIN,
+    VIRT_YQE_PLUGIN
 };
 
 enum {

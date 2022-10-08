@@ -30,6 +30,12 @@ open source applications such as oVirt, OpenStack and virt-manager.
 QEMU as a whole is released under the GNU General Public License,
 version 2. For full licensing details, consult the LICENSE file.
 
+Yaqcs-Xuantie Branch
+====================
+The yaqcs-xuantie branch of qemu has included YQE_PLUGIN and UPPER_IO_PLUGIN, which
+are plugins intended for simulation of quantum computing workflows in Yaqcs Architecture
+`<https://github.com/alibaba/YAQCS-arch>`_
+
 
 Documentation
 =============

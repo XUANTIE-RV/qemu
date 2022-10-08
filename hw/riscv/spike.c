@@ -36,6 +36,8 @@
 #include "hw/riscv/numa.h"
 #include "hw/char/riscv_htif.h"
 #include "hw/intc/sifive_clint.h"
+#include "hw/misc/upper_io_plugin.h"
+#include "hw/misc/yqe_plugin.h"
 #include "chardev/char.h"
 #include "sysemu/arch_init.h"
 #include "sysemu/device_tree.h"
@@ -44,6 +46,8 @@
 static const MemMapEntry spike_memmap[] = {
     [SPIKE_MROM] =     {     0x1000,     0xf000 },
     [SPIKE_CLINT] =    {  0x2000000,    0x10000 },
+    [SPIKE_YQE_PLUGIN] ={ 0x40000000,   0x100000 },
+    [SPIKE_UPPER_IO_PLUGIN]={0x40100000, 0x40000 },
     [SPIKE_DRAM] =     { 0x80000000,        0x0 },
 };
 
@@ -300,6 +304,10 @@ static void spike_board_init(MachineState *machine)
                               memmap[SPIKE_MROM].base,
                               memmap[SPIKE_MROM].size, kernel_entry,
                               fdt_load_addr, s->fdt);
+
+    /* Plugin devices */
+    upper_io_plugin_create(memmap[SPIKE_UPPER_IO_PLUGIN].base);
+    yqe_plugin_create(memmap[SPIKE_YQE_PLUGIN].base);
 
     /* initialize HTIF using symbols found in load_kernel */
     htif_mm_init(system_memory, mask_rom,

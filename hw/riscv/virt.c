@@ -35,6 +35,8 @@
 #include "hw/intc/sifive_clint.h"
 #include "hw/intc/sifive_plic.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/misc/upper_io_plugin.h"
+#include "hw/misc/yqe_plugin.h"
 #include "chardev/char.h"
 #include "sysemu/arch_init.h"
 #include "sysemu/device_tree.h"
@@ -57,7 +59,9 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_FW_CFG] =      { 0x10100000,          0x18 },
     [VIRT_FLASH] =       { 0x20000000,     0x4000000 },
     [VIRT_PCIE_ECAM] =   { 0x30000000,    0x10000000 },
-    [VIRT_PCIE_MMIO] =   { 0x40000000,    0x40000000 },
+    [VIRT_YQE_PLUGIN] =  { 0x40000000,      0x100000 },
+    [VIRT_UPPER_IO_PLUGIN]={0x40100000,      0x40000 },
+    [VIRT_PCIE_MMIO] =   { 0x50000000,    0x30000000 },
     [VIRT_DRAM] =        { 0x80000000,           0x0 },
 };
 
@@ -739,6 +743,10 @@ static void virt_machine_init(MachineState *machine)
 
     /* SiFive Test MMIO device */
     sifive_test_create(memmap[VIRT_TEST].base);
+
+    /* Plugin devices */
+    upper_io_plugin_create(memmap[VIRT_UPPER_IO_PLUGIN].base);
+    yqe_plugin_create(memmap[VIRT_YQE_PLUGIN].base);
 
     /* VirtIO MMIO devices */
     for (i = 0; i < VIRTIO_COUNT; i++) {

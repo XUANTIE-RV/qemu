@@ -44,7 +44,9 @@ struct SpikeState {
 enum {
     SPIKE_MROM,
     SPIKE_CLINT,
-    SPIKE_DRAM
+    SPIKE_DRAM,
+    SPIKE_UPPER_IO_PLUGIN,
+    SPIKE_YQE_PLUGIN
 };
 
 #endif

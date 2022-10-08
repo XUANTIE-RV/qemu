@@ -33,6 +33,8 @@
 #include "hw/riscv/virt.h"
 #include "hw/intc/sifive_plic.h"
 #include "hw/intc/sifive_clint.h"
+#include "hw/misc/upper_io_plugin.h"
+#include "hw/misc/yqe_plugin.h"
 #include "hw/char/csky_uart.h"
 #include "hw/timer/csky_coret.h"
 #include "hw/timer/csky_timer.h"
@@ -117,6 +119,11 @@ static void smarth_init(MachineState *machine)
     csky_uart_create(0x10015000, irqs[0x20], serial_hd(0));
 
     csky_timer_set_freq(50000000ll);
+
+    /* Plugin devices */
+    upper_io_plugin_create(0x40100000);
+    yqe_plugin_create(0x40000000);
+
     sysbus_create_varargs("csky_timer", 0x10011000, irqs[0x22], irqs[0x23],
                             irqs[0x24], irqs[0x25], NULL);
 
