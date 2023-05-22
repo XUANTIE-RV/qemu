@@ -179,7 +179,7 @@ FIELD(MSIZE, SIZEM, 0, 8)
 FIELD(MSIZE, SIZEN, 8, 8)
 FIELD(MSIZE, SIZEK, 16, 16)
 
-#define RV_MLEN_MAX 1024
+#define RV_RLEN_MAX 4096
 #define RV_MACC_LEN 32
 
 /* See the commentary above the TBFLAG field definitions.  */
@@ -383,7 +383,7 @@ struct CPURISCVState {
     target_ulong last_pc;
     float_status fp_status;
 
-    uint64_t mreg[8 * RV_MLEN_MAX / RV_MACC_LEN  * RV_MLEN_MAX / 64] QEMU_ALIGNED(16);
+    uint64_t mreg[8 * RV_RLEN_MAX / RV_MACC_LEN  * RV_RLEN_MAX / 64] QEMU_ALIGNED(16);
     target_ulong sizem;
     target_ulong sizen;
     target_ulong sizek;
@@ -484,7 +484,7 @@ struct RISCVCPU {
         char *vext_spec;
         char *pext_spec;
         uint16_t vlen;
-        uint16_t matlen;
+        uint16_t mrowlen;
         uint16_t elen;
         uint16_t cbozlen;
         uint16_t datapath;

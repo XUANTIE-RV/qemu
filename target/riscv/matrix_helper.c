@@ -21,49 +21,49 @@ typedef enum{
 
 static inline int64_t get_elem_b(void *md, uint32_t i, uint32_t j,
                                  CPURISCVState *env){
-    uint32_t idx = i * get_mlenb(env) + j;
+    uint32_t idx = i * get_rlenb(env) + j;
     return ((int8_t *)md)[idx];
 }
 
 static inline void set_elem_b(void *md, uint32_t i, uint32_t j,
                               CPURISCVState *env, int64_t val){
-    uint32_t idx = i * get_mlenb(env) + j;
+    uint32_t idx = i * get_rlenb(env) + j;
     ((int8_t *) md)[idx] = (int8_t) val;
 }
 
 static inline int64_t get_elem_h(void *md, uint32_t i, uint32_t j,
                                  CPURISCVState *env){
-    uint32_t idx = i * (get_mlenb(env) >> 1) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 1) + j;
     return ((int16_t *)md)[idx];
 }
 
 static inline void set_elem_h(void *md, uint32_t i, uint32_t j,
                               CPURISCVState *env, int64_t val){
-    uint32_t idx = i * (get_mlenb(env) >> 1) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 1) + j;
     ((int16_t *) md)[idx] = (int16_t) val;
 }
 
 static inline int64_t get_elem_s(void* md, uint32_t i, uint32_t j,
                                  CPURISCVState* env){
-    uint32_t idx = i * (get_mlenb(env) >> 2) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 2) + j;
     return ((int32_t *)md)[idx];
 }
 
 static inline void set_elem_s(void* md, uint32_t i, uint32_t j,
                               CPURISCVState* env, int64_t val){
-    uint32_t idx = i * (get_mlenb(env) >> 2) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 2) + j;
     ((int32_t *) md)[idx] = (int32_t) val;
 }
 
 static inline int64_t get_elem_d(void* md, uint32_t i, uint32_t j,
                                  CPURISCVState* env){
-    uint32_t idx = i * (get_mlenb(env) >> 3) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 3) + j;
     return ((int64_t *)md)[idx];
 }
 
 static inline void set_elem_d(void* md, uint32_t i, uint32_t j,
                               CPURISCVState* env, int64_t val){
-    uint32_t idx = i * (get_mlenb(env) >> 3) + j;
+    uint32_t idx = i * (get_rlenb(env) >> 3) + j;
     ((int64_t *) md)[idx] = val;
 }
 
@@ -95,7 +95,7 @@ static inline void mmext_mv_mx(void* md, void* ms1, void* ms2, target_ulong s1,
                                mmext_set_elem* set_elem, op_t op, uint8_t esz,
                                bool keep_hi){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     for (i = 0; i < get_mrows(env); i++){
@@ -176,7 +176,7 @@ static inline void mmext_mx(void* md, void* ms2, target_ulong s1,
                             mmext_set_elem* set_elem, op_t op, uint8_t esz,
                             bool keep_hi){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     for (i = 0; i < get_mrows(env); i++){
@@ -243,7 +243,7 @@ GEN_OP_MX_HELPER(mmulh_s_mx, MUL, get_elem_s, set_elem_s, 2, true)
 
 void helper_mmov_mv_x(void *md, void *ms1, target_ulong s1, CPURISCVState *env)
 {
-    uint32_t mlenb = get_mlenb(env);
+    uint32_t mlenb = get_rlenb(env);
     uint32_t mrows = get_mrows(env);
 
     for (int i = 0; i < mrows; i++) {
@@ -255,7 +255,7 @@ static inline void mmext_mm(void* md, void* ms1, void* ms2,
                             mmext_set_elem* set_elem, op_t op, uint8_t esz,
                             bool keep_hi){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     for (i = 0; i < get_mrows(env); i++){
@@ -365,7 +365,7 @@ static inline void mmext_n4clip_mm(void *md, void *ms1, void *ms2,
                                    mmext_set_elem * set_elem, bool use_signed,
                                    uint8_t esz){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     uint8_t round;
@@ -426,7 +426,7 @@ static inline void mmext_n4clip_mv(void *md, void *ms1, void *ms2, target_ulong 
                                    mmext_set_elem * set_elem, bool use_signed,
                                    uint8_t esz){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     uint8_t round;
@@ -491,7 +491,7 @@ static inline void mmext_n4clip_mx(void *md, void *ms2, target_ulong s1,
                                    mmext_set_elem * set_elem, bool use_signed,
                                    uint8_t esz){
     uint32_t i, k;
-    uint32_t cols = get_mlenb(env) >> esz;
+    uint32_t cols = get_rlenb(env) >> esz;
     int64_t result;
     uint64_t n_bit;
     uint8_t round;
@@ -694,7 +694,7 @@ static void mmext_mmaqa_h(void *md, void *ms1, void *ms2, CPURISCVState *env,
     int64_t temp, psum;
     int16_t oprd_a, oprd_b;
     void *md_pair_1 = md;
-    void *md_pair_2 = (void *) (((int8_t *) md) + get_mregsize(env));
+    void *md_pair_2 = (void *) (((int8_t *) md) + get_mlenb(env));
 
     for (i = 0; i < get_mrows(env); i++) {
         for (j = 0; j < get_mrows(env); j++) {
@@ -767,7 +767,7 @@ void helper_fmmacc_h(void *md, void *ms1, void *ms2,
     uint16_t temp, psum;
     uint16_t oprd_a, oprd_b;
     void *ms2_pair_1 = ms2;
-    void *ms2_pair_2 = (void *) (((int8_t *) ms2) + get_mregsize(env));
+    void *ms2_pair_2 = (void *) (((int8_t *) ms2) + get_mlenb(env));
     for (i = 0; i < get_mrows(env); i++) {
         for (j = 0; j < get_mrows(env) * 2; j++) {
             temp = 0;
@@ -830,7 +830,7 @@ void helper_fmmacc_d(void *md, void *ms1, void *ms2,
     uint64_t temp, psum;
     uint64_t oprd_a, oprd_b;
     void *md_pair_1 = md;
-    void *md_pair_2 = (void *) (((int8_t *) md) + get_mregsize(env));
+    void *md_pair_2 = (void *) (((int8_t *) md) + get_mlenb(env));
     for (i = 0; i < get_mrows(env); i++) {
         for (j = 0; j < get_mrows(env); j++) {
             temp = 0;
@@ -905,7 +905,7 @@ void helper_fwmmacc_s(void *md, void *ms1, void *ms2,
     uint64_t temp, psum;
     uint32_t oprd_a, oprd_b;
     void *md_pair_1 = md;
-    void *md_pair_2 = (void *) (((int8_t *) md) + get_mregsize(env));
+    void *md_pair_2 = (void *) (((int8_t *) md) + get_mlenb(env));
     for (i = 0; i < get_mrows(env); i++) {
         for (j = 0; j < get_mrows(env); j++) {
             temp = 0;
@@ -982,7 +982,7 @@ static void mmext_mld(void *md, target_ulong rs1, target_ulong s2,
     }
 
     for (i = 0; i < get_mrows(env); i++) {
-        for (k = 0; k < (get_mlenb(env) >> esz); k++) {
+        for (k = 0; k < (get_rlenb(env) >> esz); k++) {
             addr = rs1 + i * s2 + k * (1 << esz);
             if (i < env->sizem && k < (env->sizek >> esz)) {
                 set_elem(md, i, k, env, ld_elem(env, addr, ra));
@@ -1035,17 +1035,17 @@ static void mmext_mldm(void *md, target_ulong rs1, uint8_t nf,
 
     for (n = 0; n < nf; n++) {
         for (i = 0; i < get_mrows(env); i++) {
-            addr = rs1 + n * get_mregsize(env) + get_mlenb(env) * i;
-            probe_pages(env, addr, get_mlenb(env), ra,
+            addr = rs1 + n * get_mlenb(env) + get_rlenb(env) * i;
+            probe_pages(env, addr, get_rlenb(env), ra,
                         MMU_DATA_LOAD);
         }
     }
 
     for (n = 0; n < nf; n++) {
-        md = (void *)((char *) md + n * get_mregsize(env));
+        md = (void *)((char *) md + n * get_mlenb(env));
         for (i = 0; i < get_mrows(env); i++) {
-            for (k = 0; k < (get_mlenb(env) >> esz); k++) {
-                addr = rs1 + n * get_mregsize(env) + get_mlenb(env) * i + k * (1 << esz);
+            for (k = 0; k < (get_rlenb(env) >> esz); k++) {
+                addr = rs1 + n * get_mlenb(env) + get_rlenb(env) * i + k * (1 << esz);
                 set_elem(md, i, k, env, ld_elem(env, addr, ra));
             }
         }
@@ -1055,10 +1055,10 @@ static void mmext_mldm(void *md, target_ulong rs1, uint8_t nf,
         uint32_t packlen = 2 * sizeof(uint8_t) + sizeof(uint32_t);
         for (n = 0; n < nf; n++) {
             for (i = 0; i < get_mrows(env); i++) {
-                target_ulong row_start_addr = rs1 + n * get_mregsize(env) +
-                                              get_mlenb(env) * i;
-                write_trace_8_8(DATA_RADDR, packlen, get_mlenb(env), row_start_addr);
-                for (k = 0; k < get_mlenb(env) / 4; k++) {
+                target_ulong row_start_addr = rs1 + n * get_mlenb(env) +
+                                              get_rlenb(env) * i;
+                write_trace_8_8(DATA_RADDR, packlen, get_rlenb(env), row_start_addr);
+                for (k = 0; k < get_rlenb(env) / 4; k++) {
                     uint32_t data_value = get_elem_s(md, i, k, env);
                     write_trace_8_8(DATA_VALUE, packlen, 0, data_value);
                 }
@@ -1168,17 +1168,17 @@ static void mmext_mstm(void *ms3, target_ulong rs1, uint8_t nf,
 
     for (n = 0; n < nf; n++) {
         for (i = 0; i < get_mrows(env); i++) {
-            addr = rs1 + n * get_mregsize(env) + get_mlenb(env) * i;
-            probe_pages(env, addr, get_mlenb(env), ra,
+            addr = rs1 + n * get_mlenb(env) + get_rlenb(env) * i;
+            probe_pages(env, addr, get_rlenb(env), ra,
                         MMU_DATA_STORE);
         }
     }
 
     for (n = 0; n < nf; n++) {
-        ms3 = (void *)((char *) ms3 + n * get_mregsize(env));
+        ms3 = (void *)((char *) ms3 + n * get_mlenb(env));
         for (i = 0; i < get_mrows(env); i++) {
-            for (k = 0; k < (get_mlenb(env) >> esz); k++) {
-                addr = rs1 + n * get_mregsize(env) + get_mlenb(env) * i + k * (1 << esz);
+            for (k = 0; k < (get_rlenb(env) >> esz); k++) {
+                addr = rs1 + n * get_mlenb(env) + get_rlenb(env) * i + k * (1 << esz);
                 st_elem(env, addr, get_elem(ms3, i, k, env), ra);
             }
         }
@@ -1188,10 +1188,10 @@ static void mmext_mstm(void *ms3, target_ulong rs1, uint8_t nf,
         uint32_t packlen = 2 * sizeof(uint8_t) + sizeof(uint32_t);
         for (n = 0; n < nf; n++) {
             for (i = 0; i < get_mrows(env); i++) {
-                target_ulong row_start_addr = rs1 + n * get_mregsize(env) +
-                                              get_mlenb(env) * i;
-                write_trace_8_8(DATA_WADDR, packlen, get_mlenb(env), row_start_addr);
-                for (k = 0; k < get_mlenb(env) / 4; k++) {
+                target_ulong row_start_addr = rs1 + n * get_mlenb(env) +
+                                              get_rlenb(env) * i;
+                write_trace_8_8(DATA_WADDR, packlen, get_rlenb(env), row_start_addr);
+                for (k = 0; k < get_rlenb(env) / 4; k++) {
                     uint32_t data_value = get_elem_s(ms3, i, k, env);
                     write_trace_8_8(DATA_VALUE, packlen, 0, data_value);
                 }

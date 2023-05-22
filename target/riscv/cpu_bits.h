@@ -56,7 +56,8 @@
 #define MATRIX_MULT_I4I32   0x1
 
 /* Matrix Status */
-#define MCSR_MS            0x3
+#define MCSR_RM            0xC
+#define MCSR_SAT           0x10
 
 /* Control and Status Registers */
 
@@ -388,12 +389,12 @@
 /* Matrix CSR */
 #define CSR_MRSTART         0x801
 #define CSR_MCSR            0x802
-#define CSR_MXRM            0x803
-#define CSR_MXSAT           0xCC0
-#define CSR_MSIZE           0xCC1
-#define CSR_MREGSIZE        0xCC2
-#define CSR_MLENB           0xCC3
-#define CSR_XMISA           0xCC4
+#define CSR_MSIZE           0x803
+#define CSR_MREGSIZE        0xCC0
+#define CSR_MLENB           0xCC1
+#define CSR_XMISA           0xCC2
+
+#define MXSTATUS_MS         0x3
 
 #define MEXSTATUS_EXPT      0x20
 #define MEXSTATUS_SPSWAP    0x20000

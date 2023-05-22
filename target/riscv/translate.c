@@ -120,7 +120,7 @@ typedef struct DisasContext {
     bool npill;
     uint16_t vlen;
     uint16_t mlen;
-    uint16_t matlen;
+    uint16_t mrowlen;
     target_ulong vstart;
     bool vl_eq_vlmax;
     uint8_t ntemp;
@@ -894,7 +894,7 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->frm = -1;  /* unknown rounding mode */
     ctx->ext_ifencei = cpu->cfg.ext_ifencei;
     ctx->vlen = cpu->cfg.vlen;
-    ctx->matlen = cpu->cfg.matlen;
+    ctx->mrowlen = cpu->cfg.mrowlen;
     ctx->hlsx = EX_TBFLAGS_ANY(tb_flags, HLSX);
     ctx->vill = EX_TBFLAGS_ANY(tb_flags, VILL);
     ctx->sew = EX_TBFLAGS_ANY(tb_flags, SEW);

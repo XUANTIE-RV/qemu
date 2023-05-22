@@ -127,14 +127,14 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
         DP_TBFLAGS_THEAD(flags, NILL,
                          env->sizen > get_mrows(env) || env->sizen == 0);
         DP_TBFLAGS_THEAD(flags, KILL,
-                         env->sizek > get_mlenb(env) || env->sizek == 0);
+                         env->sizek > get_rlenb(env) || env->sizek == 0);
         DP_TBFLAGS_THEAD(flags, NPILL,
                          env->sizen > 2 * get_mrows(env) || env->sizen == 0);
     }
 #ifdef CONFIG_USER_ONLY
     flags.flags |= TB_FLAGS_ANY_MSTATUS_FS;
     flags.flags |= TB_FLAGS_ANY_MSTATUS_VS;
-    DP_TBFLAGS_THEAD(flags, MS, MCSR_MS);
+    DP_TBFLAGS_THEAD(flags, MS, MXSTATUS_MS);
 #else
     flags.flags |= cpu_mmu_index(env, 0);
     if (riscv_cpu_fp_enabled(env)) {
@@ -153,7 +153,7 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, target_ulong *pc,
         flags.flags |= env->mstatus & MSTATUS_VS;
     }
     if (riscv_cpu_matrix_enabled(env)) {
-        DP_TBFLAGS_THEAD(flags, MS, env->mcsr & MCSR_MS);
+        DP_TBFLAGS_THEAD(flags, MS, env->mxstatus & MXSTATUS_MS);
     }
 #endif
 
@@ -283,7 +283,7 @@ bool riscv_cpu_vector_enabled(CPURISCVState *env)
 /* Return true is matrix support is currently enabled */
 bool riscv_cpu_matrix_enabled(CPURISCVState *env)
 {
-    return env->mcsr & MCSR_MS;
+    return env->mxstatus & MXSTATUS_MS;
 }
 
 void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env)

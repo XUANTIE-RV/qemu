@@ -944,10 +944,10 @@ static void riscv_cpu_realize(DeviceState *dev, Error **errp)
             ext |= RVXTHEAD;
         }
         if (cpu->cfg.ext_matrix) {
-            if (cpu->cfg.matlen > RV_MLEN_MAX || cpu->cfg.matlen < 128) {
+            if (cpu->cfg.mrowlen > RV_RLEN_MAX || cpu->cfg.mrowlen < 128) {
                 error_setg(errp,
                         "Matrix extension implementation only supports MLEN "
-                        "in the range [128, %d]", RV_MLEN_MAX);
+                        "in the range [128, %d]", RV_RLEN_MAX);
                 return;
             }
         }
@@ -1068,7 +1068,7 @@ static Property riscv_cpu_properties[] = {
     DEFINE_PROP_STRING("pext_spec", RISCVCPU, cfg.pext_spec),
     DEFINE_PROP_STRING("vext_spec", RISCVCPU, cfg.vext_spec),
     DEFINE_PROP_UINT16("vlen", RISCVCPU, cfg.vlen, 128),
-    DEFINE_PROP_UINT16("mlen", RISCVCPU, cfg.matlen, 128),
+    DEFINE_PROP_UINT16("rlen", RISCVCPU, cfg.mrowlen, 128),
     DEFINE_PROP_UINT16("elen", RISCVCPU, cfg.elen, 64),
     DEFINE_PROP_BOOL("svinval", RISCVCPU, cfg.ext_svinval, false),
     DEFINE_PROP_BOOL("svnapot", RISCVCPU, cfg.ext_svnapot, false),

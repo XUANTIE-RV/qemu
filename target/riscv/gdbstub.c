@@ -246,13 +246,13 @@ static int riscv_gdb_set_vector(CPURISCVState *env, uint8_t *mem_buf, int n)
 
 static int riscv_gdb_get_matrix(CPURISCVState *env, GByteArray *buf, int n)
 {
-    target_ulong mregsize = get_mregsize(env);
+    target_ulong mlenb = get_mlenb(env);
     if (n < 8) {
         int i;
         int cnt = 0;
-        for (i = 0; i < mregsize; i += 8) {
+        for (i = 0; i < mlenb; i += 8) {
             cnt += gdb_get_reg64(buf,
-                                 env->mreg[(n * mregsize + i) / 8]);
+                                 env->mreg[(n * mlenb + i) / 8]);
         }
         return cnt;
     }
@@ -262,13 +262,13 @@ static int riscv_gdb_get_matrix(CPURISCVState *env, GByteArray *buf, int n)
 
 static int riscv_gdb_set_matrix(CPURISCVState *env, uint8_t *mem_buf, int n)
 {
-    target_ulong mregsize = get_mregsize(env);
+    target_ulong mlenb = get_mlenb(env);
     if (n < 8) {
         int i;
-        for (i = 0; i < mregsize; i += 8) {
-            env->mreg[(n * mregsize + i) / 8] = ldq_p(mem_buf + i);
+        for (i = 0; i < mlenb; i += 8) {
+            env->mreg[(n * mlenb + i) / 8] = ldq_p(mem_buf + i);
         }
-        return mregsize;
+        return mlenb;
     }
 
     return 0;
@@ -427,7 +427,7 @@ static int ricsv_gen_dynamic_matrix_xml(CPUState *cs, int base_reg)
     RISCVCPU *cpu = RISCV_CPU(cs);
     GString *s = g_string_new(NULL);
     g_autoptr(GString) ts = g_string_new("");
-    int reg_width = get_mregsize(&cpu->env) * 8;
+    int reg_width = get_mlenb(&cpu->env) * 8;
     int num_regs = 0;
     int i;
 

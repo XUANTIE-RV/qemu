@@ -33,8 +33,10 @@
 
 %ms1        18:3
 %ms2        21:3
-%md         7:3
-%reg_8_15   15:3                     !function=ex_plus_8
+%md         15:3
+%reg_8_15   7:3                     !function=ex_plus_8
+%md_ld      7:3
+%mo         10:2
 
 # immediates:
 %imm_i    20:s12
@@ -43,8 +45,10 @@
 %imm_j    31:s1 12:8 20:1 21:10  !function=ex_shift_1
 %imm_u    12:s20                 !function=ex_shift_12
 
-%uimm3  15:3
+%uimm3  7:3
 %uimm7  18:7
+
+%imm_mxm 24:1 20:1
 
 # Argument sets:
 &empty
@@ -82,6 +86,10 @@
 &mm_mv_i      ms1         uimm3      md
 &mm_rmm       ms2         ms1        md
 &mm_rx        ms2         rs1        md
+&mm_rm        md
+&mm_dup       md rs2 mo
+&mm_mov       md rs1 rs2 mo
+&mm_mxm       ms2 rs1 rd mo
 
 # Formats 32:
 @r       .......   ..... ..... ... ..... ....... &r                %rs2 %rs1 %rd
@@ -134,16 +142,20 @@
 @mm_i       ........ ... ... ... ..... ... .......   &mm_i       %uimm3         %ms2      %ms1 %md
 @mm_r       ........ ... ... ... ..... ... .......   &mm_r       rs1=%reg_8_15  %ms2      %ms1 %md
 @mm_rmm     ........ ... ... ... ..... ... .......   &mm_rmm     %ms2           %ms1      %md
+@mm_rm      ........ ... ... ... ..... ... .......   &mm_rm      %md
 @mm_rx      ........ ... ... ... ..... ... .......   &mm_rx      %ms2           rs1=%reg_8_15  %md
 @mm_mv      ........... ... ... ... .. ... .......   &mm_mv      %ms1           %md
 @mm_mv_x    ........... ... ... ... .. ... .......   &mm_mv_x    %ms1           rs1=%reg_8_15  %md
 @mm_mv_i    ........... ... ... ... .. ... .......   &mm_mv_i    %ms1           %uimm3         %md
-@mm_ld      ....... ..... ..... ... .. ... .......   &mm_ld      %rs1           %rs2      %md
-@mm_st      ....... ..... ..... ... .. ... .......   &mm_st      %rs1           %rs2      ms3=%md
-@mm_ldm     ....... ..... ..... ... .. ... .......   &mm_ldm     %rs1           %md
-@mm_stm     ....... ..... ..... ... .. ... .......   &mm_stm     %rs1           ms3=%md
+@mm_ld      ....... ..... ..... ... .. ... .......   &mm_ld      %rs1           %rs2      md=%md_ld
+@mm_st      ....... ..... ..... ... .. ... .......   &mm_st      %rs1           %rs2      ms3=%md_ld
+@mm_ldm     ....... ..... ..... ... .. ... .......   &mm_ldm     %rs1           md=%md_ld
+@mm_stm     ....... ..... ..... ... .. ... .......   &mm_stm     %rs1           ms3=%md_ld
 @mm_cfg_i   . ... ... ....... ... ... ..... .......  &mm_cfg_i   %uimm7         %rd
 @mm_cfg     . ... ... ..... ..... ... ..... .......  &mm_cfg     %rs1           %rd
+@mm_dup     .... ... ..... ..... ... .. ...  ....... &mm_dup     md=%md_ld %rs2 %mo
+@mm_mov     .... ... ..... ..... ... .. ...  ....... &mm_mov     md=%md_ld %rs1 %rs2 %mo
+@mm_mxm     .... ... ..... ..... ... .. ...  ....... &mm_mxm     %ms2 %rs1 %rd mo=%imm_mxm
 
 # Formats 64:
 @sh5     .......  ..... .....  ... ..... ....... &shift  shamt=%sh5      %rs1 %rd
@@ -198,6 +210,7 @@ sra      0100000 .....    ..... 101 ..... 0110011 @r
 or       0000000 .....    ..... 110 ..... 0110011 @r
 and      0000000 .....    ..... 111 ..... 0110011 @r
 fence    ---- pred:4 succ:4 ----- 000 ----- 0001111
+
 fence_i  ---- ----   ----   ----- 001 ----- 0001111
 csrrw    ............     ..... 001 ..... 1110011 @csr
 csrrs    ............     ..... 010 ..... 1110011 @csr
@@ -1404,39 +1417,38 @@ mn4clipu_d_mv_x   0111 001 0 ... ... ... 00011 ... 0101011 @mm_r     # mn4clipu_
 mn4clipu_d_mx     0111 011 0 ... 000 ... 00011 ... 0101011 @mm_rx    # mn4clipu_d_mx
 mmul_d_mv_x       1000 001 0 ... ... ... 00011 ... 0101011 @mm_r     # mmul_d_mv_x
 mmul_d_mx         1000 011 0 ... 000 ... 00011 ... 0101011 @mm_rx    # mmul_d_mx
-mmaqasu_b         0010 000 0 ... ... 011 00000 ... 0101011 @mm_rmm   # mmaqasu_b
-mmaqasu_h         0010 000 0 ... ... 011 00001 ... 0101011 @mm_rmm   # mmaqasu_h
-pmmaqasu_b        0010 000 1 ... ... 011 00000 ... 0101011 @mm_rmm   # pmmaqasu_b
-mmaqaus_b         0010 000 0 ... ... 010 00000 ... 0101011 @mm_rmm   # mmaqaus_b
-mmaqaus_h         0010 000 0 ... ... 010 00001 ... 0101011 @mm_rmm   # mmaqaus_h
-pmmaqaus_b        0010 000 1 ... ... 010 00000 ... 0101011 @mm_rmm   # pmmaqaus_b
-mmov_mm           0000 000 0 000 ... 001 00000 ... 0101011 @mm_mv    # mmov_mm
+mmaqasu_b         0010 000 0 ... ... ... 00000 011 0101011 @mm_rmm   # mmaqasu_b
+mmaqasu_h         0010 000 0 ... ... ... 00001 011 0101011 @mm_rmm   # mmaqasu_h
+pmmaqasu_b        0010 000 1 ... ... ... 00000 011 0101011 @mm_rmm   # pmmaqasu_b
+mmaqaus_b         0010 000 0 ... ... ... 00000 010 0101011 @mm_rmm   # mmaqaus_b
+mmaqaus_h         0010 000 0 ... ... ... 00001 010 0101011 @mm_rmm   # mmaqaus_h
+pmmaqaus_b        0010 000 1 ... ... ... 00000 010 0101011 @mm_rmm   # pmmaqaus_b
+mmov_mm           0000 000 0 000 ... ... 00000 001 0101011 @mm_mv    # mmov_mm
 mmov_mv_x         0000 001 0 000 ... ... 00000 ... 0101011 @mm_mv_x  # mmov_mv_x
 mmov_mv_i         0000 010 0 000 ... ... 00000 ... 0101011 @mm_mv_i  # mmov_mv_i
-mmov_mx           0000 011 0 000 ... ... 00000 ... 0101011 @mm_mv_x  # mmov_mx
-mmaqau_b          0010 000 0 ... ... 001 00000 ... 0101011 @mm_rmm   # mmaqau_b
-mmaqau_h          0010 000 0 ... ... 001 00001 ... 0101011 @mm_rmm   # mmaqau_h
-pmmaqau_b         0010 000 1 ... ... 001 00000 ... 0101011 @mm_rmm   # pmmaqau_b
-fmmacc_h          0001 000 0 ... ... 000 00001 ... 0101011 @mm_rmm   # fmmacc_h
-fmmacc_s          0001 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # fmmacc_s
-fmmacc_d          0001 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # fmmacc_d
-fwmmacc_h         0001 000 1 ... ... 000 00001 ... 0101011 @mm_rmm   # fwmmacc_h
-fwmmacc_s         0001 000 1 ... ... 000 00010 ... 0101011 @mm_rmm   # fwmmacc_s
-mmaqa_b           0010 000 0 ... ... 000 00000 ... 0101011 @mm_rmm   # mmaqa_b
-mmaqa_h           0010 000 0 ... ... 000 00001 ... 0101011 @mm_rmm   # mmaqa_h
-pmmaqa_b          0010 000 1 ... ... 000 00000 ... 0101011 @mm_rmm   # pmmaqa_b
-madd_s_mm         0011 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # madd_s_mm
-msub_s_mm         0100 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # msub_s_mm
-msra_s_mm         0101 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # msra_s_mm
-mn4clip_s_mm      0110 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # mn4clip_s_mm
-mn4clipu_s_mm     0111 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # mn4clipu_s_mm
-mmul_s_mm         1000 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # mmul_s_mm
-madd_d_mm         0011 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # madd_d_mm
-msub_d_mm         0100 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # msub_d_mm
-msra_d_mm         0101 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # msra_d_mm
-mn4clip_d_mm      0110 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # mn4clip_d_mm
-mn4clipu_d_mm     0111 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # mn4clipu_d_mm
-mmul_d_mm         1000 000 0 ... ... 000 00011 ... 0101011 @mm_rmm   # mmul_d_mm
+mmaqau_b          0010 000 0 ... ... ... 00000 001 0101011 @mm_rmm   # mmaqau_b
+mmaqau_h          0010 000 0 ... ... ... 00001 001 0101011 @mm_rmm   # mmaqau_h
+pmmaqau_b         0010 000 1 ... ... ... 00000 001 0101011 @mm_rmm   # pmmaqau_b
+fmmacc_h          0001 000 0 ... ... ... 00001 000 0101011 @mm_rmm   # fmmacc_h
+fmmacc_s          0001 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # fmmacc_s
+fmmacc_d          0001 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # fmmacc_d
+fwmmacc_h         0001 000 1 ... ... ... 00001 000 0101011 @mm_rmm   # fwmmacc_h
+fwmmacc_s         0001 000 1 ... ... ... 00010 000 0101011 @mm_rmm   # fwmmacc_s
+mmaqa_b           0010 000 0 ... ... ... 00000 000 0101011 @mm_rmm   # mmaqa_b
+mmaqa_h           0010 000 0 ... ... ... 00001 000 0101011 @mm_rmm   # mmaqa_h
+pmmaqa_b          0010 000 1 ... ... ... 00000 000 0101011 @mm_rmm   # pmmaqa_b
+madd_s_mm         0011 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # madd_s_mm
+msub_s_mm         0100 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # msub_s_mm
+msra_s_mm         0101 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # msra_s_mm
+mn4clip_s_mm      0110 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # mn4clip_s_mm
+mn4clipu_s_mm     0111 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # mn4clipu_s_mm
+mmul_s_mm         1000 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # mmul_s_mm
+madd_d_mm         0011 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # madd_d_mm
+msub_d_mm         0100 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # msub_d_mm
+msra_d_mm         0101 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # msra_d_mm
+mn4clip_d_mm      0110 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # mn4clip_d_mm
+mn4clipu_d_mm     0111 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # mn4clipu_d_mm
+mmul_d_mm         1000 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # mmul_d_mm
 mld_b             0000 100 ..... ..... 000 00 ...  0101011 @mm_ld    # mld_b
 mld_h             0000 100 ..... ..... 000 01 ...  0101011 @mm_ld    # mld_h
 mld_w             0000 100 ..... ..... 000 10 ...  0101011 @mm_ld    # mld_w
@@ -1489,10 +1501,15 @@ mcfgk             1 000 111 00000 ..... 000 .....  0101011 @mm_cfg   # mconfig_k
 mcfgm             1 001 111 00000 ..... 000 .....  0101011 @mm_cfg   # mconfig_m
 mcfgn             1 010 111 00000 ..... 000 .....  0101011 @mm_cfg   # mconfig_n
 mcfg              1 111 111 00000 ..... 000 .....  0101011 @mm_cfg
+mrelease          0 111 111 00000 00000 000 00000  0101011           # mrelease
 mcfgki            0 000 111 ....... 000 000 .....  0101011 @mm_cfg_i # mconfigi_k
 mcfgmi            0 001 111 ....... 000 000 .....  0101011 @mm_cfg_i # mconfigi_m
 mcfgni            0 010 111 ....... 000 000 .....  0101011 @mm_cfg_i # mconfigi_n
-mmulh_s_mm        1001 000 0 ... ... 000 00010 ... 0101011 @mm_rmm   # mmulh_s_mm
+mmulh_s_mm        1001 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # mmulh_s_mm
 mmulh_s_mv_x      1001 001 0 ... ... ... 00010 ... 0101011 @mm_r     # mmulh_s_mv_x
 mmulh_s_mv_i      1001 010 0 ... ... ... 00010 ... 0101011 @mm_i     # mmulh_s_mv_i
 mmulh_s_mx        1001 011 0 ... 000 ... 00010 ... 0101011 @mm_rx    # mmulh_s_mx
+mzero             1010 000 0 000 000 ... 00000 000 0101011 @mm_rm    # mzero
+mdup_m_x          0001 110 ..... 00000 000 .. ...  0101011 @mm_dup   # mdup_m_x
+mmov_m_x          0010 110 ..... ..... 000 .. ...  0101011 @mm_mov   # mmov_m_x
+mmov_x_m          0000 110 . ... . ..... 000 ..... 0101011 @mm_mxm   # mmov_x_m

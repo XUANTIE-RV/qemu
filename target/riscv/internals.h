@@ -107,19 +107,19 @@ static inline bfloat16 check_nanbox_bh(uint64_t f)
     }
 }
 
-static inline target_ulong get_mlenb(CPURISCVState *env)
+static inline target_ulong get_rlenb(CPURISCVState *env)
 {
-    return env_archcpu(env)->cfg.matlen >> 3;
+    return env_archcpu(env)->cfg.mrowlen >> 3;
 }
 
 static inline target_ulong get_mrows(CPURISCVState *env)
 {
-    return env_archcpu(env)->cfg.matlen / RV_MACC_LEN;
+    return env_archcpu(env)->cfg.mrowlen / RV_MACC_LEN;
 }
 
-static inline target_ulong get_mregsize(CPURISCVState *env)
+static inline target_ulong get_mlenb(CPURISCVState *env)
 {
-    return get_mrows(env) * get_mlenb(env);
+    return get_mrows(env) * get_rlenb(env);
 }
 
 /*

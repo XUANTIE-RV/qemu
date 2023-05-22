@@ -362,75 +362,63 @@ static RISCVException read_vxrm(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mrstart(CPURISCVState *env, int csrno,
-                                   target_ulong *val)
+static RISCVException read_xmrstart(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
 {
     *val = env->mrstart;
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException write_mrstart(CPURISCVState *env, int csrno,
-                                    target_ulong val)
+static RISCVException write_xmrstart(CPURISCVState *env, int csrno,
+                                     target_ulong val)
 {
-    if (val < get_mrows(env)) {
-        env->mrstart = val;
-    }
+    qemu_log_mask(LOG_UNIMP, "No support for writing to xmrstart.");
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mcsr(CPURISCVState *env, int csrno,
-                                target_ulong *val)
+static RISCVException read_xmcsr(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
 {
     *val = env->mcsr;
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException write_mcsr(CPURISCVState *env, int csrno,
-                                 target_ulong val)
+static RISCVException write_xmcsr(CPURISCVState *env, int csrno,
+                                  target_ulong val)
 {
-    env->mcsr = val & MCSR_MS;
+    env->mcsr = val & (MCSR_RM | MCSR_SAT);
+    env->mxrm = get_field(val, MCSR_RM);
+    env->mxsat = get_field(val, MCSR_SAT);
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mxrm(CPURISCVState *env, int csrno,
-                                target_ulong *val)
-{
-    *val = env->mxrm;
-    return RISCV_EXCP_NONE;
-}
-
-static RISCVException write_mxrm(CPURISCVState *env, int csrno,
-                                 target_ulong val)
-{
-    env->mxrm = val & 0x03;
-    return RISCV_EXCP_NONE;
-}
-
-static RISCVException read_mxsat(CPURISCVState *env, int csrno,
-                                 target_ulong *val)
-{
-    *val = env->mxsat;
-    return RISCV_EXCP_NONE;
-}
-
-static RISCVException read_msize(CPURISCVState *env, int csrno,
-                                 target_ulong *val)
+static RISCVException read_xmsize(CPURISCVState *env, int csrno,
+                                  target_ulong *val)
 {
     *val = (env->sizek << 16) | (env->sizen << 8) | (env->sizem);
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mregsize(CPURISCVState *env, int csrno,
-                                    target_ulong *val)
+static RISCVException write_xmsize(CPURISCVState *env, int csrno,
+                                   target_ulong val)
 {
-    *val = get_mregsize(env);
+    env->sizek = get_field(val, 0xffff0000);
+    env->sizen = get_field(val, 0xff00);
+    env->sizem = get_field(val, 0xff);
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mlenb(CPURISCVState *env, int csrno,
-                                 target_ulong *val)
+static RISCVException read_xmlenb(CPURISCVState *env, int csrno,
+                                  target_ulong *val)
 {
     *val = get_mlenb(env);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xrlenb(CPURISCVState *env, int csrno,
+                                  target_ulong *val)
+{
+    *val = get_rlenb(env);
     return RISCV_EXCP_NONE;
 }
 
@@ -2547,13 +2535,11 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_VLENB]    = { "vlenb",    vs,     read_vlenb                 },
 
     /* Matrix CSRs */
-    [CSR_MRSTART]  = { "mrstart",  ms,    read_mrstart, write_mrstart},
-    [CSR_MCSR]     = { "mcsr",     ms,    read_mcsr,    write_mcsr   },
-    [CSR_MXRM]     = { "mxrm",     ms,    read_mxrm,    write_mxrm   },
-    [CSR_MXSAT]    = { "mxsat",    ms,    read_mxsat                 },
-    [CSR_MSIZE]    = { "msize",    ms,    read_msize                 },
-    [CSR_MREGSIZE] = { "mregsize", ms,    read_mregsize              },
-    [CSR_MLENB]    = { "mlenb",    ms,    read_mlenb                 },
+    [CSR_MRSTART]  = { "xmrstart", ms,    read_xmrstart, write_xmrstart},
+    [CSR_MCSR]     = { "xmcsr",    ms,    read_xmcsr,    write_xmcsr   },
+    [CSR_MSIZE]    = { "xmsize",   ms,    read_xmsize,   write_xmsize  },
+    [CSR_MREGSIZE] = { "xmlenb",   ms,    read_xmlenb                },
+    [CSR_MLENB]    = { "xrlenb",   ms,    read_xrlenb                },
     [CSR_XMISA]    = { "xmisa",    ms,    read_xmisa                 },
 
     /* User Timers and Counters */

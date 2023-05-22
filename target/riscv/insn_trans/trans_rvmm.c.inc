@@ -4,7 +4,12 @@
 
 static inline uint32_t get_rows(DisasContext *s)
 {
-    return s->matlen / RV_MACC_LEN;
+    return s->mrowlen / RV_MACC_LEN;
+}
+
+static inline target_ulong get_row_mask(DisasContext *s)
+{
+    return (target_ulong)pow2ceil(get_rows(s)) - 1;
 }
 
 static inline bool require_matrix(DisasContext *s)
@@ -119,7 +124,7 @@ static bool trans_mcfgki(DisasContext *s, arg_mm_cfg_i *a)
 /* matrix register offset from env */
 static uint32_t mregs_ofs(DisasContext *s, int mreg_idx)
 {
-    return offsetof(CPURISCVState, mreg) + (mreg_idx * s->matlen * s->matlen >> 8);
+    return offsetof(CPURISCVState, mreg) + (mreg_idx * s->mrowlen * s->mrowlen >> 8);
 }
 
 /* Check */
@@ -165,7 +170,7 @@ static bool mm_opi_trans(uint32_t md, uint32_t ms1, uint32_t ms2,
     src1 = tcg_temp_new_ptr();
     src2 = tcg_temp_new_ptr();
 
-    s1_v = tcg_constant_tl(s1);
+    s1_v = tcg_constant_tl(s1 & get_row_mask(s));
 
     tcg_gen_addi_ptr(dest, cpu_env, mregs_ofs(s, md));
     tcg_gen_addi_ptr(src1, cpu_env, mregs_ofs(s, ms1));
@@ -219,6 +224,7 @@ static bool mm_opx_trans(uint32_t md, uint32_t ms1, uint32_t ms2,
     tcg_gen_addi_ptr(src1, cpu_env, mregs_ofs(s, ms1));
     tcg_gen_addi_ptr(src2, cpu_env, mregs_ofs(s, ms2));
 
+    tcg_gen_andi_tl(s1, s1, get_row_mask(s));
     fn(dest, src1, src2, s1, cpu_env);
 
     tcg_temp_free_ptr(dest);
@@ -296,7 +302,7 @@ GEN_MMEXT_OPRX_TRANS(mmul_d_mx, mmext_check_pwi64)
 
 static bool trans_mmov_mm(DisasContext *s, arg_mmov_mm *a)
 {
-    uint32_t len = get_rows(s) * s->matlen / 8;
+    uint32_t len = get_rows(s) * s->mrowlen / 8;
 
     if (!require_matrix(s)) {
         return false;
@@ -311,17 +317,13 @@ static bool trans_mmov_mv_x(DisasContext *s, arg_mmov_mv_x *a)
 {
     TCGv_ptr dest, src1;
     TCGv row_index;
-    TCGLabel *fail_label, *done_label;
 
     if (!require_matrix(s)) {
         return false;
     }
 
     row_index = get_gpr(s, a->rs1, EXT_ZERO);
-    fail_label = gen_new_label();
-    done_label = gen_new_label();
-
-    tcg_gen_brcondi_tl(TCG_COND_GEU, row_index, get_rows(s), fail_label);
+    tcg_gen_andi_tl(row_index, row_index, get_row_mask(s));
 
     dest = tcg_temp_new_ptr();
     src1 = tcg_temp_new_ptr();
@@ -333,13 +335,6 @@ static bool trans_mmov_mv_x(DisasContext *s, arg_mmov_mv_x *a)
     tcg_temp_free_ptr(dest);
     tcg_temp_free_ptr(src1);
 
-    tcg_gen_br(done_label);
-
-    gen_set_label(fail_label);
-    gen_set_pc(s, s->base.pc_next);
-    gen_helper_raise_exception(cpu_env,
-                               tcg_constant_i32(RISCV_EXCP_ILLEGAL_INST));
-    gen_set_label(done_label);
     return true;
 }
 
@@ -347,40 +342,153 @@ static bool trans_mmov_mv_i(DisasContext *s, arg_mm_mv_i *a)
 {
     uint32_t rows = get_rows(s);
 
-    if (a->uimm3 >= rows || !require_matrix(s)) {
+    if (!require_matrix(s)) {
         return false;
     }
 
     for (int i = 0; i < rows; i++) {
-        tcg_gen_gvec_mov(MO_64, mregs_ofs(s, a->md) + i * s->matlen / 8,
-                         mregs_ofs(s, a->ms1) + a->uimm3 * s->matlen / 8,
-                         s->matlen / 8, s->matlen / 8);
+        tcg_gen_gvec_mov(MO_64, mregs_ofs(s, a->md) + i * s->mrowlen / 8,
+                         mregs_ofs(s, a->ms1) + a->uimm3 * s->mrowlen / 8,
+                         s->mrowlen / 8, s->mrowlen / 8);
     }
     return true;
 }
 
-static bool trans_mmov_mx(DisasContext *s, arg_mmov_mx *a)
+static bool trans_mdup_m_x(DisasContext *s, arg_mm_dup *a)
 {
-    uint32_t rows = get_rows(s);
-    TCGv t = get_gpr(s, a->rs1, EXT_NONE);
+    uint32_t len = get_rows(s) * s->mrowlen / 8;
+    TCGv t = get_gpr(s, a->rs2, EXT_SIGN);
+    TCGv_i64 t_i64 = tcg_temp_new_i64();
+    tcg_gen_ext_tl_i64(t_i64, t);
 
     if (!require_matrix(s)) {
         return false;
     }
-    for (int i = 0; i < rows; i++) {
-        switch (s->xl) {
-        case MXL_RV32:
-            tcg_gen_gvec_dup_tl(MO_32, mregs_ofs(s, a->md) + i * s->matlen / 8,
-                                s->matlen / 8, s->matlen / 8, t);
-            break;
-        case MXL_RV64:
-            tcg_gen_gvec_dup_tl(MO_64, mregs_ofs(s, a->md) + i * s->matlen / 8,
-                                s->matlen / 8, s->matlen / 8, t);
-            break;
-        default:
-            g_assert_not_reached();
-        }
+    tcg_gen_gvec_dup_i64(a->mo, mregs_ofs(s, a->md), len, len, t_i64);
+    tcg_temp_free_i64(t_i64);
+    return true;
+}
+
+static void mm_store_element(TCGv_i64 val, TCGv_ptr base,
+                             int ofs, int sew)
+{
+    switch (sew) {
+    case MO_8:
+        tcg_gen_st8_i64(val, base, ofs);
+        break;
+    case MO_16:
+        tcg_gen_st16_i64(val, base, ofs);
+        break;
+    case MO_32:
+        tcg_gen_st32_i64(val, base, ofs);
+        break;
+    case MO_64:
+        tcg_gen_st_i64(val, base, ofs);
+        break;
+    default:
+        g_assert_not_reached();
+        break;
     }
+}
+
+static bool trans_mmov_m_x(DisasContext *s, arg_mm_mov *a)
+{
+    if (!require_matrix(s)) {
+        return false;
+    }
+    uint32_t len = get_rows(s) * s->mrowlen / 8;
+
+    TCGv src2 = get_gpr(s, a->rs2, EXT_SIGN);
+    TCGv_i64 val = tcg_temp_new_i64();
+    tcg_gen_ext_tl_i64(val, src2);
+
+    /* Get byte_index */
+    TCGv src1 = get_gpr(s, a->rs1, EXT_ZERO);
+    TCGv byte_index = temp_new(s);
+    tcg_gen_shli_tl(byte_index, src1, a->mo);
+    tcg_gen_rem_tl(byte_index, byte_index, tcg_constant_tl(len));
+    TCGv_i32 t_i32 = tcg_temp_new_i32();
+    TCGv_ptr t_ptr = tcg_temp_new_ptr();
+
+    /* Convert byte_index to pointer, thus it can be added to cpu_env */
+    tcg_gen_trunc_tl_i32(t_i32, byte_index);
+    tcg_gen_ext_i32_ptr(t_ptr, t_i32);
+    tcg_gen_add_ptr(t_ptr, cpu_env, t_ptr);
+
+    mm_store_element(val, t_ptr, mregs_ofs(s, a->md), a->mo);
+
+    tcg_temp_free_i64(val);
+    tcg_temp_free_i32(t_i32);
+    tcg_temp_free_ptr(t_ptr);
+    return true;
+}
+
+static void mm_load_element(TCGv_i64 dest, TCGv_ptr base,
+                            int ofs, int mo, bool sign)
+{
+    switch (mo) {
+    case MO_8:
+        if (!sign) {
+            tcg_gen_ld8u_i64(dest, base, ofs);
+        } else {
+            tcg_gen_ld8s_i64(dest, base, ofs);
+        }
+        break;
+    case MO_16:
+        if (!sign) {
+            tcg_gen_ld16u_i64(dest, base, ofs);
+        } else {
+            tcg_gen_ld16s_i64(dest, base, ofs);
+        }
+        break;
+    case MO_32:
+        if (!sign) {
+            tcg_gen_ld32u_i64(dest, base, ofs);
+        } else {
+            tcg_gen_ld32s_i64(dest, base, ofs);
+        }
+        break;
+    case MO_64:
+        tcg_gen_ld_i64(dest, base, ofs);
+        break;
+    default:
+        g_assert_not_reached();
+        break;
+    }
+}
+
+static bool trans_mmov_x_m(DisasContext *s, arg_mm_mxm *a)
+{
+    if (!require_matrix(s)) {
+        return false;
+    }
+    uint32_t len = get_rows(s) * s->mrowlen / 8;
+
+    TCGv_i64 t_i64 = tcg_temp_new_i64();
+    TCGv dest = dest_gpr(s, a->rd);
+
+    /* Get byte_index */
+    TCGv src1 = get_gpr(s, a->rs1, EXT_ZERO);
+    TCGv byte_index = temp_new(s);
+    tcg_gen_shli_tl(byte_index, src1, a->mo);
+    tcg_gen_rem_tl(byte_index, byte_index, tcg_constant_tl(len));
+    TCGv_i32 t_i32 = tcg_temp_new_i32();
+    TCGv_ptr t_ptr = tcg_temp_new_ptr();
+
+    /* Convert byte_index to pointer, thus it can be added to cpu_env */
+    tcg_gen_trunc_tl_i32(t_i32, byte_index);
+    tcg_gen_ext_i32_ptr(t_ptr, t_i32);
+    tcg_gen_add_ptr(t_ptr, cpu_env, t_ptr);
+
+    mm_load_element(t_i64, t_ptr, mregs_ofs(s, a->ms2), a->mo, true);
+
+    /* Covert signed i64 result to tl */
+    tcg_gen_trunc_i64_tl(dest, t_i64);
+    gen_set_gpr(s, a->rd, dest);
+
+    tcg_temp_free_i64(t_i64);
+    tcg_temp_free_i32(t_i32);
+    tcg_temp_free_ptr(t_ptr);
     return true;
 }
 
@@ -625,12 +733,12 @@ GEN_MMEXT_ST_TRANS(msst_d, mmext_check_ldst)
 /* whole matrix load/store translation */
 static bool mmext_check_ldm(DisasContext *s, arg_mm_ldm *a, uint8_t nf)
 {
-    return require_matrix(s) && (a->md % nf == 0) && mmext_check_mk(s);
+    return require_matrix(s) && (a->md % nf == 0);
 }
 
 static bool mmext_check_stm(DisasContext *s, arg_mm_stm *a, uint8_t nf)
 {
-    return require_matrix(s) && (a->ms3 % nf == 0) && mmext_check_mk(s);
+    return require_matrix(s) && (a->ms3 % nf == 0);
 }
 
 typedef void gen_helper_ldstm(TCGv_ptr, TCGv, TCGv_env);
@@ -710,3 +818,35 @@ GEN_MMEXT_STM_TRANS(mst1m_d, mmext_check_stm, 1)
 GEN_MMEXT_STM_TRANS(mst2m_d, mmext_check_stm, 2)
 GEN_MMEXT_STM_TRANS(mst4m_d, mmext_check_stm, 4)
 GEN_MMEXT_STM_TRANS(mst8m_d, mmext_check_stm, 8)
+
+static bool trans_mzero(DisasContext *s, arg_mm_rm *a)
+{
+    uint32_t len = get_rows(s) * s->mrowlen / 8;
+
+    if (!require_matrix(s)) {
+        return false;
+    }
+
+    tcg_gen_gvec_dup_imm(MO_64, mregs_ofs(s, a->md), len, len, 0);
+    return true;
+}
+
+static bool trans_mrelease(DisasContext *s, arg_mrelease *a)
+{
+    if (!require_matrix(s)) {
+        return false;
+    }
+
+#ifndef CONFIG_USER_ONLY
+    if (s->mcsr_ms == 1) {
+        return true;
+    }
+    s->mcsr_ms = 1;
+    TCGv tmp = tcg_temp_new();
+    tcg_gen_ld_tl(tmp, cpu_env, offsetof(CPURISCVState, mxstatus));
+    tcg_gen_deposit_tl(tmp, tmp, tcg_constant_tl(1), 0, 2);
+    tcg_gen_st_tl(tmp, cpu_env, offsetof(CPURISCVState, mxstatus));
+    tcg_temp_free(tmp);
+#endif
+    return true;
+}
