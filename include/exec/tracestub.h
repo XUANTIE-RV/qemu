@@ -187,7 +187,7 @@ struct csky_trace_filter {
     struct trace_data data_range[MAX_DATA_CMPR_NUM];
     uint32_t data_num;
     uint32_t cpuid;
-    char cpu[20];
+    char cpu[100];
 };
 
 
