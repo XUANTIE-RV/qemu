@@ -52,6 +52,8 @@ config RISCV_VIRT
     select SIFIVE_TEST
     select VIRTIO_MMIO
     select FW_CFG_DMA
+    select UPPER_IO_PLUGIN
+    select YQE_PLUGIN
 
 config SIFIVE_E
     bool
@@ -86,6 +88,8 @@ config SPIKE
     select MSI_NONBROKEN
     select SIFIVE_CLINT
     select SIFIVE_PLIC
+    select UPPER_IO_PLUGIN
+    select YQE_PLUGIN
 
 config RISCV_SMARTL
     bool
@@ -101,3 +105,5 @@ config RISCV_SMARTH
     select CSKY_TIMER
     select CSKY_UART
     select CSKY_EXIT
+    select UPPER_IO_PLUGIN
+    select YQE_PLUGIN

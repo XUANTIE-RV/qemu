@@ -1,3 +1,8 @@
+config UPPER_IO_PLUGIN
+    bool
+config YQE_PLUGIN
+    bool
+
 config APPLESMC
     bool
     depends on ISA_BUS
