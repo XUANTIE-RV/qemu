@@ -19,5 +19,6 @@ subdir('sh4')
 subdir('sparc')
 subdir('tricore')
 subdir('xtensa')
+subdir('csky')
 
 specific_ss.add(files('target-common.c'))

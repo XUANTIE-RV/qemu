@@ -114,6 +114,8 @@ float16 float16_squash_input_denormal(float16 a, float_status *status);
 float32 float32_squash_input_denormal(float32 a, float_status *status);
 float64 float64_squash_input_denormal(float64 a, float_status *status);
 bfloat16 bfloat16_squash_input_denormal(bfloat16 a, float_status *status);
+float8e4 float8e4_squash_input_denormal(float8e4 a, float_status *status);
+float8e5 float8e5_squash_input_denormal(float8e5 a, float_status *status);
 
 /*----------------------------------------------------------------------------
 | Options to indicate which negations to perform in float*_muladd()
@@ -549,6 +551,402 @@ static inline bool bfloat16_unordered_quiet(bfloat16 a, bfloat16 b,
 #define bfloat16_two 0x4000
 #define bfloat16_three 0x4040
 #define bfloat16_infinity 0x7f80
+
+/*----------------------------------------------------------------------------
+| Software float8e4 conversion routines.
+*----------------------------------------------------------------------------*/
+
+float8e4 float8e4_round_to_int(float8e4, float_status *status);
+float8e4 bfloat16_to_float8e4(bfloat16, float_status *status);
+bfloat16 float8e4_to_bfloat16(float8e4, float_status *status);
+float8e4 float16_to_float8e4(float16, float_status *status);
+float16 float8e4_to_float16(float8e4, float_status *status);
+float8e4 float32_to_float8e4(float32, float_status *status);
+float32 float8e4_to_float32(float8e4, float_status *status);
+float8e4 float64_to_float8e4(float64 a, float_status *status);
+float64 float8e4_to_float64(float8e4 a, float_status *status);
+
+int8_t float8e4_to_int8_scalbn(float8e4, FloatRoundMode,
+                               int, float_status *status);
+int16_t float8e4_to_int16_scalbn(float8e4, FloatRoundMode,
+                                 int, float_status *status);
+int32_t float8e4_to_int32_scalbn(float8e4, FloatRoundMode,
+                                 int, float_status *status);
+int64_t float8e4_to_int64_scalbn(float8e4, FloatRoundMode,
+                                 int, float_status *status);
+
+int8_t float8e4_to_int8(float8e4, float_status *status);
+int16_t float8e4_to_int16(float8e4, float_status *status);
+int32_t float8e4_to_int32(float8e4, float_status *status);
+int64_t float8e4_to_int64(float8e4, float_status *status);
+
+int8_t float8e4_to_int8_round_to_zero(float8e4, float_status *status);
+int16_t float8e4_to_int16_round_to_zero(float8e4, float_status *status);
+int32_t float8e4_to_int32_round_to_zero(float8e4, float_status *status);
+int64_t float8e4_to_int64_round_to_zero(float8e4, float_status *status);
+
+uint8_t float8e4_to_uint8_scalbn(float8e4 a, FloatRoundMode,
+                                 int, float_status *status);
+uint16_t float8e4_to_uint16_scalbn(float8e4 a, FloatRoundMode,
+                                   int, float_status *status);
+uint32_t float8e4_to_uint32_scalbn(float8e4 a, FloatRoundMode,
+                                   int, float_status *status);
+uint64_t float8e4_to_uint64_scalbn(float8e4 a, FloatRoundMode,
+                                   int, float_status *status);
+
+uint8_t float8e4_to_uint8(float8e4 a, float_status *status);
+uint16_t float8e4_to_uint16(float8e4 a, float_status *status);
+uint32_t float8e4_to_uint32(float8e4 a, float_status *status);
+uint64_t float8e4_to_uint64(float8e4 a, float_status *status);
+
+uint8_t float8e4_to_uint8_round_to_zero(float8e4 a, float_status *status);
+uint16_t float8e4_to_uint16_round_to_zero(float8e4 a, float_status *status);
+uint32_t float8e4_to_uint32_round_to_zero(float8e4 a, float_status *status);
+uint64_t float8e4_to_uint64_round_to_zero(float8e4 a, float_status *status);
+
+float8e4 int8_to_float8e4_scalbn(int8_t a, int, float_status *status);
+float8e4 int16_to_float8e4_scalbn(int16_t a, int, float_status *status);
+float8e4 int32_to_float8e4_scalbn(int32_t a, int, float_status *status);
+float8e4 int64_to_float8e4_scalbn(int64_t a, int, float_status *status);
+float8e4 uint8_to_float8e4_scalbn(uint8_t a, int, float_status *status);
+float8e4 uint16_to_float8e4_scalbn(uint16_t a, int, float_status *status);
+float8e4 uint32_to_float8e4_scalbn(uint32_t a, int, float_status *status);
+float8e4 uint64_to_float8e4_scalbn(uint64_t a, int, float_status *status);
+
+float8e4 int8_to_float8e4(int8_t a, float_status *status);
+float8e4 int16_to_float8e4(int16_t a, float_status *status);
+float8e4 int32_to_float8e4(int32_t a, float_status *status);
+float8e4 int64_to_float8e4(int64_t a, float_status *status);
+float8e4 uint8_to_float8e4(uint8_t a, float_status *status);
+float8e4 uint16_to_float8e4(uint16_t a, float_status *status);
+float8e4 uint32_to_float8e4(uint32_t a, float_status *status);
+float8e4 uint64_to_float8e4(uint64_t a, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software float8e4 operations.
+*----------------------------------------------------------------------------*/
+
+float8e4 float8e4_add(float8e4, float8e4, float_status *status);
+float8e4 float8e4_sub(float8e4, float8e4, float_status *status);
+float8e4 float8e4_mul(float8e4, float8e4, float_status *status);
+float8e4 float8e4_div(float8e4, float8e4, float_status *status);
+float8e4 float8e4_muladd(float8e4, float8e4, float8e4, int,
+                         float_status *status);
+float8e4 float8e4_scalbn(float8e4, int, float_status *status);
+float8e4 float8e4_min(float8e4, float8e4, float_status *status);
+float8e4 float8e4_max(float8e4, float8e4, float_status *status);
+float8e4 float8e4_minnum(float8e4, float8e4, float_status *status);
+float8e4 float8e4_maxnum(float8e4, float8e4, float_status *status);
+float8e4 float8e4_minnummag(float8e4, float8e4, float_status *status);
+float8e4 float8e4_maxnummag(float8e4, float8e4, float_status *status);
+float8e4 float8e4_minimum_number(float8e4, float8e4, float_status *status);
+float8e4 float8e4_maximum_number(float8e4, float8e4, float_status *status);
+float8e4 float8e4_sqrt(float8e4, float_status *status);
+FloatRelation float8e4_compare(float8e4, float8e4, float_status *status);
+FloatRelation float8e4_compare_quiet(float8e4, float8e4, float_status *status);
+
+bool float8e4_is_quiet_nan(float8e4, float_status *status);
+bool float8e4_is_signaling_nan(float8e4, float_status *status);
+float8e4 float8e4_silence_nan(float8e4, float_status *status);
+float8e4 float8e4_default_nan(float_status *status);
+
+static inline bool float8e4_is_any_nan(float8e4 a)
+{
+    return ((a & ~0x80) > 0x78);
+}
+
+static inline bool float8e4_is_neg(float8e4 a)
+{
+    return a >> 7;
+}
+
+static inline bool float8e4_is_infinity(float8e4 a)
+{
+    return (a & 0x7f) == 0x78;
+}
+
+static inline bool float8e4_is_zero(float8e4 a)
+{
+    return (a & 0x7f) == 0;
+}
+
+static inline bool float8e4_is_zero_or_denormal(float8e4 a)
+{
+    return (a & 0x78) == 0;
+}
+
+static inline bool float8e4_is_normal(float8e4 a)
+{
+    return (((a >> 3) + 1) & 0xf) >= 2;
+}
+
+static inline float8e4 float8e4_abs(float8e4 a)
+{
+    /* Note that abs does *not* handle NaN specially, nor does
+     * it flush denormal inputs to zero.
+     */
+    return a & 0x7f;
+}
+
+static inline float8e4 float8e4_chs(float8e4 a)
+{
+    /* Note that chs does *not* handle NaN specially, nor does
+     * it flush denormal inputs to zero.
+     */
+    return a ^ 0x80;
+}
+
+static inline float8e4 float8e4_set_sign(float8e4 a, int sign)
+{
+    return (a & 0x7f) | (sign << 7);
+}
+
+static inline bool float8e4_eq(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare(a, b, s) == float_relation_equal;
+}
+
+static inline bool float8e4_le(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float8e4_lt(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare(a, b, s) < float_relation_equal;
+}
+
+static inline bool float8e4_unordered(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare(a, b, s) == float_relation_unordered;
+}
+
+static inline bool float8e4_eq_quiet(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare_quiet(a, b, s) == float_relation_equal;
+}
+
+static inline bool float8e4_le_quiet(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare_quiet(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float8e4_lt_quiet(float8e4 a, float8e4 b, float_status *s)
+{
+    return float8e4_compare_quiet(a, b, s) < float_relation_equal;
+}
+
+static inline bool float8e4_unordered_quiet(float8e4 a, float8e4 b,
+                                           float_status *s)
+{
+    return float8e4_compare_quiet(a, b, s) == float_relation_unordered;
+}
+
+#define float8e4_zero 0
+#define float8e4_half 0x30
+#define float8e4_one 0x38
+#define float8e4_one_point_five 0x3c
+#define float8e4_two 0x40
+#define float8e4_three 0x44
+#define float8e4_infinity 0x78
+
+/*----------------------------------------------------------------------------
+| Software float8e5 conversion routines.
+*----------------------------------------------------------------------------*/
+
+float8e5 float8e5_round_to_int(float8e5, float_status *status);
+float8e5 bfloat16_to_float8e5(bfloat16, float_status *status);
+bfloat16 float8e5_to_bfloat16(float8e5, float_status *status);
+float8e5 float16_to_float8e5(float16, float_status *status);
+float16 float8e5_to_float16(float8e5, float_status *status);
+float8e5 float32_to_float8e5(float32, float_status *status);
+float32 float8e5_to_float32(float8e5, float_status *status);
+float8e5 float64_to_float8e5(float64 a, float_status *status);
+float64 float8e5_to_float64(float8e5 a, float_status *status);
+
+int8_t float8e5_to_int8_scalbn(float8e5, FloatRoundMode,
+                               int, float_status *status);
+int16_t float8e5_to_int16_scalbn(float8e5, FloatRoundMode,
+                                 int, float_status *status);
+int32_t float8e5_to_int32_scalbn(float8e5, FloatRoundMode,
+                                 int, float_status *status);
+int64_t float8e5_to_int64_scalbn(float8e5, FloatRoundMode,
+                                 int, float_status *status);
+
+int8_t float8e5_to_int8(float8e5, float_status *status);
+int16_t float8e5_to_int16(float8e5, float_status *status);
+int32_t float8e5_to_int32(float8e5, float_status *status);
+int64_t float8e5_to_int64(float8e5, float_status *status);
+
+int8_t float8e5_to_int8_round_to_zero(float8e5, float_status *status);
+int16_t float8e5_to_int16_round_to_zero(float8e5, float_status *status);
+int32_t float8e5_to_int32_round_to_zero(float8e5, float_status *status);
+int64_t float8e5_to_int64_round_to_zero(float8e5, float_status *status);
+
+uint8_t float8e5_to_uint8_scalbn(float8e5 a, FloatRoundMode,
+                                 int, float_status *status);
+uint16_t float8e5_to_uint16_scalbn(float8e5 a, FloatRoundMode,
+                                   int, float_status *status);
+uint32_t float8e5_to_uint32_scalbn(float8e5 a, FloatRoundMode,
+                                   int, float_status *status);
+uint64_t float8e5_to_uint64_scalbn(float8e5 a, FloatRoundMode,
+                                   int, float_status *status);
+
+uint8_t float8e5_to_uint8(float8e5 a, float_status *status);
+uint16_t float8e5_to_uint16(float8e5 a, float_status *status);
+uint32_t float8e5_to_uint32(float8e5 a, float_status *status);
+uint64_t float8e5_to_uint64(float8e5 a, float_status *status);
+
+uint8_t float8e5_to_uint8_round_to_zero(float8e5 a, float_status *status);
+uint16_t float8e5_to_uint16_round_to_zero(float8e5 a, float_status *status);
+uint32_t float8e5_to_uint32_round_to_zero(float8e5 a, float_status *status);
+uint64_t float8e5_to_uint64_round_to_zero(float8e5 a, float_status *status);
+
+float8e5 int8_to_float8e5_scalbn(int8_t a, int, float_status *status);
+float8e5 int16_to_float8e5_scalbn(int16_t a, int, float_status *status);
+float8e5 int32_to_float8e5_scalbn(int32_t a, int, float_status *status);
+float8e5 int64_to_float8e5_scalbn(int64_t a, int, float_status *status);
+float8e5 uint8_to_float8e5_scalbn(uint8_t a, int, float_status *status);
+float8e5 uint16_to_float8e5_scalbn(uint16_t a, int, float_status *status);
+float8e5 uint32_to_float8e5_scalbn(uint32_t a, int, float_status *status);
+float8e5 uint64_to_float8e5_scalbn(uint64_t a, int, float_status *status);
+
+float8e5 int8_to_float8e5(int8_t a, float_status *status);
+float8e5 int16_to_float8e5(int16_t a, float_status *status);
+float8e5 int32_to_float8e5(int32_t a, float_status *status);
+float8e5 int64_to_float8e5(int64_t a, float_status *status);
+float8e5 uint8_to_float8e5(uint8_t a, float_status *status);
+float8e5 uint16_to_float8e5(uint16_t a, float_status *status);
+float8e5 uint32_to_float8e5(uint32_t a, float_status *status);
+float8e5 uint64_to_float8e5(uint64_t a, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software float8e5 operations.
+*----------------------------------------------------------------------------*/
+
+float8e5 float8e5_add(float8e5, float8e5, float_status *status);
+float8e5 float8e5_sub(float8e5, float8e5, float_status *status);
+float8e5 float8e5_mul(float8e5, float8e5, float_status *status);
+float8e5 float8e5_div(float8e5, float8e5, float_status *status);
+float8e5 float8e5_muladd(float8e5, float8e5, float8e5, int,
+                         float_status *status);
+float8e5 float8e5_scalbn(float8e5, int, float_status *status);
+float8e5 float8e5_min(float8e5, float8e5, float_status *status);
+float8e5 float8e5_max(float8e5, float8e5, float_status *status);
+float8e5 float8e5_minnum(float8e5, float8e5, float_status *status);
+float8e5 float8e5_maxnum(float8e5, float8e5, float_status *status);
+float8e5 float8e5_minnummag(float8e5, float8e5, float_status *status);
+float8e5 float8e5_maxnummag(float8e5, float8e5, float_status *status);
+float8e5 float8e5_minimum_number(float8e5, float8e5, float_status *status);
+float8e5 float8e5_maximum_number(float8e5, float8e5, float_status *status);
+float8e5 float8e5_sqrt(float8e5, float_status *status);
+FloatRelation float8e5_compare(float8e5, float8e5, float_status *status);
+FloatRelation float8e5_compare_quiet(float8e5, float8e5, float_status *status);
+
+bool float8e5_is_quiet_nan(float8e5, float_status *status);
+bool float8e5_is_signaling_nan(float8e5, float_status *status);
+float8e5 float8e5_silence_nan(float8e5, float_status *status);
+float8e5 float8e5_default_nan(float_status *status);
+
+static inline bool float8e5_is_any_nan(float8e5 a)
+{
+    return ((a & ~0x80) > 0x7c);
+}
+
+static inline bool float8e5_is_neg(float8e5 a)
+{
+    return a >> 7;
+}
+
+static inline bool float8e5_is_infinity(float8e5 a)
+{
+    return (a & 0x7f) == 0x7c;
+}
+
+static inline bool float8e5_is_zero(float8e5 a)
+{
+    return (a & 0x7f) == 0;
+}
+
+static inline bool float8e5_is_zero_or_denormal(float8e5 a)
+{
+    return (a & 0x7c) == 0;
+}
+
+static inline bool float8e5_is_normal(float8e5 a)
+{
+    return (((a >> 2) + 1) & 0x1f) >= 2;
+}
+
+static inline float8e5 float8e5_abs(float8e5 a)
+{
+    /* Note that abs does *not* handle NaN specially, nor does
+     * it flush denormal inputs to zero.
+     */
+    return a & 0x7f;
+}
+
+static inline float8e5 float8e5_chs(float8e5 a)
+{
+    /* Note that chs does *not* handle NaN specially, nor does
+     * it flush denormal inputs to zero.
+     */
+    return a ^ 0x80;
+}
+
+static inline float8e5 float8e5_set_sign(float8e5 a, int sign)
+{
+    return (a & 0x7f) | (sign << 7);
+}
+
+static inline bool float8e5_eq(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare(a, b, s) == float_relation_equal;
+}
+
+static inline bool float8e5_le(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float8e5_lt(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare(a, b, s) < float_relation_equal;
+}
+
+static inline bool float8e5_unordered(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare(a, b, s) == float_relation_unordered;
+}
+
+static inline bool float8e5_eq_quiet(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare_quiet(a, b, s) == float_relation_equal;
+}
+
+static inline bool float8e5_le_quiet(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare_quiet(a, b, s) <= float_relation_equal;
+}
+
+static inline bool float8e5_lt_quiet(float8e5 a, float8e5 b, float_status *s)
+{
+    return float8e5_compare_quiet(a, b, s) < float_relation_equal;
+}
+
+static inline bool float8e5_unordered_quiet(float8e5 a, float8e5 b,
+                                           float_status *s)
+{
+    return float8e5_compare_quiet(a, b, s) == float_relation_unordered;
+}
+
+#define float8e5_zero 0
+#define float8e5_half 0x38
+#define float8e5_one 0x3c
+#define float8e5_one_point_five 0x3e
+#define float8e5_two 0x40
+#define float8e5_three 0x42
+#define float8e5_infinity 0x7c
 
 /*----------------------------------------------------------------------------
 | The pattern for a default generated half-precision NaN.

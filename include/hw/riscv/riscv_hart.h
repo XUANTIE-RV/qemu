@@ -39,6 +39,8 @@ struct RISCVHartArrayState {
     char *cpu_type;
     uint64_t resetvec;
     RISCVCPU *harts;
+    /* extend by Xuantie for xiaohui platform */
+    bool cpu_off;
 };
 
 #endif

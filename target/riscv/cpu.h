@@ -32,10 +32,12 @@
 #include "cpu_cfg.h"
 #include "qapi/qapi-types-common.h"
 #include "cpu-qom.h"
+#include "exec/pctrace.h"
 
 typedef struct CPUArchState CPURISCVState;
 
 #define CPU_RESOLVING_TYPE TYPE_RISCV_CPU
+#define CPU_INTERRUPT_CLIC CPU_INTERRUPT_TGT_EXT_0
 
 #if defined(TARGET_RISCV32)
 # define TYPE_RISCV_CPU_BASE            TYPE_RISCV_CPU_BASE32
@@ -68,9 +70,9 @@ typedef struct CPUArchState CPURISCVState;
 #define RVS RV('S')
 #define RVU RV('U')
 #define RVH RV('H')
-#define RVJ RV('J')
 #define RVG RV('G')
 #define RVB RV('B')
+#define RVP RV('P')
 
 extern const uint32_t misa_bits[];
 const char *riscv_get_misa_ext_name(uint32_t bit);
@@ -98,22 +100,27 @@ extern RISCVCPUProfile *riscv_profiles[];
 #define PRIV_VER_1_10_0_STR "v1.10.0"
 #define PRIV_VER_1_11_0_STR "v1.11.0"
 #define PRIV_VER_1_12_0_STR "v1.12.0"
+#define PRIV_VER_1_13_0_STR "v1.13.0"
 enum {
     PRIV_VERSION_1_10_0 = 0,
     PRIV_VERSION_1_11_0,
     PRIV_VERSION_1_12_0,
+    PRIV_VERSION_1_13_0,
 
-    PRIV_VERSION_LATEST = PRIV_VERSION_1_12_0,
+    PRIV_VERSION_LATEST = PRIV_VERSION_1_13_0,
 };
 
 #define VEXT_VERSION_1_00_0 0x00010000
 #define VEXT_VER_1_00_0_STR "v1.0"
+#define PEXT_VERSION_0_09_4 0x00000904
+#define PEXT_VER_0_09_4_STR "v0.9.4"
 
 enum {
     TRANSLATE_SUCCESS,
     TRANSLATE_FAIL,
     TRANSLATE_PMP_FAIL,
-    TRANSLATE_G_STAGE_FAIL
+    TRANSLATE_G_STAGE_FAIL,
+    TRANSLATE_MTT_FAIL
 };
 
 /* Extension context status */
@@ -124,6 +131,14 @@ typedef enum {
     EXT_STATUS_DIRTY,
 } RISCVExtStatus;
 
+/* Enum holds PMM field values for Zjpm v0.8 extension */
+typedef enum {
+    PMM_FIELD_DISABLED = 0,
+    PMM_FIELD_RESERVED = 1,
+    PMM_FIELD_PMLEN7   = 2,
+    PMM_FIELD_PMLEN16  = 3,
+} RISCVPmPmm;
+
 #define MMU_USER_IDX 3
 
 #define MAX_RISCV_PMPS (16)
@@ -131,6 +146,7 @@ typedef enum {
 #if !defined(CONFIG_USER_ONLY)
 #include "pmp.h"
 #include "debug.h"
+#include "mtt.h"
 #endif
 
 #define RV_VLEN_MAX 1024
@@ -144,6 +160,22 @@ FIELD(VTYPE, VMA, 7, 1)
 FIELD(VTYPE, VEDIV, 8, 2)
 FIELD(VTYPE, RESERVED, 10, sizeof(target_ulong) * 8 - 11)
 
+FIELD(MSIZE, SIZEM, 0, 8)
+FIELD(MSIZE, SIZEN, 8, 8)
+FIELD(MSIZE, SIZEK, 16, 16)
+
+#define RV_RLEN_MAX 4096
+#define RV_MACC_LEN 32
+
+#define LP_EXPECTED true
+#define NO_LP_EXPECTED false
+
+/* See the commentary above the TBFLAG field definitions.  */
+typedef struct CPURISCVTBFlags {
+    uint32_t flags;
+    target_ulong flags2;
+} CPURISCVTBFlags;
+
 typedef struct PMUCTRState {
     /* Current value of a counter */
     target_ulong mhpmcounter_val;
@@ -153,10 +185,18 @@ typedef struct PMUCTRState {
     target_ulong mhpmcounter_prev;
     /* Snapshort value of a counter in RV32 */
     target_ulong mhpmcounterh_prev;
-    bool started;
     /* Value beyond UINT32_MAX/UINT64_MAX before overflow interrupt trigger */
     target_ulong irq_overflow_left;
 } PMUCTRState;
+
+typedef struct PMUFixedCtrState {
+        /* Track cycle and icount for each privilege mode */
+        uint64_t counter[4];
+        uint64_t counter_prev[4];
+        /* Track cycle and icount for each privilege mode when V = 1*/
+        uint64_t counter_virt[2];
+        uint64_t counter_virt_prev[2];
+} PMUFixedCtrState;
 
 struct CPUArchState {
     target_ulong gpr[32];
@@ -180,6 +220,18 @@ struct CPUArchState {
     target_ulong frm;
     float_status fp_status;
 
+    /* matrix state */
+    target_ulong mrstart;
+    target_ulong mcsr;
+    target_ulong mxsat;
+    target_ulong mxrm;
+    float_status mfp_status;
+    target_ulong xmisa;
+    uint64_t mreg[8 * RV_RLEN_MAX / RV_MACC_LEN  * RV_RLEN_MAX / 64] QEMU_ALIGNED(16);
+    target_ulong sizem;
+    target_ulong sizen;
+    target_ulong sizek;
+
     target_ulong badaddr;
     target_ulong bins;
 
@@ -187,6 +239,7 @@ struct CPUArchState {
 
     target_ulong priv_ver;
     target_ulong vext_ver;
+    target_ulong pext_ver;
 
     /* RISCVMXL, but uint32_t for vmstate migration */
     uint32_t misa_mxl;      /* current mxl */
@@ -256,6 +309,15 @@ struct CPUArchState {
     target_ulong mepc;
     target_ulong mcause;
     target_ulong mtval;  /* since: priv-1.10.0 */
+
+    uint64_t mctrctl;
+    uint32_t sctrdepth;
+    uint32_t sctrstatus;
+    uint64_t vsctrctl;
+
+    uint64_t ctr_src[16 << SCTRDEPTH_MAX];
+    uint64_t ctr_dst[16 << SCTRDEPTH_MAX];
+    uint64_t ctr_data[16 << SCTRDEPTH_MAX];
 
     /* Machine and Supervisor interrupt priorities */
     uint8_t miprio[64];
@@ -337,7 +399,14 @@ struct CPUArchState {
     uint32_t scounteren;
     uint32_t mcounteren;
 
+    uint32_t scountinhibit;
     uint32_t mcountinhibit;
+
+    /* PMU cycle & instret privilege mode filtering */
+    target_ulong mcyclecfg;
+    target_ulong mcyclecfgh;
+    target_ulong minstretcfg;
+    target_ulong minstretcfgh;
 
     /* PMU counter state */
     PMUCTRState pmu_ctrs[RV_MAX_MHPMCOUNTERS];
@@ -347,6 +416,8 @@ struct CPUArchState {
 
     /* PMU event selector configured values for RV32 */
     target_ulong mhpmeventh_val[RV_MAX_MHPMEVENTS];
+
+    PMUFixedCtrState pmu_fixed_ctrs[2];
 
     target_ulong sscratch;
     target_ulong mscratch;
@@ -358,7 +429,7 @@ struct CPUArchState {
 
     /* physical memory protection */
     pmp_table_t pmp_state;
-    target_ulong mseccfg;
+    uint64_t mseccfg;
 
     /* trigger module */
     target_ulong trigger_cur;
@@ -395,17 +466,6 @@ struct CPUArchState {
     /* True if in debugger mode.  */
     bool debugger;
 
-    /*
-     * CSRs for PointerMasking extension
-     */
-    target_ulong mmte;
-    target_ulong mpmmask;
-    target_ulong mpmbase;
-    target_ulong spmmask;
-    target_ulong spmbase;
-    target_ulong upmmask;
-    target_ulong upmbase;
-
     /* CSRs for execution environment configuration */
     uint64_t menvcfg;
     uint64_t mstateen[SMSTATEEN_MAX_COUNT];
@@ -413,9 +473,82 @@ struct CPUArchState {
     uint64_t sstateen[SMSTATEEN_MAX_COUNT];
     target_ulong senvcfg;
     uint64_t henvcfg;
+
+    /* Xuantie system mode extends */
+    uint64_t mxstatus;
+    uint64_t mrmr;
+    uint64_t mrvbr;
+    uint64_t cpuid;
+    uint64_t sxstatus;
+    uint64_t smcir;
+    uint64_t smir;
+    uint64_t smlo0;
+    uint64_t smeh;
+    uint64_t mexstatus;
+    CPURISCVState *next_cpu;
+    bool     in_reset;
+    bool     clint_clic;
+    target_ulong excp_vld;
+
+    /* tcm */
+    MemoryRegion *dtcm;
+    MemoryRegion *itcm;
+    target_ulong mdtcmcr;
+    target_ulong mitcmcr;
+
+    /* CLIC */
+    uint32_t mintstatus;
+    target_ulong mintthresh;
+    target_ulong sintthresh;
+    target_ulong mclicbase; /* clic-spec */
+    target_ulong stvt;
+    target_ulong mtvt; /* base address of the trap vector table */
+
+    /* Smsdid */
+    uint32_t mttmode;
+    uint32_t sdid;
+    uint64_t mttppn;
+    uint32_t msdcfg;
+
+    /* Zicfiss */
+    target_ulong ssp; /* Shadow Stack Pointer */
+    target_ulong cfi_violation_code;
+    bool elp;
+
 #endif
-    target_ulong cur_pmmask;
-    target_ulong cur_pmbase;
+    /* Xuantie extends */
+    bool bf16;
+    uint64_t elf_start;
+    uint32_t pctrace;
+    uint32_t tb_trace;
+    struct {
+        uint32_t tcr;
+        uint32_t ter;
+        uint32_t tsr;
+        uint32_t cyc;
+        uint32_t sync;
+        uint32_t hw_trgr;
+        uint32_t addr_cmpr_config[2];
+        uint32_t addr_cmpr[2];
+        uint32_t asid;
+        uint32_t data_cmpr_config[2];
+        uint32_t data_cmpr[2];
+        uint32_t channel;
+        uint32_t data;
+        uint32_t status;
+    } cp13;
+    target_ulong last_pc;
+#ifdef TARGET_RISCV64
+    uint64_t jcount_enable;
+    uint64_t jcount_start;
+    uint64_t jcount_end;
+#else
+    uint32_t jcount_enable;
+    uint32_t jcount_start;
+    uint32_t jcount_end;
+#endif
+    struct csky_trace_info *trace_info;
+    uint32_t trace_index;
 
     /* Fields from here on are preserved across CPU reset. */
     QEMUTimer *stimer; /* Internal timer for S-mode interrupt */
@@ -425,6 +558,9 @@ struct CPUArchState {
     hwaddr kernel_addr;
     hwaddr fdt_addr;
 
+    /* CLIC */
+    void *clic;
+    uint32_t exccode; /* clic irq encode */
 #ifdef CONFIG_KVM
     /* kvm timer */
     bool kvm_timer_dirty;
@@ -435,6 +571,10 @@ struct CPUArchState {
 #endif /* CONFIG_KVM */
 };
 
+typedef enum XTPowerState {
+    XT_POWER_ON = 0,
+    XT_POWER_OFF,
+} XTPowerState;
 /*
  * RISCVCPU:
  * @env: #CPURISCVState
@@ -448,6 +588,7 @@ struct ArchCPU {
 
     GDBFeature dyn_csr_feature;
     GDBFeature dyn_vreg_feature;
+    GDBFeature dyn_mreg_feature;
 
     /* Configuration Settings */
     RISCVCPUConfig cfg;
@@ -457,6 +598,9 @@ struct ArchCPU {
     uint32_t pmu_avail_ctrs;
     /* Mapping of events to counters */
     GHashTable *pmu_event_ctr_map;
+    const GPtrArray *decoders;
+    /* extended by Xuantie for xiaohui platform */
+    XTPowerState power_state;
 };
 
 /**
@@ -472,6 +616,8 @@ struct RISCVCPUClass {
     DeviceRealize parent_realize;
     ResettablePhases parent_phases;
     uint32_t misa_mxl_max;  /* max mxl for this cpu */
+    uint64_t mrvbr;
+    uint64_t mrmr;
 };
 
 static inline int riscv_has_ext(CPURISCVState *env, target_ulong ext)
@@ -485,7 +631,7 @@ extern const char * const riscv_int_regnames[];
 extern const char * const riscv_int_regnamesh[];
 extern const char * const riscv_fpr_regnames[];
 
-const char *riscv_cpu_get_trap_name(target_ulong cause, bool async);
+const char *riscv_cpu_get_trap_name(target_ulong cause, bool async, bool clic);
 void riscv_cpu_do_interrupt(CPUState *cpu);
 int riscv_cpu_write_elf64_note(WriteCoreDumpFunction f, CPUState *cs,
                                int cpuid, DumpState *s);
@@ -503,8 +649,11 @@ bool riscv_cpu_fp_enabled(CPURISCVState *env);
 target_ulong riscv_cpu_get_geilen(CPURISCVState *env);
 void riscv_cpu_set_geilen(CPURISCVState *env, target_ulong geilen);
 bool riscv_cpu_vector_enabled(CPURISCVState *env);
+bool riscv_cpu_matrix_enabled(CPURISCVState *env);
 void riscv_cpu_set_virt_enabled(CPURISCVState *env, bool enable);
 int riscv_env_mmu_index(CPURISCVState *env, bool ifetch);
+bool riscv_cpu_get_xsse(CPURISCVState *env);
+bool riscv_cpu_get_xlpe(CPURISCVState *env);
 G_NORETURN void  riscv_cpu_do_unaligned_access(CPUState *cs, vaddr addr,
                                                MMUAccessType access_type,
                                                int mmu_idx, uintptr_t retaddr);
@@ -516,6 +665,7 @@ int riscv_cpu_max_xlen(RISCVCPUClass *mcc);
 bool riscv_cpu_option_set(const char *optname);
 
 #ifndef CONFIG_USER_ONLY
+bool riscv_env_smode_dbltrp_enabled(CPURISCVState *env);
 void riscv_isa_write_fdt(RISCVCPU *cpu, void *fdt, char *nodename);
 void riscv_cpu_do_transaction_failed(CPUState *cs, hwaddr physaddr,
                                      vaddr addr, unsigned size,
@@ -528,6 +678,7 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env);
 int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint64_t interrupts);
 uint64_t riscv_cpu_update_mip(CPURISCVState *env, uint64_t mask,
                               uint64_t value);
+bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, int mode);
 void riscv_cpu_interrupt(CPURISCVState *env);
 #define BOOL_TO_MASK(x) (-!!(x)) /* helper for riscv_cpu_update_mip value */
 void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(void *),
@@ -542,7 +693,12 @@ void riscv_cpu_set_aia_ireg_rmw_fn(CPURISCVState *env, uint32_t priv,
 
 RISCVException smstateen_acc_ok(CPURISCVState *env, int index, uint64_t bit);
 #endif
-void riscv_cpu_set_mode(CPURISCVState *env, target_ulong newpriv);
+void riscv_cpu_set_mode(CPURISCVState *env, target_ulong newpriv, bool virt_en);
+
+void riscv_ctr_freeze(CPURISCVState *env, uint64_t freeze_mask);
+void riscv_ctr_add_entry(CPURISCVState *env, target_long src, target_long dst,
+                         uint64_t type, target_ulong prev_priv, bool prev_virt);
+void riscv_ctr_clear(CPURISCVState *env);
 
 void riscv_translate_init(void);
 G_NORETURN void riscv_raise_exception(CPURISCVState *env,
@@ -551,30 +707,68 @@ G_NORETURN void riscv_raise_exception(CPURISCVState *env,
 target_ulong riscv_cpu_get_fflags(CPURISCVState *env);
 void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
 
+target_ulong riscv_cpu_get_mfflags(CPURISCVState *env);
+void riscv_cpu_set_mfflags(CPURISCVState *env, target_ulong);
+void riscv_cpu_set_mfrm(CPURISCVState *env, uint32_t);
+
 #include "exec/cpu-all.h"
 
-FIELD(TB_FLAGS, MEM_IDX, 0, 3)
-FIELD(TB_FLAGS, FS, 3, 2)
+FIELD(TB_FLAGS_ANY, MEM_IDX, 0, 3)
+FIELD(TB_FLAGS_ANY, FS, 3, 2)
 /* Vector flags */
-FIELD(TB_FLAGS, VS, 5, 2)
-FIELD(TB_FLAGS, LMUL, 7, 3)
-FIELD(TB_FLAGS, SEW, 10, 3)
-FIELD(TB_FLAGS, VL_EQ_VLMAX, 13, 1)
-FIELD(TB_FLAGS, VILL, 14, 1)
-FIELD(TB_FLAGS, VSTART_EQ_ZERO, 15, 1)
+FIELD(TB_FLAGS_ANY, VS, 5, 2)
+FIELD(TB_FLAGS_ANY, LMUL, 7, 3)
+FIELD(TB_FLAGS_ANY, SEW, 10, 3)
+FIELD(TB_FLAGS_ANY, VL_EQ_VLMAX, 13, 1)
+FIELD(TB_FLAGS_ANY, VILL, 14, 1)
+FIELD(TB_FLAGS_ANY, VSTART_EQ_ZERO, 15, 1)
 /* The combination of MXL/SXL/UXL that applies to the current cpu mode. */
-FIELD(TB_FLAGS, XL, 16, 2)
-/* If PointerMasking should be applied */
-FIELD(TB_FLAGS, PM_MASK_ENABLED, 18, 1)
-FIELD(TB_FLAGS, PM_BASE_ENABLED, 19, 1)
-FIELD(TB_FLAGS, VTA, 20, 1)
-FIELD(TB_FLAGS, VMA, 21, 1)
-/* Native debug itrigger */
-FIELD(TB_FLAGS, ITRIGGER, 22, 1)
-/* Virtual mode enabled */
-FIELD(TB_FLAGS, VIRT_ENABLED, 23, 1)
-FIELD(TB_FLAGS, PRIV, 24, 2)
-FIELD(TB_FLAGS, AXL, 26, 2)
+FIELD(TB_FLAGS_ANY, XL, 16, 2)
+FIELD(TB_FLAGS_ANY, VTA, 18, 1)
+FIELD(TB_FLAGS_ANY, VMA, 19, 1)
+FIELD(TB_FLAGS_ANY, ITRIGGER, 20, 1)
+FIELD(TB_FLAGS_ANY, VIRT_ENABLED, 21, 1)
+FIELD(TB_FLAGS_ANY, PRIV, 22, 2)
+FIELD(TB_FLAGS_ANY, AXL, 24, 2)
+/* If pointer masking should be applied and address sign extended */
+FIELD(TB_FLAGS_ANY, PM_PMM, 26, 2)
+FIELD(TB_FLAGS_ANY, PM_SIGNEXTEND, 28, 1)
+FIELD(TB_FLAGS_ANY, XSSE, 29, 1)
+
+/* matrix flags*/
+FIELD(TB_FLAGS_THEAD, PWFP, 0, 1)
+FIELD(TB_FLAGS_THEAD, PWINT, 1, 1)
+FIELD(TB_FLAGS_THEAD, I4I32, 2, 1)
+FIELD(TB_FLAGS_THEAD, I8I32, 3, 1)
+FIELD(TB_FLAGS_THEAD, I16I64, 4, 1)
+FIELD(TB_FLAGS_THEAD, F16F16, 5, 1)
+FIELD(TB_FLAGS_THEAD, F32F32, 6, 1)
+FIELD(TB_FLAGS_THEAD, F64F64, 7, 1)
+FIELD(TB_FLAGS_THEAD, MS, 8, 2)
+FIELD(TB_FLAGS_THEAD, MILL, 10, 1)
+FIELD(TB_FLAGS_THEAD, NILL, 11, 1)
+FIELD(TB_FLAGS_THEAD, KILL, 12, 1)
+FIELD(TB_FLAGS_THEAD, NPILL, 13, 1)
+FIELD(TB_FLAGS_THEAD, F16F32, 14, 1)
+FIELD(TB_FLAGS_THEAD, F32F64, 15, 1)
+FIELD(TB_FLAGS_THEAD, BF16, 20, 1)
+FIELD(TB_FLAGS_THEAD, MSD, 21, 1)
+FIELD(TB_FLAGS_THEAD, SPARSITYFP, 22, 1)
+FIELD(TB_FLAGS_THEAD, SPARSITYINT, 23, 1)
+FIELD(TB_FLAGS_THEAD, FPINTCVT, 24, 1)
+FIELD(TB_FLAGS_THEAD, F8F32, 25, 1)
+FIELD(TB_FLAGS_THEAD, F8F16, 26, 1)
+
+/*
+ * Helpers for using the above.
+ */
+#define DP_TBFLAGS_ANY(DST, WHICH, VAL) \
+    (DST.flags = FIELD_DP32(DST.flags, TB_FLAGS_ANY, WHICH, VAL))
+#define DP_TBFLAGS_THEAD(DST, WHICH, VAL) \
+    (DST.flags2 = FIELD_DP32(DST.flags2, TB_FLAGS_THEAD, WHICH, VAL))
+
+#define EX_TBFLAGS_ANY(IN, WHICH)   FIELD_EX32(IN.flags, TB_FLAGS_ANY, WHICH)
+#define EX_TBFLAGS_THEAD(IN, WHICH) FIELD_EX32(IN.flags2, TB_FLAGS_THEAD, WHICH)
 
 #ifdef TARGET_RISCV32
 #define riscv_cpu_mxl(env)  ((void)(env), MXL_RV32)
@@ -707,8 +901,14 @@ static inline uint32_t vext_get_vlmax(uint32_t vlenb, uint32_t vsew,
 void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
                           uint64_t *cs_base, uint32_t *pflags);
 
-void riscv_cpu_update_mask(CPURISCVState *env);
 bool riscv_cpu_is_32bit(RISCVCPU *cpu);
+
+bool riscv_cpu_virt_mem_enabled(CPURISCVState *env);
+RISCVPmPmm riscv_pm_get_pmm(CPURISCVState *env);
+int riscv_pm_get_pmlen(RISCVPmPmm pmm);
+
+RISCVException riscv_csrr(CPURISCVState *env, int csrno,
+                          target_ulong *ret_value);
 
 RISCVException riscv_csrrw(CPURISCVState *env, int csrno,
                            target_ulong *ret_value,
@@ -742,6 +942,8 @@ typedef RISCVException (*riscv_csr_op_fn)(CPURISCVState *env, int csrno,
                                           target_ulong new_value,
                                           target_ulong write_mask);
 
+RISCVException riscv_csrr_i128(CPURISCVState *env, int csrno,
+                               Int128 *ret_value);
 RISCVException riscv_csrrw_i128(CPURISCVState *env, int csrno,
                                 Int128 *ret_value,
                                 Int128 new_value, Int128 write_mask);
@@ -812,6 +1014,43 @@ void riscv_add_satp_mode_properties(Object *obj);
 bool riscv_cpu_accelerator_compatible(RISCVCPU *cpu);
 
 /* CSR function table */
+RISCVException fs(CPURISCVState *env, int csrno);
+RISCVException vs(CPURISCVState *env, int csrno);
+RISCVException any(CPURISCVState *env, int csrno);
+RISCVException smode(CPURISCVState *env, int csrno);
+RISCVException clic(CPURISCVState *env, int csrno);
+RISCVException read_fcsr(CPURISCVState *env, int csrno,
+                         target_ulong *val);
+RISCVException write_fcsr(CPURISCVState *env, int csrno,
+                          target_ulong val);
+RISCVException read_vtype(CPURISCVState *env, int csrno,
+                          target_ulong *val);
+RISCVException read_vl(CPURISCVState *env, int csrno,
+                       target_ulong *val);
+RISCVException read_vlenb(CPURISCVState *env, int csrno,
+                          target_ulong *val);
+RISCVException read_vxrm(CPURISCVState *env, int csrno,
+                         target_ulong *val);
+RISCVException write_vxrm(CPURISCVState *env, int csrno,
+                          target_ulong val);
+RISCVException read_vxsat(CPURISCVState *env, int csrno,
+                          target_ulong *val);
+RISCVException write_vxsat(CPURISCVState *env, int csrno,
+                           target_ulong val);
+RISCVException read_vstart(CPURISCVState *env, int csrno,
+                           target_ulong *val);
+RISCVException write_vstart(CPURISCVState *env, int csrno,
+                            target_ulong val);
+RISCVException read_mstatus(CPURISCVState *env, int csrno,
+                            target_ulong *val);
+RISCVException write_mstatus(CPURISCVState *env, int csrno,
+                             target_ulong val);
+RISCVException write_sstatus(CPURISCVState *env, int csrno,
+                             target_ulong val);
+RISCVException read_sstatus(CPURISCVState *env, int csrno,
+                            target_ulong *val);
+RISCVException read_vcsr(CPURISCVState *env, int csrno, target_ulong *val);
+RISCVException write_vcsr(CPURISCVState *env, int csrno, target_ulong val);
 extern riscv_csr_operations csr_ops[CSR_TABLE_SIZE];
 
 extern const bool valid_vm_1_10_32[], valid_vm_1_10_64[];
@@ -821,7 +1060,14 @@ void riscv_set_csr_ops(int csrno, riscv_csr_operations *ops);
 
 void riscv_cpu_register_gdb_regs_for_features(CPUState *cs);
 
+target_ulong riscv_new_csr_seed(target_ulong new_value,
+                                target_ulong write_mask);
+
 uint8_t satp_mode_max_from_map(uint32_t map);
 const char *satp_mode_str(uint8_t satp_mode, bool is_32_bit);
 
+/* Implemented in th_csr.c */
+void th_register_custom_csrs(RISCVCPU *cpu);
+
+const char *priv_spec_to_str(int priv_version);
 #endif /* RISCV_CPU_H */

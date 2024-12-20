@@ -64,6 +64,7 @@ struct qemu_plugin_ctx {
     bool installing;
     bool uninstalling;
     bool resetting;
+    bool tb_trans_registered;
 };
 
 struct qemu_plugin_ctx *plugin_id_to_ctx_locked(qemu_plugin_id_t id);

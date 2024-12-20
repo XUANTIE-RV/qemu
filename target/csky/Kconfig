@@ -1,0 +1,5 @@
+config CSKYV2
+    bool
+
+config CSKYV1 
+    bool

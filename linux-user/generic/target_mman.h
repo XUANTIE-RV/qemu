@@ -1,6 +1,7 @@
 #ifndef LINUX_USER_TARGET_MMAN_H
 #define LINUX_USER_TARGET_MMAN_H
 
+#include <linux/mman.h>
 /* These are defined in linux/mmap.h */
 #define TARGET_MAP_SHARED               0x01
 #define TARGET_MAP_PRIVATE              0x02

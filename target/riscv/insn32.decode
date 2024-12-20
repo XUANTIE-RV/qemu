@@ -29,6 +29,13 @@
 %rm     12:3
 %nf     29:3                     !function=ex_plus_1
 
+%ms1        18:3
+%ms2        21:3
+%md         15:3
+%reg_8_15   7:3                     !function=ex_plus_8
+%md_ld      7:3
+%mo         10:2
+
 # immediates:
 %imm_i    20:s12
 %imm_s    25:s7 7:5
@@ -38,6 +45,14 @@
 %imm_bs   30:2                   !function=ex_shift_3
 %imm_rnum 20:4
 %imm_z6   26:1 15:5
+%imm_mop5 30:1 26:2 20:2
+%imm_mop3 30:1 26:2
+
+%uimm1  24:1
+%uimm3  7:3
+%uimm7  18:7
+
+%imm_mxm 24:1 20:1
 
 # Argument sets:
 &empty
@@ -56,6 +71,25 @@
 &r2nfvm    vm rd rs1 nf
 &rnfvm     vm rd rs1 rs2 nf
 &k_aes     shamt rs2 rs1 rd
+&mop5 imm rd rs1
+&mop3 imm rd rs1 rs2
+
+&mm_i         uimm3       ms2        ms1    md
+&mm_ld        rs2         rs1        md
+&mm_st        rs2         rs1        ms3
+&mm_ldm       rs1         md
+&mm_stm       rs1         ms3
+&mm_cfg_i     uimm7
+&mm_cfg       rs1
+&mm_mv        ms1         md
+&mm_mv_x      ms1         rs1        md
+&mm_mv_i      ms1         uimm3      md
+&mm_rmm       ms2         ms1        md
+&mm_rmm_i     uimm1       ms2        ms1    md
+&mm_rmi       uimm3 md
+&mm_dup       md rs2 mo
+&mm_mov       md rs1 rs2 mo
+&mm_mxm       ms2 rs1 rd mo
 
 # Formats 32:
 @r       .......   ..... ..... ... ..... ....... &r                %rs2 %rs1 %rd
@@ -70,6 +104,8 @@
 
 @atom_ld ..... aq:1 rl:1 ..... ........ ..... ....... &atomic rs2=0     %rs1 %rd
 @atom_st ..... aq:1 rl:1 ..... ........ ..... ....... &atomic %rs2      %rs1 %rd
+@l_aq ..... . rl:1 ..... ........ ..... ....... &atomic rs2=0 %rs1 %rd aq=1
+@s_rl ..... aq:1 . ..... ........ ..... ....... &atomic %rs2 %rs1 rd=0 rl=1
 
 @r4_rm   ..... ..  ..... ..... ... ..... ....... %rs3 %rs2 %rs1 %rm %rd
 @r_rm    .......   ..... ..... ... ..... ....... %rs2 %rs1 %rm %rd
@@ -98,25 +134,53 @@
 @k_aes   .. ..... ..... .....  ... ..... ....... &k_aes  shamt=%imm_bs   %rs2 %rs1 %rd
 @i_aes   .. ..... ..... .....  ... ..... ....... &i      imm=%imm_rnum        %rs1 %rd
 
+@mop5 . . .. .. .... .. ..... ... ..... ....... &mop5 imm=%imm_mop5 %rd %rs1
+@mop3 . . .. .. . ..... ..... ... ..... ....... &mop3 imm=%imm_mop3 %rd %rs1 %rs2
+
+@sspop  . . .. .. .... .. ..... ... ..... ....... &i imm=0  rd=0   %rs1
+@sspush . . .. .. . ..... ..... ... ..... ....... &s imm=0  rs1=0  %rs2
+
 # Formats 64:
 @sh5     .......  ..... .....  ... ..... ....... &shift  shamt=%sh5      %rs1 %rd
 
 # Formats 128:
 @sh6       ...... ...... ..... ... ..... ....... &shift shamt=%sh6 %rs1 %rd
 
+@mm_i       ........ ... ... ... ..... ... .......   &mm_i       %uimm3         %ms2      %ms1 %md
+@mm_rmm     ........ ... ... ... ..... ... .......   &mm_rmm     %ms2           %ms1      %md
+@mm_rmm_i   ....... . ... ... ... ..... ... .......  &mm_rmm_i   %uimm1         %ms2      %ms1 %md
+@mm_rmi     ........ ... ... ... ..... ... .......   &mm_rmi     %uimm3 %md
+@mm_mv      ........... ... ... ... .. ... .......   &mm_mv      %ms1           %md
+@mm_mv_x    ........... ... ... ... .. ... .......   &mm_mv_x    %ms1           rs1=%reg_8_15  %md
+@mm_mv_i    ........... ... ... ... .. ... .......   &mm_mv_i    %ms1           %uimm3         %md
+@mm_ld      ....... ..... ..... ... .. ... .......   &mm_ld      %rs1           %rs2      md=%md_ld
+@mm_st      ....... ..... ..... ... .. ... .......   &mm_st      %rs1           %rs2      ms3=%md_ld
+@mm_ldm     ....... ..... ..... ... .. ... .......   &mm_ldm     %rs1           md=%md_ld
+@mm_stm     ....... ..... ..... ... .. ... .......   &mm_stm     %rs1           ms3=%md_ld
+@mm_cfg_i   . ... ... ....... ... ... ..... .......  &mm_cfg_i   %uimm7
+@mm_cfg     . ... ... ..... ..... ... ..... .......  &mm_cfg     %rs1
+@mm_dup     .... ... ..... ..... ... .. ...  ....... &mm_dup     md=%md_ld %rs2 %mo
+@mm_mov     .... ... ..... ..... ... .. ...  ....... &mm_mov     md=%md_ld %rs1 %rs2 %mo
+@mm_mxm     .... ... ..... ..... ... .. ...  ....... &mm_mxm     %ms2 %rs1 %rd mo=%imm_mxm
+
 # *** Privileged Instructions ***
 ecall       000000000000     00000 000 00000 1110011
 ebreak      000000000001     00000 000 00000 1110011
+sctrclr     000100000100     00000 000 00000 1110011
 uret        0000000    00010 00000 000 00000 1110011
 sret        0001000    00010 00000 000 00000 1110011
 mret        0011000    00010 00000 000 00000 1110011
 wfi         0001000    00101 00000 000 00000 1110011
 sfence_vma  0001001    ..... ..... 000 00000 1110011 @sfence_vma
-sfence_vm   0001000    00100 ..... 000 00000 1110011 @sfence_vm
+mfence_spa  0001101    ..... ..... 000 00000 1110011 @sfence_vma
+minval_spa  0001110    ..... ..... 000 00000 1110011 @sfence_vma
 
 # *** RV32I Base Instruction Set ***
 lui      ....................       ..... 0110111 @u
-auipc    ....................       ..... 0010111 @u
+{
+  lpad     ....................       00000 0010111 %imm_u
+  auipc    ....................       ..... 0010111 @u
+}
 jal      ....................       ..... 1101111 @j
 jalr     ............     ..... 000 ..... 1100111 @i
 beq      ....... .....    ..... 000 ..... 1100011 @b
@@ -1000,6 +1064,10 @@ vsm3c_vi    101011 1 ..... ..... 010 ..... 1110111 @r_vm_1
 vghsh_vv    101100 1 ..... ..... 010 ..... 1110111 @r_vm_1
 vgmul_vv    101000 1 ..... 10001 010 ..... 1110111 @r2_vm_1
 
+# *** Zvkg vector crypto extension ***
+vghsh_vs    100011 1 ..... ..... 010 ..... 1110111 @r_vm_1
+vgmul_vs    101001 1 ..... 10001 010 ..... 1110111 @r2_vm_1
+
 # *** Zvksed vector crypto extension ***
 vsm4k_vi    100001 1 ..... ..... 010 ..... 1110111 @r_vm_1
 vsm4r_vv    101000 1 ..... 10000 010 ..... 1110111 @r2_vm_1
@@ -1010,3 +1078,327 @@ amocas_w    00101 . . ..... ..... 010 ..... 0101111 @atom_st
 amocas_d    00101 . . ..... ..... 011 ..... 0101111 @atom_st
 # *** RV64 Zacas Standard Extension ***
 amocas_q    00101 . . ..... ..... 100 ..... 0101111 @atom_st
+
+# *** RV Matrix Extension ***
+madd_s_mv_i       0011 010 0 ... ... ... 00110 ... 0101011 @mm_i     # madd_s_mv_i
+msub_s_mv_i       0100 010 0 ... ... ... 00110 ... 0101011 @mm_i     # msub_s_mv_i
+msra_s_mv_i       0101 010 0 ... ... ... 00110 ... 0101011 @mm_i     # msra_s_mv_i
+mmul_s_mv_i       1000 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mmul_s_mv_i
+madd_d_mv_i       0011 010 0 ... ... ... 00111 ... 0101011 @mm_i     # madd_d_mv_i
+msub_d_mv_i       0100 010 0 ... ... ... 00111 ... 0101011 @mm_i     # msub_d_mv_i
+msra_d_mv_i       0101 010 0 ... ... ... 00111 ... 0101011 @mm_i     # msra_d_mv_i
+mmul_d_mv_i       1000 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mmul_d_mv_i
+mmaqasu_b         0010 000 0 ... ... ... 00000 011 0101011 @mm_rmm   # mmaqasu_b
+mmaqasu_h         0010 000 0 ... ... ... 00001 011 0101011 @mm_rmm   # mmaqasu_h
+pmmaqasu_b        0010 000 1 ... ... ... 00000 011 0101011 @mm_rmm   # pmmaqasu_b
+mmaqaus_b         0010 000 0 ... ... ... 00000 010 0101011 @mm_rmm   # mmaqaus_b
+mmaqaus_h         0010 000 0 ... ... ... 00001 010 0101011 @mm_rmm   # mmaqaus_h
+pmmaqaus_b        0010 000 1 ... ... ... 00000 010 0101011 @mm_rmm   # pmmaqaus_b
+mmov_mm           0000 000 0 000 ... ... 00000 001 0101011 @mm_mv    # mmov_mm
+mmov_mv_x         0000 001 0 000 ... ... 00000 ... 0101011 @mm_mv_x  # mmov_mv_x
+mmov_mv_i         0000 010 0 000 ... ... 00000 ... 0101011 @mm_mv_i  # mmov_mv_i
+mmaqau_b          0010 000 0 ... ... ... 00000 001 0101011 @mm_rmm   # mmaqau_b
+mmaqau_h          0010 000 0 ... ... ... 00001 001 0101011 @mm_rmm   # mmaqau_h
+pmmaqau_b         0010 000 1 ... ... ... 00000 001 0101011 @mm_rmm   # pmmaqau_b
+fmmacc_h          0001 000 0 ... ... ... 00001 000 0101011 @mm_rmm   # fmmacc_h
+fmmacc_s          0001 000 0 ... ... ... 00010 000 0101011 @mm_rmm   # fmmacc_s
+fmmacc_d          0001 000 0 ... ... ... 00011 000 0101011 @mm_rmm   # fmmacc_d
+fmmacc_d_s        0001 000 1 ... ... ... 00010 000 0101011 @mm_rmm   # fmmacc_d_s
+mmaqa_b           0010 000 0 ... ... ... 00000 000 0101011 @mm_rmm   # mmaqa_b
+mmaqa_h           0010 000 0 ... ... ... 00001 000 0101011 @mm_rmm   # mmaqa_h
+pmmaqa_b          0010 000 1 ... ... ... 00000 000 0101011 @mm_rmm   # pmmaqa_b
+madd_s_mm         0011 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # madd_s_mm
+msub_s_mm         0100 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # msub_s_mm
+msra_s_mm         0101 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # msra_s_mm
+mmul_s_mm         1000 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mmul_s_mm
+madd_d_mm         0011 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # madd_d_mm
+msub_d_mm         0100 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # msub_d_mm
+msra_d_mm         0101 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # msra_d_mm
+mmul_d_mm         1000 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mmul_d_mm
+mld_b             0000 100 ..... ..... 000 00 ...  0101011 @mm_ld    # mld_b
+mld_h             0000 100 ..... ..... 000 01 ...  0101011 @mm_ld    # mld_h
+mld_w             0000 100 ..... ..... 000 10 ...  0101011 @mm_ld    # mld_w
+mld_d             0000 100 ..... ..... 000 11 ...  0101011 @mm_ld    # mld_d
+msld_b            0001 100 ..... ..... 000 00 ...  0101011 @mm_ld    # msld_b
+msld_h            0001 100 ..... ..... 000 01 ...  0101011 @mm_ld    # msld_h
+msld_w            0001 100 ..... ..... 000 10 ...  0101011 @mm_ld    # msld_w
+msld_d            0001 100 ..... ..... 000 11 ...  0101011 @mm_ld    # msld_d
+mld1m_b           0010 100 00000 ..... 000 00 ...  0101011 @mm_ldm   # mldm_b
+mld2m_b           0010 100 00001 ..... 000 00 ...  0101011 @mm_ldm   # mldm_b
+mld4m_b           0010 100 00011 ..... 000 00 ...  0101011 @mm_ldm   # mldm_b
+mld8m_b           0010 100 00111 ..... 000 00 ...  0101011 @mm_ldm   # mldm_b
+mld1m_h           0010 100 00000 ..... 000 01 ...  0101011 @mm_ldm   # mldm_h
+mld2m_h           0010 100 00001 ..... 000 01 ...  0101011 @mm_ldm   # mldm_h
+mld4m_h           0010 100 00011 ..... 000 01 ...  0101011 @mm_ldm   # mldm_h
+mld8m_h           0010 100 00111 ..... 000 01 ...  0101011 @mm_ldm   # mldm_h
+mld1m_w           0010 100 00000 ..... 000 10 ...  0101011 @mm_ldm   # mldm_w
+mld2m_w           0010 100 00001 ..... 000 10 ...  0101011 @mm_ldm   # mldm_w
+mld4m_w           0010 100 00011 ..... 000 10 ...  0101011 @mm_ldm   # mldm_w
+mld8m_w           0010 100 00111 ..... 000 10 ...  0101011 @mm_ldm   # mldm_w
+mld1m_d           0010 100 00000 ..... 000 11 ...  0101011 @mm_ldm   # mldm_d
+mld2m_d           0010 100 00001 ..... 000 11 ...  0101011 @mm_ldm   # mldm_d
+mld4m_d           0010 100 00011 ..... 000 11 ...  0101011 @mm_ldm   # mldm_d
+mld8m_d           0010 100 00111 ..... 000 11 ...  0101011 @mm_ldm   # mldm_d
+mst_b             0000 101 ..... ..... 000 00 ...  0101011 @mm_st    # mst_b
+mst_h             0000 101 ..... ..... 000 01 ...  0101011 @mm_st    # mst_h
+mst_w             0000 101 ..... ..... 000 10 ...  0101011 @mm_st    # mst_w
+mst_d             0000 101 ..... ..... 000 11 ...  0101011 @mm_st    # mst_d
+msst_b            0001 101 ..... ..... 000 00 ...  0101011 @mm_st    # msst_b
+msst_h            0001 101 ..... ..... 000 01 ...  0101011 @mm_st    # msst_h
+msst_w            0001 101 ..... ..... 000 10 ...  0101011 @mm_st    # msst_w
+msst_d            0001 101 ..... ..... 000 11 ...  0101011 @mm_st    # msst_d
+mst1m_b           0010 101 00000 ..... 000 00 ...  0101011 @mm_stm   # mstm_b
+mst2m_b           0010 101 00001 ..... 000 00 ...  0101011 @mm_stm   # mstm_b
+mst4m_b           0010 101 00011 ..... 000 00 ...  0101011 @mm_stm   # mstm_b
+mst8m_b           0010 101 00111 ..... 000 00 ...  0101011 @mm_stm   # mstm_b
+mst1m_h           0010 101 00000 ..... 000 01 ...  0101011 @mm_stm   # mstm_h
+mst2m_h           0010 101 00001 ..... 000 01 ...  0101011 @mm_stm   # mstm_h
+mst4m_h           0010 101 00011 ..... 000 01 ...  0101011 @mm_stm   # mstm_h
+mst8m_h           0010 101 00111 ..... 000 01 ...  0101011 @mm_stm   # mstm_h
+mst1m_w           0010 101 00000 ..... 000 10 ...  0101011 @mm_stm   # mstm_w
+mst2m_w           0010 101 00001 ..... 000 10 ...  0101011 @mm_stm   # mstm_w
+mst4m_w           0010 101 00011 ..... 000 10 ...  0101011 @mm_stm   # mstm_w
+mst8m_w           0010 101 00111 ..... 000 10 ...  0101011 @mm_stm   # mstm_w
+mst1m_d           0010 101 00000 ..... 000 11 ...  0101011 @mm_stm   # mstm_d
+mst2m_d           0010 101 00001 ..... 000 11 ...  0101011 @mm_stm   # mstm_d
+mst4m_d           0010 101 00011 ..... 000 11 ...  0101011 @mm_stm   # mstm_d
+mst8m_d           0010 101 00111 ..... 000 11 ...  0101011 @mm_stm   # mstm_d
+mcfgk             1 000 111 00000 ..... 000 00000  0101011 @mm_cfg   # mconfig_k
+mcfgm             1 001 111 00000 ..... 000 00000  0101011 @mm_cfg   # mconfig_m
+mcfgn             1 010 111 00000 ..... 000 00000  0101011 @mm_cfg   # mconfig_n
+mcfg              1 111 111 00000 ..... 000 00000  0101011 @mm_cfg
+mrelease          0 111 111 00000 00000 000 00000  0101011           # mrelease
+mcfgki            0 000 111 ....... 000 000 00000  0101011 @mm_cfg_i # mconfigi_k
+mcfgmi            0 001 111 ....... 000 000 00000  0101011 @mm_cfg_i # mconfigi_m
+mcfgni            0 010 111 ....... 000 000 00000  0101011 @mm_cfg_i # mconfigi_n
+mmulh_s_mm        1001 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mmulh_s_mm
+mmulh_s_mv_i      1001 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mmulh_s_mv_i
+mzero             1010 000 0 000 000 ... 00000 ... 0101011 @mm_rmi   # mzero
+mdup_m_x          0001 110 ..... 00000 000 .. ...  0101011 @mm_dup   # mdup_m_x
+mmov_m_x          0010 110 ..... ..... 000 .. ...  0101011 @mm_mov   # mmov_m_x
+mmov_x_m          0000 110 . ... . ..... 000 ..... 0101011 @mm_mxm   # mmov_x_m
+
+# v0.4 and c960
+fmmacc_bf16_e4    0001 000 1 ... ... ... 00000 011 0101011 @mm_rmm   # fmmacc_bf16_e4
+fmmacc_bf16_e5    0001 000 1 ... ... ... 00000 010 0101011 @mm_rmm   # fmmacc_bf16_e5
+fmmacc_h_e4       0001 000 1 ... ... ... 00000 001 0101011 @mm_rmm   # fmmacc_h_e4
+fmmacc_h_e5       0001 000 1 ... ... ... 00000 000 0101011 @mm_rmm   # fmmacc_h_e5
+fmmacc_h_hb       0011 000 0 ... ... ... 00000 000 0101011 @mm_rmm   # fmmacc_h_hb
+fmmacc_h_hp       0011 000 0 ... ... ... 00001 ... 0101011 @mm_i     # fmmacc_h_hp
+fmmacc_s_bf16     0001 000 1 ... ... ... 00001 100 0101011 @mm_rmm   # fmmacc_s_bf16
+fmmacc_s_e4       0001 000 1 ... ... ... 00000 101 0101011 @mm_rmm   # fmmacc_s_e4
+fmmacc_s_e5       0001 000 1 ... ... ... 00000 100 0101011 @mm_rmm   # fmmacc_s_e5
+fmmacc_s_h        0001 000 1 ... ... ... 00001 000 0101011 @mm_rmm   # fmmacc_s_h
+fmmacc_s_hb       0011 000 0 ... ... ... 00010 ... 0101011 @mm_i     # fmmacc_s_hb
+fmmacc_s_hp       0011 000 0 ... ... ... 00011 ... 0101011 @mm_i     # fmmacc_s_hp
+fmmaccu_h_hb      0011 000 1 ... ... ... 00000 000 0101011 @mm_rmm   # fmmaccu_h_hb
+fmmaccu_h_hp      0011 000 1 ... ... ... 00001 ... 0101011 @mm_i     # fmmaccu_h_hp
+fmmaccu_s_hb      0011 000 1 ... ... ... 00010 ... 0101011 @mm_i     # fmmaccu_s_hb
+fmmaccu_s_hp      0011 000 1 ... ... ... 00011 ... 0101011 @mm_i     # fmmaccu_s_hp
+mcmovb_mv_i       0000 010 1 000 ... ... 00000 ... 0101011 @mm_mv_i  # mcmovb_mv_i
+mcmovd_mv_i       0000 010 1 000 ... ... 00011 ... 0101011 @mm_mv_i  # mcmovd_mv_i
+mcmovh_mv_i       0000 010 1 000 ... ... 00001 ... 0101011 @mm_mv_i  # mcmovh_mv_i
+mcmovs_mv_i       0000 010 1 000 ... ... 00010 ... 0101011 @mm_mv_i  # mcmovs_mv_i
+mcslidedown_b     0100 110 0 010 ... ... 00000 ... 0101011 @mm_mv_i  # mcslidedown_b
+mcslidedown_d     0100 110 0 010 ... ... 00011 ... 0101011 @mm_mv_i  # mcslidedown_d
+mcslidedown_h     0100 110 0 010 ... ... 00001 ... 0101011 @mm_mv_i  # mcslidedown_h
+mcslidedown_s     0100 110 0 010 ... ... 00010 ... 0101011 @mm_mv_i  # mcslidedown_s
+mcslideup_b       0100 110 0 011 ... ... 00000 ... 0101011 @mm_mv_i  # mcslideup_b
+mcslideup_d       0100 110 0 011 ... ... 00011 ... 0101011 @mm_mv_i  # mcslideup_d
+mcslideup_h       0100 110 0 011 ... ... 00001 ... 0101011 @mm_mv_i  # mcslideup_h
+mcslideup_s       0100 110 0 011 ... ... 00010 ... 0101011 @mm_mv_i  # mcslideup_s
+mfadd_h_mm        0000 001 0 ... ... ... 00101 000 0101011 @mm_rmm   # mfadd_h_mm
+mfadd_h_mv_i      0000 011 0 ... ... ... 00101 ... 0101011 @mm_i     # mfadd_h_mv_i
+mfadd_s_mm        0000 001 0 ... ... ... 00110 000 0101011 @mm_rmm   # mfadd_s_mm
+mfadd_s_mv_i      0000 011 0 ... ... ... 00110 ... 0101011 @mm_i     # mfadd_s_mv_i
+mfcvth_bf16_s     0101 011 0 000 ... ... 00110 100 0101011 @mm_mv    # mfcvth_bf16_s
+mfcvth_e4_h       0101 011 0 000 ... ... 00101 010 0101011 @mm_mv    # mfcvth_e4_h
+mfcvth_e4_s       0101 011 0 000 ... ... 00110 010 0101011 @mm_mv    # mfcvth_e4_s
+mfcvth_e5_h       0101 011 0 000 ... ... 00101 001 0101011 @mm_mv    # mfcvth_e5_h
+mfcvth_e5_s       0101 011 0 000 ... ... 00110 001 0101011 @mm_mv    # mfcvth_e5_s
+mfcvth_h_e4       0101 001 1 000 ... ... 00100 010 0101011 @mm_mv    # mfcvth_h_e4
+mfcvth_h_e5       0101 011 1 000 ... ... 00100 001 0101011 @mm_mv    # mfcvth_h_e5
+mfcvth_h_s        0101 011 0 000 ... ... 00110 000 0101011 @mm_mv    # mfcvth_h_s
+mfcvth_s_bf16     0101 011 1 000 ... ... 00101 100 0101011 @mm_mv    # mfcvth_s_bf16
+mfcvth_s_h        0101 011 1 001 ... ... 00101 000 0101011 @mm_mv    # mfcvth_s_h
+mfcvtl_bf16_s     0101 001 0 000 ... ... 00110 100 0101011 @mm_mv    # mfcvtl_bf16_s
+mfcvtl_e4_h       0101 001 0 000 ... ... 00101 010 0101011 @mm_mv    # mfcvtl_e4_h
+mfcvtl_e4_s       0101 001 0 000 ... ... 00110 010 0101011 @mm_mv    # mfcvtl_e4_s
+mfcvtl_e5_h       0101 001 0 000 ... ... 00101 001 0101011 @mm_mv    # mfcvtl_e5_h
+mfcvtl_e5_s       0101 001 0 000 ... ... 00110 001 0101011 @mm_mv    # mfcvtl_e5_s
+mfcvtl_h_e4       0101 011 1 000 ... ... 00100 010 0101011 @mm_mv    # mfcvtl_h_e4
+mfcvtl_h_e5       0101 001 1 000 ... ... 00100 001 0101011 @mm_mv    # mfcvtl_h_e5
+mfcvtl_h_s        0101 001 0 000 ... ... 00110 000 0101011 @mm_mv    # mfcvtl_h_s
+mfcvtl_s_bf16     0101 001 1 000 ... ... 00101 100 0101011 @mm_mv    # mfcvtl_s_bf16
+mfcvtl_s_h        0101 001 1 001 ... ... 00101 000 0101011 @mm_mv    # mfcvtl_s_h
+mfmax_h_mm        0011 001 0 ... ... ... 00101 000 0101011 @mm_rmm   # mfmax_h_mm
+mfmax_h_mv_i      0011 011 0 ... ... ... 00101 ... 0101011 @mm_i     # mfmax_h_mv_i
+mfmax_s_mm        0011 001 0 ... ... ... 00110 000 0101011 @mm_rmm   # mfmax_s_mm
+mfmax_s_mv_i      0011 011 0 ... ... ... 00110 ... 0101011 @mm_i     # mfmax_s_mv_i
+mfmin_h_mm        0100 001 0 ... ... ... 00101 000 0101011 @mm_rmm   # mfmin_h_mm
+mfmin_h_mv_i      0100 011 0 ... ... ... 00101 ... 0101011 @mm_i     # mfmin_h_mv_i
+mfmin_s_mm        0100 001 0 ... ... ... 00110 000 0101011 @mm_rmm   # mfmin_s_mm
+mfmin_s_mv_i      0100 011 0 ... ... ... 00110 ... 0101011 @mm_i     # mfmin_s_mv_i
+mfmul_h_mm        0010 001 0 ... ... ... 00101 000 0101011 @mm_rmm   # mfmul_h_mm
+mfmul_h_mv_i      0010 011 0 ... ... ... 00101 ... 0101011 @mm_i     # mfmul_h_mv_i
+mfmul_s_mm        0010 001 0 ... ... ... 00110 000 0101011 @mm_rmm   # mfmul_s_mm
+mfmul_s_mv_i      0010 011 0 ... ... ... 00110 ... 0101011 @mm_i     # mfmul_s_mv_i
+mfscvt_s_s        0110 001 0 110 ... ... 00110 000 0101011 @mm_mv    # mfscvt_s_s
+mfscvth_b_h       0110 011 0 111 ... ... 00101 000 0101011 @mm_mv    # mfscvth_b_h
+mfscvtl_b_h       0110 001 0 111 ... ... 00101 000 0101011 @mm_mv    # mfscvtl_b_h
+mfsub_h_mm        0001 001 0 ... ... ... 00101 000 0101011 @mm_rmm   # mfsub_h_mm
+mfsub_h_mv_i      0001 011 0 ... ... ... 00101 ... 0101011 @mm_i     # mfsub_h_mv_i
+mfsub_s_mm        0001 001 0 ... ... ... 00110 000 0101011 @mm_rmm   # mfsub_s_mm
+mfsub_s_mv_i      0001 011 0 ... ... ... 00110 ... 0101011 @mm_i     # mfsub_s_mv_i
+mfucvt_s_s        0110 001 0 010 ... ... 00110 000 0101011 @mm_mv    # mfucvt_s_s
+mfucvth_b_h       0110 011 0 011 ... ... 00101 000 0101011 @mm_mv    # mfucvth_b_h
+mfucvtl_b_h       0110 001 0 011 ... ... 00101 000 0101011 @mm_mv    # mfucvtl_b_h
+mmaccsu_s_bp      0010 000 . ... ... ... 00010 011 0101011 @mm_rmm_i # mmaccsu_s_bp
+mmaccu_s_bp       0010 000 . ... ... ... 00010 001 0101011 @mm_rmm_i # mmaccu_s_bp
+mmaccus_s_bp      0010 000 . ... ... ... 00010 010 0101011 @mm_rmm_i # mmaccus_s_bp
+mmacc_s_bp        0010 000 . ... ... ... 00010 000 0101011 @mm_rmm_i # mmaqcc_s_bp
+mmax_s_mm         0001 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mmax_s_mm
+mmax_s_mv_i       0001 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mmax_s_mv_i
+mmin_s_mm         0010 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mmin_s_mm
+mmin_s_mv_i       0010 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mmin_s_mv_i
+mn4cliph_d_mm     0110 000 1 ... ... ... 00111 000 0101011 @mm_rmm   # mn4cliph_d_mm
+mn4cliph_d_mv_i   0110 010 1 ... ... ... 00111 ... 0101011 @mm_i     # mn4cliph_d_mv_i
+mn4cliph_s_mm     0110 000 1 ... ... ... 00110 000 0101011 @mm_rmm   # mn4cliph_s_mm
+mn4cliph_s_mv_i   0110 010 1 ... ... ... 00110 ... 0101011 @mm_i     # mn4cliph_s_mv_i
+mn4cliphu_d_mm    0111 000 1 ... ... ... 00111 000 0101011 @mm_rmm   # mn4cliphu_d_mm
+mn4cliphu_d_mv_i  0111 010 1 ... ... ... 00111 ... 0101011 @mm_i     # mn4cliphu_d_mv_i
+mn4cliphu_s_mm    0111 000 1 ... ... ... 00110 000 0101011 @mm_rmm   # mn4cliphu_s_mm
+mn4cliphu_s_mv_i  0111 010 1 ... ... ... 00110 ... 0101011 @mm_i     # mn4cliphu_s_mv_i
+mn4clipl_d_mm     0110 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mn4clipl_d_mm
+mn4clipl_d_mv_i   0110 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mn4clipl_d_mv_i
+mn4clipl_s_mm     0110 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mn4clipl_s_mm
+mn4clipl_s_mv_i   0110 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mn4clipl_s_mv_i
+mn4cliplu_d_mm    0111 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mn4cliplu_d_mm
+mn4cliplu_d_mv_i  0111 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mn4cliplu_d_mv_i
+mn4cliplu_s_mm    0111 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # mn4cliplu_s_mm
+mn4cliplu_s_mv_i  0111 010 0 ... ... ... 00110 ... 0101011 @mm_i     # mn4cliplu_s_mv_i
+mpack             0011 110 0 ... ... ... 00000 000 0101011 @mm_rmm   # mpack
+mpackhh           0011 110 0 ... ... ... 00000 011 0101011 @mm_rmm   # mpackhh
+mpackhl           0011 110 0 ... ... ... 00000 010 0101011 @mm_rmm   # mpackhl
+mrslidedown       0100 110 0 000 ... ... 00000 ... 0101011 @mm_mv_i  # mrslidedown
+mrslideup         0100 110 0 001 ... ... 00000 ... 0101011 @mm_mv_i  # mrslideup
+mscvth_b_p        1010 010 1 000 ... ... 00100 000 0101011 @mm_mv    # mscvth_b_p
+mscvtl_b_p        1010 000 1 000 ... ... 00100 000 0101011 @mm_mv    # mscvtl_b_p
+msfcvt_s_s        0110 001 0 100 ... ... 00110 000 0101011 @mm_mv    # msfcvt_s_s
+msfcvth_h_b       0110 011 0 101 ... ... 00100 000 0101011 @mm_mv    # msfcvth_h_b
+msfcvtl_h_b       0110 001 0 101 ... ... 00100 000 0101011 @mm_mv    # msfcvtl_h_b
+msll_s_mm         0000 000 1 ... ... ... 00110 000 0101011 @mm_rmm   # msll_s_mm
+msll_s_mv_i       0000 010 1 ... ... ... 00110 ... 0101011 @mm_i     # msll_s_mv_i
+msrl_s_mm         0000 000 0 ... ... ... 00110 000 0101011 @mm_rmm   # msrl_s_mm
+msrl_s_mv_i       0000 010 0 ... ... ... 00110 ... 0101011 @mm_i     # msrl_s_mv_i
+mucvth_b_p        1010 010 1 000 ... ... 00100 001 0101011 @mm_mv    # mucvth_b_p
+mucvtl_b_p        1010 000 1 000 ... ... 00100 001 0101011 @mm_mv    # mucvtl_b_p
+mufcvt_s_s        0110 001 0 000 ... ... 00110 000 0101011 @mm_mv    # mufcvt_s_s
+mufcvth_h_b       0110 011 0 001 ... ... 00100 000 0101011 @mm_mv    # mufcvth_h_b
+mufcvtl_h_b       0110 001 0 001 ... ... 00100 000 0101011 @mm_mv    # mufcvtl_h_b
+mumax_s_mm        0001 000 1 ... ... ... 00110 000 0101011 @mm_rmm   # mumax_s_mm
+mumax_s_mv_i      0001 010 1 ... ... ... 00110 ... 0101011 @mm_i     # mumax_s_mv_i
+mumin_s_mm        0010 000 1 ... ... ... 00110 000 0101011 @mm_rmm   # mumin_s_mm
+mumin_s_mv_i      0010 010 1 ... ... ... 00110 ... 0101011 @mm_i     # mumin_s_mv_i
+mmax_d_mm         0001 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mmax_d_mm
+mmax_d_mv_i       0001 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mmax_d_mv_i
+mmin_d_mm         0010 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mmin_d_mm
+mmin_d_mv_i       0010 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mmin_d_mv_i
+mmulh_d_mm        1001 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # mmulh_d_mm
+mmulh_d_mv_i      1001 010 0 ... ... ... 00111 ... 0101011 @mm_i     # mmulh_d_mv_i
+msll_d_mm         0000 000 1 ... ... ... 00111 000 0101011 @mm_rmm   # msll_d_mm
+msll_d_mv_i       0000 010 1 ... ... ... 00111 ... 0101011 @mm_i     # msll_d_mv_i
+msrl_d_mm         0000 000 0 ... ... ... 00111 000 0101011 @mm_rmm   # msrl_d_mm
+msrl_d_mv_i       0000 010 0 ... ... ... 00111 ... 0101011 @mm_i     # msrl_d_mv_i
+mumax_d_mm        0001 000 1 ... ... ... 00111 000 0101011 @mm_rmm   # mumax_d_mm
+mumax_d_mv_i      0001 010 1 ... ... ... 00111 ... 0101011 @mm_i     # mumax_d_mv_i
+mumin_d_mm        0010 000 1 ... ... ... 00111 000 0101011 @mm_rmm   # mumin_d_mm
+mumin_d_mv_i      0010 010 1 ... ... ... 00111 ... 0101011 @mm_i     # mumin_d_mv_i
+mfadd_d_mm        0000 001 0 ... ... ... 00111 000 0101011 @mm_rmm   # mfadd_d_mm
+mfadd_d_mv_i      0000 011 0 ... ... ... 00111 ... 0101011 @mm_i     # mfadd_d_mv_i
+mfmax_d_mm        0011 001 0 ... ... ... 00111 000 0101011 @mm_rmm   # mfmax_d_mm
+mfmax_d_mv_i      0011 011 0 ... ... ... 00111 ... 0101011 @mm_i     # mfmax_d_mv_i
+mfmin_d_mm        0100 001 0 ... ... ... 00111 000 0101011 @mm_rmm   # mfmin_d_mm
+mfmin_d_mv_i      0100 011 0 ... ... ... 00111 ... 0101011 @mm_i     # mfmin_d_mv_i
+mfmul_d_mm        0010 001 0 ... ... ... 00111 000 0101011 @mm_rmm   # mfmul_d_mm
+mfmul_d_mv_i      0010 011 0 ... ... ... 00111 ... 0101011 @mm_i     # mfmul_d_mv_i
+mfsub_d_mm        0001 001 0 ... ... ... 00111 000 0101011 @mm_rmm   # mfsub_d_mm
+mfsub_d_mv_i      0001 011 0 ... ... ... 00111 ... 0101011 @mm_i     # mfsub_d_mv_i
+mfcvth_d_s        0101 011 1 001 ... ... 00110 000 0101011 @mm_mv    # mfcvth_d_s
+mfcvth_s_d        0101 011 0 000 ... ... 00111 000 0101011 @mm_mv    # mfcvth_s_d
+mfcvtl_d_s        0101 001 1 001 ... ... 00110 000 0101011 @mm_mv    # mfcvtl_d_s
+mfcvtl_s_d        0101 001 0 000 ... ... 00111 000 0101011 @mm_mv    # mfcvtl_s_d
+
+# *** Xuantie Vdot */
+vmaqa_vv   100000 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqau_vv  100010 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqasu_vv 100100 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqa_vx   100001 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqau_vx  100011 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqasu_vx 100101 . ..... ..... 110 ..... 0001011  @r_vm
+vmaqaus_vx 100111 . ..... ..... 110 ..... 0001011  @r_vm
+vpmaqa_vv   100000 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqau_vv  100010 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqasu_vv 100100 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqa_vx   100001 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqau_vx  100011 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqasu_vx 100101 . ..... ..... 111 ..... 0001011  @r_vm
+vpmaqaus_vx 100111 . ..... ..... 111 ..... 0001011  @r_vm
+vpnclip_wv  101000 . ..... ..... 111 ..... 0001011  @r_vm
+vpnclipu_wv 101010 . ..... ..... 111 ..... 0001011  @r_vm
+vpnclip_wx  101001 . ..... ..... 111 ..... 0001011  @r_vm
+vpnclipu_wx 101011 . ..... ..... 111 ..... 0001011  @r_vm
+vpwadd_vv   101100 . ..... ..... 111 ..... 0001011  @r_vm
+vpwaddu_vv  101110 . ..... ..... 111 ..... 0001011  @r_vm
+vpwadd_vx   101101 . ..... ..... 111 ..... 0001011  @r_vm
+vpwaddu_vx  101111 . ..... ..... 111 ..... 0001011  @r_vm
+
+# *** Zimop may-be-operation extension ***
+{
+  ssrdp       1 1 00 11 0111 00 00000 100 ..... 1110011 %rd
+  sspopchk    1 1 00 11 0111 00 ..... 100 00000 1110011 @sspop
+  mop_r_n     1 . 00 .. 0111 .. ..... 100 ..... 1110011 @mop5
+}
+
+{
+  sspush      1 1 00 11 1 ..... 00000 100 00000 1110011 @sspush
+  mop_rr_n    1 . 00 .. 1 ..... ..... 100 ..... 1110011 @mop3
+}
+
+# *** Zicfiss extension ***
+ssamoswap_w 01001 . . ..... ..... 010 ..... 0101111 @atom_st
+ssamoswap_d 01001 . . ..... ..... 011 ..... 0101111 @atom_st
+
+# *** Zabhb Standard Extension ***
+amoswap_b  00001 . . ..... ..... 000 ..... 0101111 @atom_st
+amoadd_b   00000 . . ..... ..... 000 ..... 0101111 @atom_st
+amoxor_b   00100 . . ..... ..... 000 ..... 0101111 @atom_st
+amoand_b   01100 . . ..... ..... 000 ..... 0101111 @atom_st
+amoor_b    01000 . . ..... ..... 000 ..... 0101111 @atom_st
+amomin_b   10000 . . ..... ..... 000 ..... 0101111 @atom_st
+amomax_b   10100 . . ..... ..... 000 ..... 0101111 @atom_st
+amominu_b  11000 . . ..... ..... 000 ..... 0101111 @atom_st
+amomaxu_b  11100 . . ..... ..... 000 ..... 0101111 @atom_st
+amoswap_h  00001 . . ..... ..... 001 ..... 0101111 @atom_st
+amoadd_h   00000 . . ..... ..... 001 ..... 0101111 @atom_st
+amoxor_h   00100 . . ..... ..... 001 ..... 0101111 @atom_st
+amoand_h   01100 . . ..... ..... 001 ..... 0101111 @atom_st
+amoor_h    01000 . . ..... ..... 001 ..... 0101111 @atom_st
+amomin_h   10000 . . ..... ..... 001 ..... 0101111 @atom_st
+amomax_h   10100 . . ..... ..... 001 ..... 0101111 @atom_st
+amominu_h  11000 . . ..... ..... 001 ..... 0101111 @atom_st
+amomaxu_h  11100 . . ..... ..... 001 ..... 0101111 @atom_st
+amocas_b    00101 . . ..... ..... 000 ..... 0101111 @atom_st
+amocas_h    00101 . . ..... ..... 001 ..... 0101111 @atom_st
+
+# *** RV32 Zalasr Standard Extension ***
+lb_aq 00110 1 . 00000 ..... 000 ..... 0101111 @l_aq
+lh_aq 00110 1 . 00000 ..... 001 ..... 0101111 @l_aq
+lw_aq 00110 1 . 00000 ..... 010 ..... 0101111 @l_aq
+sb_rl 00111 . 1 ..... ..... 000 00000 0101111 @s_rl
+sh_rl 00111 . 1 ..... ..... 001 00000 0101111 @s_rl
+sw_rl 00111 . 1 ..... ..... 010 00000 0101111 @s_rl
+
+# *** RV64 Zalasr Standard Extension (in addition to RV32 Zalasr) ***
+ld_aq 00110 1 . 00000 ..... 011 ..... 0101111 @l_aq
+sd_rl 00111 . 1 ..... ..... 011 00000 0101111 @s_rl

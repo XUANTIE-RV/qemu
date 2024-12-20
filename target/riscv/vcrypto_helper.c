@@ -53,14 +53,45 @@ static uint64_t clmulh64(uint64_t y, uint64_t x)
     return result;
 }
 
-RVVCALL(OPIVV2, vclmul_vv, OP_UUU_D, H8, H8, H8, clmul64)
-GEN_VEXT_VV(vclmul_vv, 8)
-RVVCALL(OPIVX2, vclmul_vx, OP_UUU_D, H8, H8, clmul64)
-GEN_VEXT_VX(vclmul_vx, 8)
-RVVCALL(OPIVV2, vclmulh_vv, OP_UUU_D, H8, H8, H8, clmulh64)
-GEN_VEXT_VV(vclmulh_vv, 8)
-RVVCALL(OPIVX2, vclmulh_vx, OP_UUU_D, H8, H8, clmulh64)
-GEN_VEXT_VX(vclmulh_vx, 8)
+RVVCALL(OPIVV2, vclmul_vv_d, OP_UUU_D, H8, H8, H8, clmul64)
+GEN_VEXT_VV(vclmul_vv_d, 8)
+RVVCALL(OPIVX2, vclmul_vx_d, OP_UUU_D, H8, H8, clmul64)
+GEN_VEXT_VX(vclmul_vx_d, 8)
+RVVCALL(OPIVV2, vclmulh_vv_d, OP_UUU_D, H8, H8, H8, clmulh64)
+GEN_VEXT_VV(vclmulh_vv_d, 8)
+RVVCALL(OPIVX2, vclmulh_vx_d, OP_UUU_D, H8, H8, clmulh64)
+GEN_VEXT_VX(vclmulh_vx_d, 8)
+
+static uint32_t clmul32(uint32_t y, uint32_t x)
+{
+    uint32_t result = 0;
+    for (int j = 31; j >= 0; j--) {
+        if ((y >> j) & 1) {
+            result ^= (x << j);
+        }
+    }
+    return result;
+}
+
+static uint32_t clmulh32(uint32_t y, uint32_t x)
+{
+    uint32_t result = 0;
+    for (int j = 31; j >= 1; j--) {
+        if ((y >> j) & 1) {
+            result ^= (x >> (32 - j));
+        }
+    }
+    return result;
+}
+
+RVVCALL(OPIVV2, vclmul_vv_w, OP_UUU_W, H4, H4, H4, clmul32)
+GEN_VEXT_VV(vclmul_vv_w, 4)
+RVVCALL(OPIVX2, vclmul_vx_w, OP_UUU_W, H4, H4, clmul32)
+GEN_VEXT_VX(vclmul_vx_w, 4)
+RVVCALL(OPIVV2, vclmulh_vv_w, OP_UUU_W, H4, H4, H4, clmulh32)
+GEN_VEXT_VV(vclmulh_vv_w, 4)
+RVVCALL(OPIVX2, vclmulh_vx_w, OP_UUU_W, H4, H4, clmulh32)
+GEN_VEXT_VX(vclmulh_vx_w, 4)
 
 RVVCALL(OPIVV2, vror_vv_b, OP_UUU_B, H1, H1, H1, ror8)
 RVVCALL(OPIVV2, vror_vv_h, OP_UUU_H, H2, H2, H2, ror16)
@@ -846,6 +877,84 @@ void HELPER(vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     for (uint32_t i = env->vstart / 4; i < env->vl / 4; i++) {
         uint64_t Y[2] = {brev8(vd[i * 2 + 0]), brev8(vd[i * 2 + 1])};
         uint64_t H[2] = {brev8(vs2[i * 2 + 0]), brev8(vs2[i * 2 + 1])};
+        uint64_t Z[2] = {0, 0};
+
+        for (int j = 0; j < 128; j++) {
+            if ((Y[j / 64] >> (j % 64)) & 1) {
+                Z[0] ^= H[0];
+                Z[1] ^= H[1];
+            }
+            bool reduce = ((H[1] >> 63) & 1);
+            H[1] = H[1] << 1 | H[0] >> 63;
+            H[0] = H[0] << 1;
+            if (reduce) {
+                H[0] ^= 0x87;
+            }
+        }
+
+        vd[i * 2 + 0] = brev8(Z[0]);
+        vd[i * 2 + 1] = brev8(Z[1]);
+    }
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vta, env->vl * 4, total_elems * 4);
+    env->vstart = 0;
+}
+
+void HELPER(vghsh_vs)(void *vd_vptr, void *vs1_vptr, void *vs2_vptr,
+                      CPURISCVState *env, uint32_t desc)
+{
+    uint64_t *vd = vd_vptr;
+    uint64_t *vs1 = vs1_vptr;
+    uint64_t *vs2 = vs2_vptr;
+    uint32_t vta = vext_vta(desc);
+    uint32_t total_elems = vext_get_total_elems(env, desc, 4);
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    uint32_t helem = 0;
+    for (uint32_t i = env->vstart / 4; i < env->vl / 4; i++) {
+        uint64_t Y[2] = {vd[i * 2 + 0], vd[i * 2 + 1]};
+        uint64_t X[2] = {vs1[i * 2 + 0], vs1[i * 2 + 1]};
+        uint64_t H[2] = {brev8(vs2[helem * 2]), brev8(vs2[helem * 2 + 1])};
+        uint64_t Z[2] = {0, 0};
+
+        uint64_t S[2] = {brev8(Y[0] ^ X[0]), brev8(Y[1] ^ X[1])};
+
+        for (int j = 0; j < 128; j++) {
+            if ((S[j / 64] >> (j % 64)) & 1) {
+                Z[0] ^= H[0];
+                Z[1] ^= H[1];
+            }
+            bool reduce = ((H[1] >> 63) & 1);
+            H[1] = H[1] << 1 | H[0] >> 63;
+            H[0] = H[0] << 1;
+            if (reduce) {
+                H[0] ^= 0x87;
+            }
+        }
+
+        vd[i * 2 + 0] = brev8(Z[0]);
+        vd[i * 2 + 1] = brev8(Z[1]);
+    }
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vta, env->vl * 4, total_elems * 4);
+    env->vstart = 0;
+}
+
+void HELPER(vgmul_vs)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
+                      uint32_t desc)
+{
+    uint64_t *vd = vd_vptr;
+    uint64_t *vs2 = vs2_vptr;
+    uint32_t vta = vext_vta(desc);
+    uint32_t total_elems = vext_get_total_elems(env, desc, 4);
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    uint32_t helem = 0;
+    for (uint32_t i = env->vstart / 4; i < env->vl / 4; i++) {
+        uint64_t Y[2] = {brev8(vd[i * 2 + 0]), brev8(vd[i * 2 + 1])};
+        uint64_t H[2] = {brev8(vs2[helem * 2]), brev8(vs2[helem * 2 + 1])};
         uint64_t Z[2] = {0, 0};
 
         for (int j = 0; j < 128; j++) {

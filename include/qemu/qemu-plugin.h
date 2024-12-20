@@ -269,6 +269,8 @@ enum qemu_plugin_mem_rw {
  */
 typedef void (*qemu_plugin_vcpu_tb_trans_cb_t)(qemu_plugin_id_t id,
                                                struct qemu_plugin_tb *tb);
+typedef void (*qemu_plugin_monitor_process_cb_t)(qemu_plugin_id_t id);
+typedef void (*qemu_plugin_other_process_cb_t)(qemu_plugin_id_t id);
 
 /**
  * qemu_plugin_register_vcpu_tb_trans_cb() - register a translate cb
@@ -285,6 +287,10 @@ typedef void (*qemu_plugin_vcpu_tb_trans_cb_t)(qemu_plugin_id_t id,
 QEMU_PLUGIN_API
 void qemu_plugin_register_vcpu_tb_trans_cb(qemu_plugin_id_t id,
                                            qemu_plugin_vcpu_tb_trans_cb_t cb);
+void qemu_plugin_register_monitor_process_cb(qemu_plugin_id_t id,
+                                             qemu_plugin_monitor_process_cb_t cb);
+void qemu_plugin_register_other_process_cb(qemu_plugin_id_t id,
+                                             qemu_plugin_other_process_cb_t cb);
 
 /**
  * qemu_plugin_register_vcpu_tb_exec_cb() - register execution callback
@@ -721,6 +727,12 @@ uint64_t qemu_plugin_end_code(void);
  */
 QEMU_PLUGIN_API
 uint64_t qemu_plugin_entry_code(void);
+
+/**
+ * qemu_plugin_inject_simpoint() - inject an event in replay log
+ * @insns: The number of insns in the tb to inject.
+ */
+void qemu_plugin_inject_simpoint(uint64_t insns);
 
 /** struct qemu_plugin_register - Opaque handle for register access */
 struct qemu_plugin_register;

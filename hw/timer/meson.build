@@ -36,5 +36,10 @@ system_ss.add(when: 'CONFIG_STM32F2XX_TIMER', if_true: files('stm32f2xx_timer.c'
 system_ss.add(when: 'CONFIG_XILINX', if_true: files('xilinx_timer.c'))
 specific_ss.add(when: 'CONFIG_IBEX', if_true: files('ibex_timer.c'))
 system_ss.add(when: 'CONFIG_SIFIVE_PWM', if_true: files('sifive_pwm.c'))
+system_ss.add(when: 'CONFIG_CSKY_CORET', if_true: files('csky_coret.c'))
+system_ss.add(when: 'CONFIG_CSKY_TIMER', if_true: files('csky_timer.c'))
+system_ss.add(when: 'CONFIG_CSKY_MPTIMER', if_true: files('csky_mptimer.c'))
+system_ss.add(when: ['CONFIG_CSKY_TIMER', 'CONFIG_MODULES'], if_true: files('csky_timer_dummy.c'))
+system_ss.add(when: 'CONFIG_CSKY_TIMER_FOR_ARM', if_true: files('csky_timer_for_arm.c'))
 
 specific_ss.add(when: 'CONFIG_AVR_TIMER16', if_true: files('avr_timer16.c'))

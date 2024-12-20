@@ -21,11 +21,13 @@
 #include "qemu/osdep.h"
 #include "qapi/error.h"
 #include "qemu/module.h"
+#include "qemu/main-loop.h"
 #include "sysemu/reset.h"
 #include "hw/sysbus.h"
 #include "target/riscv/cpu.h"
 #include "hw/qdev-properties.h"
 #include "hw/riscv/riscv_hart.h"
+#include "target/riscv/riscv-power.h"
 
 static Property riscv_harts_props[] = {
     DEFINE_PROP_UINT32("num-harts", RISCVHartArrayState, num_harts, 1),
@@ -33,6 +35,7 @@ static Property riscv_harts_props[] = {
     DEFINE_PROP_STRING("cpu-type", RISCVHartArrayState, cpu_type),
     DEFINE_PROP_UINT64("resetvec", RISCVHartArrayState, resetvec,
                        DEFAULT_RSTVEC),
+    DEFINE_PROP_BOOL("cpu-off", RISCVHartArrayState, cpu_off, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -45,7 +48,15 @@ static void riscv_harts_cpu_reset(void *opaque)
 static bool riscv_hart_realize(RISCVHartArrayState *s, int idx,
                                char *cpu_type, Error **errp)
 {
+    assert(bql_locked());
     object_initialize_child(OBJECT(s), "harts[*]", &s->harts[idx], cpu_type);
+    qdev_prop_set_bit(DEVICE(&s->harts[idx]), "start-powered-off",
+                      s->cpu_off && idx > 0);
+    if (idx > 0 && s->cpu_off) {
+        riscv_cpu_set_power_off(CPU(&s->harts[idx]));
+    } else {
+        riscv_cpu_set_power_on(CPU(&s->harts[idx]));
+    }
     qdev_prop_set_uint64(DEVICE(&s->harts[idx]), "resetvec", s->resetvec);
     s->harts[idx].env.mhartid = s->hartid_base + idx;
     qemu_register_reset(riscv_harts_cpu_reset, &s->harts[idx]);

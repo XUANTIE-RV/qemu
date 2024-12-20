@@ -351,3 +351,7 @@ djmemc_write(int reg, uint64_t value, unsigned int size) "reg=0x%x value=0x%"PRI
 # iosb.c
 iosb_read(int reg, uint64_t value, unsigned int size) "reg=0x%x value=0x%"PRIx64" size=%u"
 iosb_write(int reg, uint64_t value, unsigned int size) "reg=0x%x value=0x%"PRIx64" size=%u"
+
+# riscv_iopmp.c
+iopmp_read(uint64_t addr, uint32_t val) "addr 0x%"PRIx64" val 0x%x"
+iopmp_write(uint64_t addr, uint32_t val) "addr 0x%"PRIx64" val 0x%x"

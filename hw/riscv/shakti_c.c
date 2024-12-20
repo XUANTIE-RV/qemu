@@ -122,7 +122,7 @@ static void shakti_c_soc_state_realize(DeviceState *dev, Error **errp)
         shakti_c_memmap[SHAKTI_C_PLIC].size);
 
     riscv_aclint_swi_create(shakti_c_memmap[SHAKTI_C_CLINT].base,
-        0, 1, false);
+        0, 1, false, 0);
     riscv_aclint_mtimer_create(shakti_c_memmap[SHAKTI_C_CLINT].base +
             RISCV_ACLINT_SWI_SIZE,
         RISCV_ACLINT_DEFAULT_MTIMER_SIZE, 0, 1,

@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Board name="sifive_e" arch="riscv32" cskysimv="2.0">
+    <cpu_info cpu="any" endian="little" abi="riscv32"></cpu_info>
+    <dyndev shm="on">
+        <dev name="csky_clic" filename="builtin" addr="0xe000e100" type="INTC" extra="" irq="63"></dev>
+        <dev name="csky_exit"  filename="csky_exit" addr="0x10036000" type="EXIT" extra="" irq="62"></dev>
+    </dyndev>
+    <memory>
+        <mem name="smart_inst_mem" addr="0x0" size ="0x01000000" attr ="MEM_RAM"></mem>
+        <mem name="smart_data_mem" addr="0x20000000" size ="0x01000000" attr ="MEM_RAM"></mem>
+        <mem name="smart_outchip_mem" addr="0x40000000" size ="0x01000000" attr ="MEM_RAM"></mem>
+        <mem name="smart_sys_mem" addr="0x80000000" size ="0x01000000" attr ="MEM_RAM"></mem>
+    </memory>
+    <cpu_prop>
+        <cpu name="pctrace"                 value="off"> on/off </cpu>
+        <cpu name="elrw"                    value="off"> on/off </cpu>
+        <cpu name="mem_prot"                value="mpu"> no/mmu/mpu </cpu>
+        <cpu name="unaligned_access"        value="off"> on/off </cpu>
+    </cpu_prop>
+    <Description> This file is used for dynamic configuration
+        <AutoDescription>
+            CPU Type: sifive-e31 Little Endian
+            Memory Sections:
+                smart_inst_mem, Start: 0x0, Length: 0x1000000
+                smart_data_mem, Start: 0x20000000, Length: 0x1000000
+                smart_outchip_mem, Start: 0x40000000, Length: 0x1000000
+                smart_sys_mem, Start: 0x80000000, Length: 0x1000000
+        </AutoDescription>
+    </Description>
+</Board>

@@ -18,15 +18,19 @@
  */
 
 /*
- * Zvbc
+ * Zvbc/Zvbc32e
  */
 
 #define GEN_VV_MASKED_TRANS(NAME, CHECK)                     \
     static bool trans_##NAME(DisasContext *s, arg_rmrr *a)   \
     {                                                        \
         if (CHECK(s, a)) {                                   \
+            static gen_helper_gvec_4_ptr * const fns[4] = {  \
+                NULL,                  NULL,                 \
+                gen_helper_##NAME##_w, gen_helper_##NAME##_d,\
+            };                                               \
             return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, \
-                               gen_helper_##NAME, s);        \
+                               fns[s->sew], s);              \
         }                                                    \
         return false;                                        \
     }
@@ -34,8 +38,10 @@
 static bool vclmul_vv_check(DisasContext *s, arg_rmrr *a)
 {
     return opivv_check(s, a) &&
-           s->cfg_ptr->ext_zvbc == true &&
-           s->sew == MO_64;
+           ((s->cfg_ptr->ext_zvbc == true &&
+             s->sew == MO_64) ||
+            (s->cfg_ptr->ext_zvbc32e == true &&
+             s->sew == MO_32));
 }
 
 GEN_VV_MASKED_TRANS(vclmul_vv, vclmul_vv_check)
@@ -45,8 +51,12 @@ GEN_VV_MASKED_TRANS(vclmulh_vv, vclmul_vv_check)
     static bool trans_##NAME(DisasContext *s, arg_rmrr *a)   \
     {                                                        \
         if (CHECK(s, a)) {                                   \
+            static gen_helper_opivx * const fns[4] = {       \
+                NULL,                  NULL,                 \
+                gen_helper_##NAME##_w, gen_helper_##NAME##_d,\
+            };                                               \
             return opivx_trans(a->rd, a->rs1, a->rs2, a->vm, \
-                               gen_helper_##NAME, s);        \
+                               fns[s->sew], s);              \
         }                                                    \
         return false;                                        \
     }
@@ -54,8 +64,10 @@ GEN_VV_MASKED_TRANS(vclmulh_vv, vclmul_vv_check)
 static bool vclmul_vx_check(DisasContext *s, arg_rmrr *a)
 {
     return opivx_check(s, a) &&
-           s->cfg_ptr->ext_zvbc == true &&
-           s->sew == MO_64;
+           ((s->cfg_ptr->ext_zvbc == true &&
+             s->sew == MO_64) ||
+            (s->cfg_ptr->ext_zvbc32e == true &&
+             s->sew == MO_32));
 }
 
 GEN_VX_MASKED_TRANS(vclmul_vx, vclmul_vx_check)
@@ -531,7 +543,7 @@ GEN_VI_UNMASKED_TRANS(vsm3c_vi, vsm3c_check, ZVKSH_EGS)
 
 #define ZVKG_EGS 4
 
-static bool vgmul_check(DisasContext *s, arg_rmr *a)
+static bool vgmul_vv_check(DisasContext *s, arg_rmr *a)
 {
     int egw_bytes = ZVKG_EGS << s->sew;
     return s->cfg_ptr->ext_zvkg == true &&
@@ -542,9 +554,9 @@ static bool vgmul_check(DisasContext *s, arg_rmr *a)
            s->sew == MO_32;
 }
 
-GEN_V_UNMASKED_TRANS(vgmul_vv, vgmul_check, ZVKG_EGS)
+GEN_V_UNMASKED_TRANS(vgmul_vv, vgmul_vv_check, ZVKG_EGS)
 
-static bool vghsh_check(DisasContext *s, arg_rmrr *a)
+static bool vghsh_vv_check(DisasContext *s, arg_rmrr *a)
 {
     int egw_bytes = ZVKG_EGS << s->sew;
     return s->cfg_ptr->ext_zvkg == true &&
@@ -553,7 +565,41 @@ static bool vghsh_check(DisasContext *s, arg_rmrr *a)
            s->sew == MO_32;
 }
 
-GEN_VV_UNMASKED_TRANS(vghsh_vv, vghsh_check, ZVKG_EGS)
+GEN_VV_UNMASKED_TRANS(vghsh_vv, vghsh_vv_check, ZVKG_EGS)
+
+/*
+ * Zvkgs
+ */
+
+static bool vghsh_vs_check(DisasContext *s, arg_rmrr *a)
+{
+    int egw_bytes = ZVKG_EGS << s->sew;
+    return s->cfg_ptr->ext_zvkgs == true &&
+           opivv_check(s, a) &&
+           MAXSZ(s) >= egw_bytes &&
+           s->sew == MO_32 &&
+           !is_overlapped(a->rd, 1 << MAX(s->lmul, 0), a->rs2,
+                          s->cfg_ptr->vlenb >= egw_bytes ? 1 :
+                          egw_bytes / s->cfg_ptr->vlenb);
+}
+
+GEN_VV_UNMASKED_TRANS(vghsh_vs, vghsh_vs_check, ZVKG_EGS)
+
+static bool vgmul_vs_check(DisasContext *s, arg_rmr *a)
+{
+    int egw_bytes = ZVKG_EGS << s->sew;
+    return s->cfg_ptr->ext_zvkgs == true &&
+           vext_check_isa_ill(s) &&
+           require_rvv(s) &&
+           MAXSZ(s) >= egw_bytes &&
+           vext_check_ss(s, a->rd, a->rs2, a->vm) &&
+           s->sew == MO_32 &&
+           !is_overlapped(a->rd, 1 << MAX(s->lmul, 0), a->rs2,
+                          s->cfg_ptr->vlenb >= egw_bytes ? 1 :
+                          egw_bytes / s->cfg_ptr->vlenb);
+}
+
+GEN_V_UNMASKED_TRANS(vgmul_vs, vgmul_vs_check, ZVKG_EGS)
 
 /*
  * Zvksed

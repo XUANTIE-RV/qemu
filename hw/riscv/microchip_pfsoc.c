@@ -248,7 +248,7 @@ static void microchip_pfsoc_soc_realize(DeviceState *dev, Error **errp)
 
     /* CLINT */
     riscv_aclint_swi_create(memmap[MICROCHIP_PFSOC_CLINT].base,
-        0, ms->smp.cpus, false);
+        0, ms->smp.cpus, false, 0);
     riscv_aclint_mtimer_create(
         memmap[MICROCHIP_PFSOC_CLINT].base + RISCV_ACLINT_SWI_SIZE,
         RISCV_ACLINT_DEFAULT_MTIMER_SIZE, 0, ms->smp.cpus,

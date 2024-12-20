@@ -1,0 +1,89 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2008 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.csky.abiv1.gpr">
+  <reg name="r0"  bitsize="32" regnum="0"  group="gpr"/>
+  <reg name="r1"  bitsize="32" regnum="1"  group="gpr"/>
+  <reg name="r2"  bitsize="32" regnum="2"  group="gpr"/>
+  <reg name="r3"  bitsize="32" regnum="3"  group="gpr"/>
+  <reg name="r4"  bitsize="32" regnum="4"  group="gpr"/>
+  <reg name="r5"  bitsize="32" regnum="5"  group="gpr"/>
+  <reg name="r6"  bitsize="32" regnum="6"  group="gpr"/>
+  <reg name="r7"  bitsize="32" regnum="7"  group="gpr"/>
+  <reg name="r8"  bitsize="32" regnum="8"  group="gpr"/>
+  <reg name="r9"  bitsize="32" regnum="9"  group="gpr"/>
+  <reg name="r10" bitsize="32" regnum="10" group="gpr"/>
+  <reg name="r11" bitsize="32" regnum="11" group="gpr"/>
+  <reg name="r12" bitsize="32" regnum="12" group="gpr"/>
+  <reg name="r13" bitsize="32" regnum="13" group="gpr"/>
+  <reg name="r14" bitsize="32" regnum="14" group="gpr"/>
+  <reg name="r15" bitsize="32" regnum="15" group="gpr"/>
+  <reg name="hi"  bitsize="32" regnum="20"/>
+  <reg name="lo"  bitsize="32" regnum="21"/>
+  <reg name="pc"  bitsize="32" regnum="72"/>
+  <reg name="cp1gr0"  bitsize="32" regnum="24" group="fpu"/>
+  <reg name="cp1gr1"  bitsize="32" regnum="25" group="fpu"/>
+  <reg name="cp1gr2"  bitsize="32" regnum="26" group="fpu"/>
+  <reg name="cp1gr3"  bitsize="32" regnum="27" group="fpu"/>
+  <reg name="cp1gr4"  bitsize="32" regnum="28" group="fpu"/>
+  <reg name="cp1gr5"  bitsize="32" regnum="29" group="fpu"/>
+  <reg name="cp1gr6"  bitsize="32" regnum="30" group="fpu"/>
+  <reg name="cp1gr7"  bitsize="32" regnum="31" group="fpu"/>
+  <reg name="cp1gr8"  bitsize="32" regnum="32" group="fpu"/>
+  <reg name="cp1gr9"  bitsize="32" regnum="33" group="fpu"/>
+  <reg name="cp1gr10" bitsize="32" regnum="34" group="fpu"/>
+  <reg name="cp1gr11" bitsize="32" regnum="35" group="fpu"/>
+  <reg name="cp1gr12" bitsize="32" regnum="36" group="fpu"/>
+  <reg name="cp1gr13" bitsize="32" regnum="37" group="fpu"/>
+  <reg name="cp1gr14" bitsize="32" regnum="38" group="fpu"/>
+  <reg name="cp1gr15" bitsize="32" regnum="39" group="fpu"/>
+  <reg name="cp1gr16" bitsize="32" regnum="40" group="fpu"/>
+  <reg name="cp1gr17" bitsize="32" regnum="41" group="fpu"/>
+  <reg name="cp1gr18" bitsize="32" regnum="42" group="fpu"/>
+  <reg name="cp1gr19" bitsize="32" regnum="43" group="fpu"/>
+  <reg name="cp1gr20" bitsize="32" regnum="44" group="fpu"/>
+  <reg name="cp1gr21" bitsize="32" regnum="45" group="fpu"/>
+  <reg name="cp1gr22" bitsize="32" regnum="46" group="fpu"/>
+  <reg name="cp1gr23" bitsize="32" regnum="47" group="fpu"/>
+  <reg name="cp1gr24" bitsize="32" regnum="48" group="fpu"/>
+  <reg name="cp1gr25" bitsize="32" regnum="49" group="fpu"/>
+  <reg name="cp1gr26" bitsize="32" regnum="50" group="fpu"/>
+  <reg name="cp1gr27" bitsize="32" regnum="51" group="fpu"/>
+  <reg name="cp1gr28" bitsize="32" regnum="52" group="fpu"/>
+  <reg name="cp1gr29" bitsize="32" regnum="53" group="fpu"/>
+  <reg name="cp1gr30" bitsize="32" regnum="54" group="fpu"/>
+  <reg name="cp1gr31" bitsize="32" regnum="55" group="fpu"/>
+  <reg name="psr"     bitsize="32" regnum="89"  group="cr"/>
+  <reg name="cp1cr0" bitsize="32" regnum="121" group="fcr"/>
+  <reg name="cp1cr1" bitsize="32" regnum="122" group="fcr"/>
+  <reg name="cp1cr2" bitsize="32" regnum="123" group="fcr"/>
+  <reg name="cp1cr3" bitsize="32" regnum="124" group="fcr"/>
+  <reg name="cp1cr4" bitsize="32" regnum="125" group="fcr"/>
+  <reg name="cp1cr5" bitsize="32" regnum="126" group="fcr"/>
+  <reg name="cp1cr6" bitsize="32" regnum="127" group="fcr"/>
+  <reg name="cp15cr0"  bitsize="32" regnum="128" group="mmu"/>
+  <reg name="cp15cr1"  bitsize="32" regnum="129" group="mmu"/>
+  <reg name="cp15cr2"  bitsize="32" regnum="130" group="mmu"/>
+  <reg name="cp15cr3"  bitsize="32" regnum="131" group="mmu"/>
+  <reg name="cp15cr4"  bitsize="32" regnum="132" group="mmu"/>
+  <reg name="cp15cr5"  bitsize="32" regnum="133" group="mmu"/>
+  <reg name="cp15cr6"  bitsize="32" regnum="134" group="mmu"/>
+  <reg name="cp15cr7"  bitsize="32" regnum="135" group="mmu"/>
+  <reg name="cp15cr8"  bitsize="32" regnum="136" group="mmu"/>
+  <reg name="cp15cr9"  bitsize="32" regnum="137" group="mmu"/>
+  <reg name="cp15cr10" bitsize="32" regnum="138" group="mmu"/>
+  <reg name="cp15cr11" bitsize="32" regnum="139" group="mmu"/>
+  <reg name="cp15cr12" bitsize="32" regnum="140" group="mmu"/>
+  <reg name="cp15cr13" bitsize="32" regnum="141" group="mmu"/>
+  <reg name="cp15cr14" bitsize="32" regnum="142" group="mmu"/>
+  <reg name="cp15cr15" bitsize="32" regnum="143" group="mmu"/>
+  <reg name="cp15cr16" bitsize="32" regnum="144" group="mmu"/>
+  <reg name="cp15cr29" bitsize="32" regnum="145" group="mmu"/>
+  <reg name="cp15cr30" bitsize="32" regnum="146" group="mmu"/>
+  <reg name="cp15cr31" bitsize="32" regnum="147" group="mmu"/>
+</feature>

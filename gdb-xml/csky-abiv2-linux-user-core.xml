@@ -1,0 +1,92 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2008 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.csky.abiv2.gpr">
+  <reg name="r0"  bitsize="32" regnum="0"  group="gpr"/>
+  <reg name="r1"  bitsize="32" regnum="1"  group="gpr"/>
+  <reg name="r2"  bitsize="32" regnum="2"  group="gpr"/>
+  <reg name="r3"  bitsize="32" regnum="3"  group="gpr"/>
+  <reg name="r4"  bitsize="32" regnum="4"  group="gpr"/>
+  <reg name="r5"  bitsize="32" regnum="5"  group="gpr"/>
+  <reg name="r6"  bitsize="32" regnum="6"  group="gpr"/>
+  <reg name="r7"  bitsize="32" regnum="7"  group="gpr"/>
+  <reg name="r8"  bitsize="32" regnum="8"  group="gpr"/>
+  <reg name="r9"  bitsize="32" regnum="9"  group="gpr"/>
+  <reg name="r10" bitsize="32" regnum="10" group="gpr"/>
+  <reg name="r11" bitsize="32" regnum="11" group="gpr"/>
+  <reg name="r12" bitsize="32" regnum="12" group="gpr"/>
+  <reg name="r13" bitsize="32" regnum="13" group="gpr"/>
+  <reg name="r14" bitsize="32" regnum="14" group="gpr"/>
+  <reg name="r15" bitsize="32" regnum="15" group="gpr"/>
+  <reg name="r16" bitsize="32" regnum="16" group="gpr"/>
+  <reg name="r17" bitsize="32" regnum="17" group="gpr"/>
+  <reg name="r18" bitsize="32" regnum="18" group="gpr"/>
+  <reg name="r19" bitsize="32" regnum="19" group="gpr"/>
+  <reg name="r20" bitsize="32" regnum="20" group="gpr"/>
+  <reg name="r21" bitsize="32" regnum="21" group="gpr"/>
+  <reg name="r22" bitsize="32" regnum="22" group="gpr"/>
+  <reg name="r23" bitsize="32" regnum="23" group="gpr"/>
+  <reg name="r24" bitsize="32" regnum="24" group="gpr"/>
+  <reg name="r25" bitsize="32" regnum="25" group="gpr"/>
+  <reg name="r26" bitsize="32" regnum="26" group="gpr"/>
+  <reg name="r27" bitsize="32" regnum="27" group="gpr"/>
+  <reg name="r28" bitsize="32" regnum="28" group="gpr"/>
+  <reg name="r29" bitsize="32" regnum="29" group="gpr"/>
+  <reg name="r30" bitsize="32" regnum="30" group="gpr"/>
+  <reg name="r31" bitsize="32" regnum="31" group="gpr"/>
+  <reg name="hi"  bitsize="32" regnum="36"/>
+  <reg name="lo"  bitsize="32" regnum="37"/>
+  <reg name="pc"  bitsize="32" regnum="72"/>
+  <reg name="fr0"  bitsize="64" regnum="40" group="fpu"/>
+  <reg name="fr1"  bitsize="64" regnum="41" group="fpu"/>
+  <reg name="fr2"  bitsize="64" regnum="42" group="fpu"/>
+  <reg name="fr3"  bitsize="64" regnum="43" group="fpu"/>
+  <reg name="fr4"  bitsize="64" regnum="44" group="fpu"/>
+  <reg name="fr5"  bitsize="64" regnum="45" group="fpu"/>
+  <reg name="fr6"  bitsize="64" regnum="46" group="fpu"/>
+  <reg name="fr7"  bitsize="64" regnum="47" group="fpu"/>
+  <reg name="fr8"  bitsize="64" regnum="48" group="fpu"/>
+  <reg name="fr9"  bitsize="64" regnum="49" group="fpu"/>
+  <reg name="fr10" bitsize="64" regnum="50" group="fpu"/>
+  <reg name="fr11" bitsize="64" regnum="51" group="fpu"/>
+  <reg name="fr12" bitsize="64" regnum="52" group="fpu"/>
+  <reg name="fr13" bitsize="64" regnum="53" group="fpu"/>
+  <reg name="fr14" bitsize="64" regnum="54" group="fpu"/>
+  <reg name="fr15" bitsize="64" regnum="55" group="fpu"/>
+  <reg name="vr0"  bitsize="128" regnum="56" group="fpu"/>
+  <reg name="vr1"  bitsize="128" regnum="57" group="fpu"/>
+  <reg name="vr2"  bitsize="128" regnum="58" group="fpu"/>
+  <reg name="vr3"  bitsize="128" regnum="59" group="fpu"/>
+  <reg name="vr4"  bitsize="128" regnum="60" group="fpu"/>
+  <reg name="vr5"  bitsize="128" regnum="61" group="fpu"/>
+  <reg name="vr6"  bitsize="128" regnum="62" group="fpu"/>
+  <reg name="vr7"  bitsize="128" regnum="63" group="fpu"/>
+  <reg name="vr8"  bitsize="128" regnum="64" group="fpu"/>
+  <reg name="vr9"  bitsize="128" regnum="65" group="fpu"/>
+  <reg name="vr10" bitsize="128" regnum="66" group="fpu"/>
+  <reg name="vr11" bitsize="128" regnum="67" group="fpu"/>
+  <reg name="vr12" bitsize="128" regnum="68" group="fpu"/>
+  <reg name="vr13" bitsize="128" regnum="69" group="fpu"/>
+  <reg name="vr14" bitsize="128" regnum="70" group="fpu"/>
+  <reg name="vr15" bitsize="128" regnum="71" group="fpu"/>
+  <reg name="psr"  bitsize="32"  regnum="89"  group="cr"/>
+  <reg name="fcr"  bitsize="32" regnum="121" group="fvcr"/>
+  <reg name="fid"  bitsize="32" regnum="122" group="fvcr"/>
+  <reg name="fesr" bitsize="32" regnum="123" group="fvcr"/>
+  <!--usp cr_bank1-->
+  <reg name="usp"  bitsize="32" regnum="127"/>
+  <reg name="mcr0"  bitsize="32" regnum="128" group="mmu"/>
+  <reg name="mcr2"  bitsize="32" regnum="129" group="mmu"/>
+  <reg name="mcr3"  bitsize="32" regnum="130" group="mmu"/>
+  <reg name="mcr4"  bitsize="32" regnum="131" group="mmu"/>
+  <reg name="mcr6"  bitsize="32" regnum="132" group="mmu"/>
+  <reg name="mcr8"  bitsize="32" regnum="133" group="mmu"/>
+  <reg name="mcr29" bitsize="32" regnum="134" group="mmu"/>
+  <reg name="mcr30" bitsize="32" regnum="135" group="mmu"/>
+  <reg name="mcr31" bitsize="32" regnum="136" group="mmu"/>
+</feature>

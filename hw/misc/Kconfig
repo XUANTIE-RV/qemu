@@ -213,4 +213,25 @@ config IOSB
 config XLNX_VERSAL_TRNG
     bool
 
+config RISCV_IOPMP
+    bool
+
 source macio/Kconfig
+
+config CSKY_EXIT
+    bool
+
+config XIAOHUI_CPR
+    bool
+
+config CSKY_MEMLOG
+    bool
+
+config CSKY_FFT
+    bool
+
+config CSKY_MCA
+    bool
+
+config THEAD_ASP_NNE_V1
+    bool

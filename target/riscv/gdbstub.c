@@ -20,6 +20,7 @@
 #include "exec/gdbstub.h"
 #include "gdbstub/helpers.h"
 #include "cpu.h"
+#include "internals.h"
 
 struct TypeSize {
     const char *gdb_type;
@@ -170,6 +171,38 @@ static int riscv_gdb_set_vector(CPUState *cs, uint8_t *mem_buf, int n)
     return 0;
 }
 
+static int riscv_gdb_get_matrix(CPUState *cs, GByteArray *buf, int n)
+{
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    CPURISCVState *env = &cpu->env;
+    target_ulong mlenb = get_mlenb(env);
+    if (n < 8) {
+        int i;
+        int cnt = 0;
+        for (i = 0; i < mlenb; i += 8) {
+            cnt += gdb_get_reg64(buf,
+                                 env->mreg[(n * mlenb + i) / 8]);
+        }
+        return cnt;
+    }
+    return 0;
+}
+
+static int riscv_gdb_set_matrix(CPUState *cs, uint8_t *mem_buf, int n)
+{
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    CPURISCVState *env = &cpu->env;
+    target_ulong mlenb = get_mlenb(env);
+    if (n < 8) {
+        int i;
+        for (i = 0; i < mlenb; i += 8) {
+            env->mreg[(n * mlenb + i) / 8] = ldq_p(mem_buf + i);
+        }
+        return mlenb;
+    }
+    return 0;
+}
+
 static int riscv_gdb_get_csr(CPUState *cs, GByteArray *buf, int n)
 {
     RISCVCPU *cpu = RISCV_CPU(cs);
@@ -288,7 +321,7 @@ static GDBFeature *riscv_gen_dynamic_csr_feature(CPUState *cs, int base_reg)
 static GDBFeature *ricsv_gen_dynamic_vector_feature(CPUState *cs, int base_reg)
 {
     RISCVCPU *cpu = RISCV_CPU(cs);
-    int reg_width = cpu->cfg.vlenb;
+    int reg_width = cpu->cfg.vlenb * 8;
     GDBFeatureBuilder builder;
     int i;
 
@@ -324,6 +357,45 @@ static GDBFeature *ricsv_gen_dynamic_vector_feature(CPUState *cs, int base_reg)
     return &cpu->dyn_vreg_feature;
 }
 
+static GDBFeature *ricsv_gen_dynamic_matrix_feature(CPUState *cs, int base_reg)
+{
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    GDBFeatureBuilder builder;
+    int reg_width = get_mlenb(&cpu->env) * 8;
+    int i;
+
+    gdb_feature_builder_init(&builder, &cpu->dyn_mreg_feature,
+                             "org.gnu.gdb.riscv.matrix", "riscv-matrix.xml",
+                             base_reg);
+
+
+    /* First define types and totals in a whole MLEN */
+    for (i = 0; i < ARRAY_SIZE(vec_lanes); i++) {
+        int count = reg_width / vec_lanes[i].size;
+        gdb_feature_builder_append_tag(&builder,
+                               "<vector id=\"%s\" type=\"%s\" count=\"%d\"/>",
+                               vec_lanes[i].id, vec_lanes[i].gdb_type, count);
+    }
+
+    /* Define unions */
+    gdb_feature_builder_append_tag(&builder, "<union id=\"riscv_matrix\">");
+    for (i = 0; i < ARRAY_SIZE(vec_lanes); i++) {
+        gdb_feature_builder_append_tag(&builder,
+                                       "<field name=\"%c\" type=\"%s\"/>",
+                                       vec_lanes[i].suffix,
+                                       vec_lanes[i].id);
+    }
+    gdb_feature_builder_append_tag(&builder, "</union>");
+
+    /* Define matrix registers */
+    for (i = 0; i < 8; i++) {
+        gdb_feature_builder_append_reg(&builder, g_strdup_printf("m%d", i),
+                                       reg_width, i, "riscv_matrix", "matrix");
+    }
+    gdb_feature_builder_end(&builder);
+    return &cpu->dyn_mreg_feature;
+}
+
 void riscv_cpu_register_gdb_regs_for_features(CPUState *cs)
 {
     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cs);
@@ -338,10 +410,16 @@ void riscv_cpu_register_gdb_regs_for_features(CPUState *cs)
                                  gdb_find_static_feature("riscv-32bit-fpu.xml"),
                                  0);
     }
-    if (env->misa_ext & RVV) {
+    if (cpu->cfg.ext_zve32x) {
         gdb_register_coprocessor(cs, riscv_gdb_get_vector,
                                  riscv_gdb_set_vector,
                                  ricsv_gen_dynamic_vector_feature(cs, cs->gdb_num_regs),
+                                 0);
+    }
+    if (cpu->cfg.ext_matrix) {
+        gdb_register_coprocessor(cs, riscv_gdb_get_matrix, riscv_gdb_set_matrix,
+                                 ricsv_gen_dynamic_matrix_feature(cs,
+                                                              cs->gdb_num_regs),
                                  0);
     }
     switch (mcc->misa_mxl_max) {

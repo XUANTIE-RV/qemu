@@ -116,6 +116,8 @@ typedef struct {
  * Software neural-network floating-point types.
  */
 typedef uint16_t bfloat16;
+typedef uint8_t float8e4;
+typedef uint8_t float8e5;
 
 /*
  * Software IEC/IEEE floating-point underflow tininess-detection mode.

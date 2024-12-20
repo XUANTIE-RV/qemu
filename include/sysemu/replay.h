@@ -21,6 +21,7 @@
 #include "qapi/qapi-types-ui.h"
 #include "block/aio.h"
 
+extern char dump_path[128];
 /* replay clock kinds */
 enum ReplayClockKind {
     /* host_clock */
@@ -186,5 +187,9 @@ void replay_vmstate_init(void);
 /*! Called to ensure that replay state is consistent and VM snapshot
     can be created */
 bool replay_can_snapshot(void);
+
+/* Simpoint operations */
+/*! Save every bbv event to replay log */
+void replay_save_simpoint(uint64_t);
 
 #endif

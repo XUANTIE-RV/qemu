@@ -241,7 +241,11 @@ static bool trans_fsgnj_h(DisasContext *ctx, arg_fsgnj_h *a)
 
     if (a->rs1 == a->rs2) { /* FMOV */
         if (!ctx->cfg_ptr->ext_zfinx) {
-            gen_check_nanbox_h(dest, src1);
+            if (ctx->bf16) {
+                gen_check_nanbox_bh(dest, src1);
+            } else {
+                gen_check_nanbox_h(dest, src1);
+            }
         } else {
             tcg_gen_ext16s_i64(dest, src1);
         }
@@ -251,8 +255,13 @@ static bool trans_fsgnj_h(DisasContext *ctx, arg_fsgnj_h *a)
         if (!ctx->cfg_ptr->ext_zfinx) {
             TCGv_i64 rs1 = tcg_temp_new_i64();
             TCGv_i64 rs2 = tcg_temp_new_i64();
-            gen_check_nanbox_h(rs1, src1);
-            gen_check_nanbox_h(rs2, src2);
+            if (ctx->bf16) {
+                gen_check_nanbox_bh(rs1, src1);
+                gen_check_nanbox_bh(rs2, src2);
+            } else {
+                gen_check_nanbox_h(rs1, src1);
+                gen_check_nanbox_h(rs2, src2);
+            }
 
             /* This formulation retains the nanboxing of rs2 in normal 'Zfh'. */
             tcg_gen_deposit_i64(dest, rs2, rs1, 0, 15);
@@ -278,7 +287,11 @@ static bool trans_fsgnjn_h(DisasContext *ctx, arg_fsgnjn_h *a)
 
     rs1 = tcg_temp_new_i64();
     if (!ctx->cfg_ptr->ext_zfinx) {
-        gen_check_nanbox_h(rs1, src1);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(rs1, src1);
+        } else {
+            gen_check_nanbox_h(rs1, src1);
+        }
     } else {
         tcg_gen_mov_i64(rs1, src1);
     }
@@ -290,7 +303,11 @@ static bool trans_fsgnjn_h(DisasContext *ctx, arg_fsgnjn_h *a)
         rs2 = tcg_temp_new_i64();
 
         if (!ctx->cfg_ptr->ext_zfinx) {
-            gen_check_nanbox_h(rs2, src2);
+            if (ctx->bf16) {
+                gen_check_nanbox_bh(rs2, src2);
+            } else {
+                gen_check_nanbox_h(rs2, src2);
+            }
         } else {
             tcg_gen_mov_i64(rs2, src2);
         }
@@ -325,7 +342,11 @@ static bool trans_fsgnjx_h(DisasContext *ctx, arg_fsgnjx_h *a)
 
     rs1 = tcg_temp_new_i64();
     if (!ctx->cfg_ptr->ext_zfinx) {
-        gen_check_nanbox_h(rs1, src1);
+        if (ctx->bf16) {
+            gen_check_nanbox_bh(rs1, src1);
+        } else {
+            gen_check_nanbox_h(rs1, src1);
+        }
     } else {
         tcg_gen_mov_i64(rs1, src1);
     }
@@ -337,7 +358,11 @@ static bool trans_fsgnjx_h(DisasContext *ctx, arg_fsgnjx_h *a)
         rs2 = tcg_temp_new_i64();
 
         if (!ctx->cfg_ptr->ext_zfinx) {
-            gen_check_nanbox_h(rs2, src2);
+            if (ctx->bf16) {
+                gen_check_nanbox_bh(rs2, src2);
+            } else {
+                gen_check_nanbox_h(rs2, src2);
+            }
         } else {
             tcg_gen_mov_i64(rs2, src2);
         }
@@ -506,7 +531,11 @@ static bool trans_fclass_h(DisasContext *ctx, arg_fclass_h *a)
     TCGv dest = dest_gpr(ctx, a->rd);
     TCGv_i64 src1 = get_fpr_hs(ctx, a->rs1);
 
-    gen_helper_fclass_h(dest, tcg_env, src1);
+    if (ctx->bf16) {
+        gen_helper_fclass_bh(dest, tcg_env, src1);
+    } else {
+        gen_helper_fclass_h(dest, tcg_env, src1);
+    }
     gen_set_gpr(ctx, a->rd, dest);
     return true;
 }

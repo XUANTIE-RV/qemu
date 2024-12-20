@@ -31,6 +31,9 @@
 #include "migration/vmstate.h"
 #include "hw/irq.h"
 #include "sysemu/kvm.h"
+#if !defined(CONFIG_USER_ONLY)
+#include "hw/intc/xt_clic.h"
+#endif
 
 static bool addr_between(uint32_t addr, uint32_t base, uint32_t num)
 {
@@ -125,9 +128,21 @@ static void sifive_plic_update(SiFivePLICState *plic)
         switch (mode) {
         case PLICMode_M:
             qemu_set_irq(plic->m_external_irqs[hartid - plic->hartid_base], level);
+            if (plic->m_external_irqs[plic->num_harts + hartid -
+                plic->hartid_base]) {
+                qemu_set_irq(plic->m_external_irqs[plic->num_harts + hartid -
+                                                   plic->hartid_base], level);
+
+            }
             break;
         case PLICMode_S:
             qemu_set_irq(plic->s_external_irqs[hartid - plic->hartid_base], level);
+            if (plic->s_external_irqs[plic->num_harts + hartid -
+                plic->hartid_base]) {
+                qemu_set_irq(plic->s_external_irqs[plic->num_harts + hartid -
+                                                   plic->hartid_base], level);
+
+            }
             break;
         default:
             break;
@@ -278,7 +293,13 @@ static void sifive_plic_reset(DeviceState *dev)
 
     for (i = 0; i < s->num_harts; i++) {
         qemu_set_irq(s->m_external_irqs[i], 0);
+        if (s->m_external_irqs[i + s->num_harts]) {
+            qemu_set_irq(s->m_external_irqs[i + s->num_harts], 0);
+        }
         qemu_set_irq(s->s_external_irqs[i], 0);
+        if (s->s_external_irqs[i + s->num_harts]) {
+            qemu_set_irq(s->s_external_irqs[i + s->num_harts], 0);
+        }
     }
 }
 
@@ -379,11 +400,11 @@ static void sifive_plic_realize(DeviceState *dev, Error **errp)
 
     qdev_init_gpio_in(dev, sifive_plic_irq_request, s->num_sources);
 
-    s->s_external_irqs = g_malloc(sizeof(qemu_irq) * s->num_harts);
-    qdev_init_gpio_out(dev, s->s_external_irqs, s->num_harts);
+    s->s_external_irqs = g_malloc(sizeof(qemu_irq) * s->num_harts * 2);
+    qdev_init_gpio_out(dev, s->s_external_irqs, 2 * s->num_harts);
 
-    s->m_external_irqs = g_malloc(sizeof(qemu_irq) * s->num_harts);
-    qdev_init_gpio_out(dev, s->m_external_irqs, s->num_harts);
+    s->m_external_irqs = g_malloc(sizeof(qemu_irq) * s->num_harts * 2);
+    qdev_init_gpio_out(dev, s->m_external_irqs, 2 * s->num_harts);
 
     /*
      * We can't allow the supervisor to control SEIP as this would allow the
@@ -443,6 +464,9 @@ static Property sifive_plic_properties[] = {
 static void sifive_plic_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
+    set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
+    dc->desc = "cskysim type: INTC";
+    dc->user_creatable = true;
 
     dc->reset = sifive_plic_reset;
     device_class_set_props(dc, sifive_plic_properties);
@@ -500,14 +524,30 @@ DeviceState *sifive_plic_create(hwaddr addr, char *hart_config,
     for (i = 0; i < plic->num_addrs; i++) {
         int cpu_num = plic->addr_config[i].hartid;
         CPUState *cpu = qemu_get_cpu(cpu_num);
+        RISCVCPU *rvcpu = RISCV_CPU(cpu);
+        CPURISCVState *env = &rvcpu->env;
+        XTCLICState *clic = env->clic;
+        int n =  cpu_num - hartid_base;
 
         if (plic->addr_config[i].mode == PLICMode_M) {
-            qdev_connect_gpio_out(dev, cpu_num - hartid_base + num_harts,
+            qdev_connect_gpio_out(dev, n + 2 * num_harts,
                                   qdev_get_gpio_in(DEVICE(cpu), IRQ_M_EXT));
+            if (clic) {
+                qdev_connect_gpio_out(dev, n + 3 * num_harts,
+                                      qdev_get_gpio_in(DEVICE(clic),
+                                          n * (clic->num_sources) +
+                                          IRQ_M_EXT));
+            }
         }
         if (plic->addr_config[i].mode == PLICMode_S) {
-            qdev_connect_gpio_out(dev, cpu_num - hartid_base,
+            qdev_connect_gpio_out(dev, n,
                                   qdev_get_gpio_in(DEVICE(cpu), IRQ_S_EXT));
+            if (clic) {
+                qdev_connect_gpio_out(dev, n + num_harts,
+                                      qdev_get_gpio_in(DEVICE(clic),
+                                          n * (clic->num_sources) +
+                                          IRQ_S_EXT));
+            }
         }
     }
 

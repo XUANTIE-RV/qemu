@@ -295,6 +295,44 @@ bool bfloat16_is_quiet_nan(bfloat16 a_, float_status *status)
 }
 
 /*----------------------------------------------------------------------------
+| Returns 1 if the float8e4 value `a' is a quiet
+| NaN; otherwise returns 0.
+*----------------------------------------------------------------------------*/
+
+bool float8e4_is_quiet_nan(float8e4 a_, float_status *status)
+{
+    if (no_signaling_nans(status)) {
+        return float8e4_is_any_nan(a_);
+    } else {
+        uint8_t a = a_;
+        if (snan_bit_is_one(status)) {
+            return (((a >> 2) & 0x1F) == 0x1E) && (a & 0x3);
+        } else {
+            return ((a >> 2) & 0x1F) == 0x1F;
+        }
+    }
+}
+
+/*----------------------------------------------------------------------------
+| Returns 1 if the float8e5 value `a' is a quiet
+| NaN; otherwise returns 0.
+*----------------------------------------------------------------------------*/
+
+bool float8e5_is_quiet_nan(float8e5 a_, float_status *status)
+{
+    if (no_signaling_nans(status)) {
+        return float8e5_is_any_nan(a_);
+    } else {
+        uint8_t a = a_;
+        if (snan_bit_is_one(status)) {
+            return (((a >> 1) & 0x3F) == 0x3E) && (a & 0x1);
+        } else {
+            return ((a >> 1) & 0x3F) == 0x3F;
+        }
+    }
+}
+
+/*----------------------------------------------------------------------------
 | Returns 1 if the half-precision floating-point value `a' is a signaling
 | NaN; otherwise returns 0.
 *----------------------------------------------------------------------------*/
@@ -328,6 +366,44 @@ bool bfloat16_is_signaling_nan(bfloat16 a_, float_status *status)
             return ((a >> 6) & 0x1FF) == 0x1FF;
         } else {
             return (((a >> 6) & 0x1FF) == 0x1FE) && (a & 0x3F);
+        }
+    }
+}
+
+/*----------------------------------------------------------------------------
+| Returns 1 if the float8e4 value `a' is a signaling
+| NaN; otherwise returns 0.
+*----------------------------------------------------------------------------*/
+
+bool float8e4_is_signaling_nan(float8e4 a_, float_status *status)
+{
+    if (no_signaling_nans(status)) {
+        return 0;
+    } else {
+        uint8_t a = a_;
+        if (snan_bit_is_one(status)) {
+            return ((a >> 2) & 0x1F) == 0x1F;
+        } else {
+            return (((a >> 2) & 0x1F) == 0x1E) && (a & 0x3);
+        }
+    }
+}
+
+/*----------------------------------------------------------------------------
+| Returns 1 if the float8e5 value `a' is a signaling
+| NaN; otherwise returns 0.
+*----------------------------------------------------------------------------*/
+
+bool float8e5_is_signaling_nan(float8e5 a_, float_status *status)
+{
+    if (no_signaling_nans(status)) {
+        return 0;
+    } else {
+        uint8_t a = a_;
+        if (snan_bit_is_one(status)) {
+            return ((a >> 1) & 0x3F) == 0x3F;
+        } else {
+            return (((a >> 1) & 0x3F) == 0x3E) && (a & 0x1);
         }
     }
 }

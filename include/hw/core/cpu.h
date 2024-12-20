@@ -32,6 +32,7 @@
 #include "qemu/queue.h"
 #include "qemu/thread.h"
 #include "qom/object.h"
+#include "exec/pctrace.h"
 
 typedef int (*WriteCoreDumpFunction)(const void *buf, size_t size,
                                      void *opaque);
@@ -180,6 +181,10 @@ struct CPUClass {
      * class data that depends on the accelerator, see accel/accel-common.c.
      */
     void (*init_accel_cpu)(struct AccelCPUClass *accel_cpu, CPUClass *cc);
+    bool (*has_pctrace)(CPUState *cpu);
+    uint32_t (*get_pcbits)(CPUState *cpu);
+    uint32_t (*get_pcindex)(CPUState *cpu);
+    struct csky_trace_info *(*get_pcinfo)(CPUState *cpu);
 
     /*
      * Keep non-pointer data at the end to minimize holes.
@@ -567,6 +572,7 @@ struct CPUState {
 
     /* track IOMMUs whose translations we've cached in the TCG TLB */
     GArray *iommu_notifiers;
+    uint32_t csky_trace_features;
 
     /*
      * MUST BE LAST in order to minimize the displacement to CPUArchState.
@@ -827,6 +833,70 @@ static inline bool cpu_has_work(CPUState *cpu)
 
     g_assert(cc->has_work);
     return cc->has_work(cpu);
+}
+
+/**
+ * cpu_has_pctrace:
+ * @cpu: The vCPU to check.
+ *
+ * Checks whether the CPU has pctrace support.
+ *
+ * Returns: %true if the CPU suppot pctrace, %false otherwise.
+ */
+static inline bool cpu_has_pctrace(CPUState *cpu)
+{
+    CPUClass *cc = CPU_GET_CLASS(cpu);
+
+    g_assert(cc->has_pctrace);
+    return cc->has_pctrace(cpu);
+}
+
+/**
+ * cpu_get_pcbits:
+ * @cpu: The vCPU to check.
+ *
+ * Get CPU pc trace unit length in bits.
+ *
+ * Returns: 0 if the CPU does not suppot pctrace.
+ */
+static inline uint32_t cpu_get_pcbits(CPUState *cpu)
+{
+    CPUClass *cc = CPU_GET_CLASS(cpu);
+
+    g_assert(cc->get_pcbits);
+    return cc->get_pcbits(cpu);
+}
+
+/**
+ * cpu_get_pcindex:
+ * @cpu: The vCPU to check.
+ *
+ * Get CPU pc trace index.
+ *
+ * Returns: 0 if the CPU does not suppot pctrace.
+ */
+static inline uint32_t cpu_get_pcindex(CPUState *cpu)
+{
+    CPUClass *cc = CPU_GET_CLASS(cpu);
+
+    g_assert(cc->get_pcindex);
+    return cc->get_pcindex(cpu);
+}
+
+/**
+ * cpu_get_pcinfo:
+ * @cpu: The vCPU to check.
+ *
+ * Get CPU pc trace struct info.
+ *
+ * Returns: NULL if the CPU does not suppot pctrace.
+ */
+static inline struct csky_trace_info *cpu_get_pcinfo(CPUState *cpu)
+{
+    CPUClass *cc = CPU_GET_CLASS(cpu);
+
+    g_assert(cc->get_pcinfo);
+    return cc->get_pcinfo(cpu);
 }
 
 /**

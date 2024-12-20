@@ -404,6 +404,7 @@ int gdbserver_start(const char *device)
     gdbserver_state.state = chr ? RS_IDLE : RS_INACTIVE;
     gdbserver_system_state.mon_chr = mon_chr;
     gdb_syscall_reset();
+    is_gdbserver_start = true;
 
     return 0;
 }

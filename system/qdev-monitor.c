@@ -144,7 +144,12 @@ static bool qdev_class_has_alias(DeviceClass *dc)
 
 static void qdev_print_devinfo(DeviceClass *dc)
 {
-    qemu_printf("name \"%s\"", object_class_get_name(OBJECT_CLASS(dc)));
+    if (!strcmp(object_class_get_name(OBJECT_CLASS(dc)), "riscv.sifive.plic")) {
+        qemu_printf("name \"csky_plic\"");
+    } else {
+        qemu_printf("name \"%s\"", object_class_get_name(OBJECT_CLASS(dc)));
+    }
+
     if (dc->bus_type) {
         qemu_printf(", bus %s", dc->bus_type);
     }
@@ -173,6 +178,7 @@ static void qdev_print_devinfos(bool show_no_user)
         [DEVICE_CATEGORY_MISC]    = "Misc",
         [DEVICE_CATEGORY_CPU]     = "CPU",
         [DEVICE_CATEGORY_WATCHDOG]= "Watchdog",
+        [DEVICE_CATEGORY_CSKY]    = "CSKY",
         [DEVICE_CATEGORY_MAX]     = "Uncategorized",
     };
     GSList *list, *elt;

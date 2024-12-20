@@ -42,6 +42,7 @@
 #include "sysemu/runstate.h"
 #include "exec/replay-core.h"
 #include "exec/hwaddr.h"
+#include "exec/pctrace.h"
 
 #include "internals.h"
 
@@ -53,6 +54,7 @@ typedef struct GDBRegisterState {
 } GDBRegisterState;
 
 GDBState gdbserver_state;
+bool is_gdbserver_start = false;
 
 void gdb_init_gdbserver_state(void)
 {
@@ -954,6 +956,129 @@ typedef struct GdbCmdParseEntry {
     const char *schema;
     bool allow_stop_reply;
 } GdbCmdParseEntry;
+
+static inline uint32_t get_next_pctrace_index(uint32_t index)
+{
+    if (index == 0) {
+        return TB_TRACE_NUM - 1;
+    } else {
+        return index - 1;
+    }
+}
+
+static int gdb_read_pctrace(uint8_t *mem_buf,
+                            int mem_len, unsigned int num)
+{
+    CPUState *cpu = gdbserver_state.g_cpu;
+    uint32_t pcbits = cpu_get_pcbits(cpu);
+    struct csky_trace_info *trace_info = cpu_get_pcinfo(cpu);
+    uint32_t pcindex = cpu_get_pcindex(cpu);
+    if (cpu_has_pctrace(cpu)) {
+        uint32_t pcbytes = pcbits / 8;
+        uint32_t index = (pcindex - 1) % TB_TRACE_NUM;
+        uint32_t i, j = 0;
+        int len = 0;
+        uint8_t *addr = mem_buf;
+
+        if ((num + 1) * pcbytes > mem_len) {
+            num = mem_len / pcbytes - 1;
+        }
+        *(uint32_t *)(addr + len) = pcbytes;
+        len += 4;
+
+        for (i = 0; i < num; i++) {
+            /* Traverse the ring buffer */
+            while (j < TB_TRACE_NUM) {
+                j++;
+
+                if (!trace_info[index].notjmp) { /* Find a jump pc */
+                    if (pcbytes == 8) {
+                        *(uint64_t *)(addr + len) = trace_info[index].tb_pc;
+                    } else {
+                        *(uint32_t *)(addr + len) = trace_info[index].tb_pc &
+                                                    UINT32_MAX;
+                    }
+                    len += pcbytes;
+                    index = get_next_pctrace_index(index);
+                    break;
+                }
+                index = get_next_pctrace_index(index);
+            }
+            if (j == TB_TRACE_NUM) { /* Not record enough pc trace */
+                break;
+            }
+        }
+
+        return len;
+    } else {
+        return -1;
+    }
+}
+
+static int gdb_handle_packet_usr_do_pctrace(const char *line_buf)
+{
+    g_autoptr(GString) hexbuf = g_string_new("");
+    uint8_t mem_buf[MAX_PACKET_LENGTH] = {0};
+
+    unsigned long num = 0;
+    const char *p = line_buf;
+    int ch = *p++;
+
+    switch (ch) {
+    case ' ':
+        if (*p == '\0') {
+            break;
+        }
+        qemu_strtoul(p, &p, 10, &num);
+        break;
+    default:
+        break;
+    }
+
+    int len = 0;
+    len = gdb_read_pctrace(mem_buf, MAX_PACKET_LENGTH / 2, num);
+    if (!len) {
+        return -1;
+    }
+
+    gdb_memtohex(hexbuf, mem_buf, len);
+    gdb_put_packet(hexbuf->str);
+
+    return 0;
+}
+
+typedef int (*cmd_cb)(const char *line_buf);
+struct {
+    const char *cmd;
+    cmd_cb cmd_do;
+    int ignored;
+} gdb_handle_packet_usr_tab[] = {
+    {"pctrace", gdb_handle_packet_usr_do_pctrace, 0},
+};
+
+static void handle_gen_usr(GArray *params, void *user_ctx)
+{
+    int ret = -1;
+    const char *p = get_param(params, 0)->data;
+    int i = 0;
+    int size = ARRAY_SIZE(gdb_handle_packet_usr_tab);
+
+    for (i = 0; i < size; i++) {
+        int len = strlen(gdb_handle_packet_usr_tab[i].cmd);
+        const char *cmd = gdb_handle_packet_usr_tab[i].cmd;
+
+        if (!strncmp(cmd, p, len)) {
+            if (!gdb_handle_packet_usr_tab[i].ignored
+                && gdb_handle_packet_usr_tab[i].cmd_do) {
+                ret = gdb_handle_packet_usr_tab[i].cmd_do(p + len);
+            }
+            break;
+        }
+    }
+    if (ret != 0) {
+        gdb_put_packet("");
+    }
+}
 
 static inline int startswith(const char *string, const char *pattern)
 {
@@ -2173,6 +2298,17 @@ static int gdb_handle_packet(const char *line_buf)
                 .schema = "s0"
             };
             cmd_parser = &gen_set_cmd_desc;
+        }
+        break;
+    case 'u':
+        {
+            static const GdbCmdParseEntry gen_usr_cmd_desc = {
+                .handler = handle_gen_usr,
+                .cmd = "u",
+                .cmd_startswith = 1,
+                .schema = "s0"
+            };
+            cmd_parser = &gen_usr_cmd_desc;
         }
         break;
     default:

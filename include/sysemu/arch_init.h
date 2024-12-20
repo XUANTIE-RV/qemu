@@ -25,6 +25,7 @@ enum {
     QEMU_ARCH_AVR = (1 << 21),
     QEMU_ARCH_HEXAGON = (1 << 22),
     QEMU_ARCH_LOONGARCH = (1 << 23),
+    QEMU_ARCH_CSKY = (1 << 24),
 };
 
 extern const uint32_t arch_type;

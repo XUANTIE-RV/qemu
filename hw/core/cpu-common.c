@@ -141,6 +141,26 @@ static bool cpu_common_has_work(CPUState *cs)
     return false;
 }
 
+static bool cpu_common_has_pctrace(CPUState *cs)
+{
+    return false;
+}
+
+static uint32_t cpu_common_get_pcbits(CPUState *cs)
+{
+    return 0;
+}
+
+static uint32_t cpu_common_get_pcindex(CPUState *cs)
+{
+    return 0;
+}
+
+static struct csky_trace_info *cpu_common_get_pcinfo(CPUState *cs)
+{
+    return NULL;
+}
+
 ObjectClass *cpu_class_by_name(const char *typename, const char *cpu_model)
 {
     ObjectClass *oc;
@@ -289,6 +309,10 @@ static void cpu_common_class_init(ObjectClass *klass, void *data)
     k->parse_features = cpu_common_parse_features;
     k->get_arch_id = cpu_common_get_arch_id;
     k->has_work = cpu_common_has_work;
+    k->has_pctrace = cpu_common_has_pctrace;
+    k->get_pcbits = cpu_common_get_pcbits;
+    k->get_pcindex = cpu_common_get_pcindex;
+    k->get_pcinfo = cpu_common_get_pcinfo;
     k->gdb_read_register = cpu_common_gdb_read_register;
     k->gdb_write_register = cpu_common_gdb_write_register;
     set_bit(DEVICE_CATEGORY_CPU, dc->categories);

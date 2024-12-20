@@ -183,3 +183,40 @@ th_sync          0000000 11000 00000 000 00000 0001011
 th_sync_i        0000000 11010 00000 000 00000 0001011
 th_sync_is       0000000 11011 00000 000 00000 0001011
 th_sync_s        0000000 11001 00000 000 00000 0001011
+
+# XTheadIsr
+ipush      0000000  00100 00000 000 00000 0001011
+ipop       0000000  00101 00000 000 00000 0001011
+
+# XTheadCp
+th_cpx0 index:2 00000     imm1:5    rs1:5    000 imm2:5    0101011 #th_cpx0
+th_cpx1 index:2 00001     00000     rs1:5    000 00000     0101011 #th_cpx1
+th_cpx2 index:2 00000     uimm5:5   rs1:5    001 rd:5      0101011 #th_cpx2
+th_cpx3 index:2 00001     00000     rs1:5    001 rd:5      0101011 #th_cpx3
+th_cpx4 index:2 00010     rs2:5     rs1:5    000 uimm5:5   0101011 #th_cpx4
+th_cpx5 index:2 00011     rs2:5     rs1:5    000 00000     0101011 #th_cpx5
+th_cpx6 index:2 00010     rs2:5     rs1:5    001 rd:5      0101011 #th_cpx6
+th_cpx7 index:2 00100     rs2:5     rs1:5    000 rd:5      0101011 #th_cpx7
+th_cpx8 index:2 00011     rs2:5     rs1:5    001 rd:5      0101011 #th_cpx8
+th_cpx9 index:2 imm:10              rs1:5    111 rd:5      0101011 #th_cpx9
+th_cpx10 index:2 00101     imm:10             001 rd:5      0101011 #th_cpx10
+
+th_vcpx0 index:2 0000 vm:1 vs2:5 00000    010 00000     0101011 #th_vcpx0
+th_vcpx1 index:2 0000 vm:1 vs2:5 00000    011 vd:5      0101011 #th_vcpx1
+th_vcpx2 index:2 0001 vm:1 vs2:5 uimm5:5  010 00000     0101011 #th_vcpx2
+th_vcpx3 index:2 0001 vm:1 vs2:5 uimm5:5  011 vd:5      0101011 #th_vcpx3
+th_vcpx4 index:2 0010 vm:1 vs2:5 vs1:5    010 vd:5      0101011 #th_vcpx4
+th_vcpx5 index:2 0010 vm:1 vs2:5 vs1:5    011 vd:5      0101011 #th_vcpx5
+th_vcpx6 index:2 0011 vm:1 vs2:5 rs1:5    010 vd:5      0101011 #th_vcpx6
+th_vcpx7 index:2 0011 vm:1 vs2:5 rs1:5    011 vd:5      0101011 #th_vcpx7
+th_vcpx8 index:2 0100 vm:1 vs2:5 uimm5:5  010 vd:5      0101011 #th_vcpx8
+th_vcpx9 index:2 0101 vm:1 vs2:5 fs1:5    010 vd:5      0101011 #th_vcpx9
+th_vcpx10 index:2 0101 vm:1 vs2:5 fs1:5    011 vd:5      0101011 #th_vcpx10
+
+th_fcpx0 index:2 00000     00000 fs1:5    100 00000     0101011 #th_fcpx0
+th_fcpx1 index:2 00000     00000 fs1:5    101 fd:5      0101011 #th_fcpx1
+th_fcpx2 index:2 00001     fs2:5 fs1:5    100 00000     0101011 #th_fcpx2
+th_fcpx3 index:2 00001     fs2:5 fs1:5    101 fd:5      0101011 #th_fcpx3
+th_fcpx4 index:2 00010     fs2:5 fs1:5    100 fd:5      0101011 #th_fcpx4
+th_fcpx5 index:2 00010     fs2:5 fs1:5    101 fd:5      0101011 #th_fcpx5
+th_fcpx6 index:2 00011     fs2:5 imm:5    101 fd:5      0101011 #th_fcpx6

@@ -44,3 +44,7 @@ config VHOST_USER_BLK
 
 config SWIM
     bool
+
+config CSKY_NAND
+    bool
+    select NAND

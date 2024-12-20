@@ -81,6 +81,12 @@ config SIFIVE_PLIC
     bool
     select MSI_NONBROKEN
 
+config RISCV_CLIC
+    bool
+
+config XT_CLIC
+    bool
+
 config GOLDFISH_PIC
     bool
 
@@ -103,4 +109,16 @@ config LOONGARCH_PCH_MSI
     select UNIMP
 
 config LOONGARCH_EXTIOI
+    bool
+
+config THEAD_CLINT
+    bool
+
+config CSKY_TCIP
+    bool
+
+config CSKY_INTC
+    bool
+
+config CSKY_MIC
     bool

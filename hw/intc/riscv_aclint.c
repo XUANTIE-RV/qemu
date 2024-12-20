@@ -33,6 +33,9 @@
 #include "qemu/timer.h"
 #include "hw/irq.h"
 #include "migration/vmstate.h"
+#if !defined(CONFIG_USER_ONLY)
+#include "hw/intc/xt_clic.h"
+#endif
 
 typedef struct riscv_aclint_mtimer_callback {
     RISCVAclintMTimerState *s;
@@ -76,11 +79,17 @@ static void riscv_aclint_mtimer_write_timecmp(RISCVAclintMTimerState *mtimer,
          * immediately raise the timer interrupt
          */
         qemu_irq_raise(mtimer->timer_irqs[hartid]);
+        if (mtimer->timer_irqs[hartid + mtimer->num_harts]) {
+            qemu_irq_raise(mtimer->timer_irqs[hartid + mtimer->num_harts]);
+        }
         return;
     }
 
     /* otherwise, set up the future timer interrupt */
     qemu_irq_lower(mtimer->timer_irqs[hartid]);
+    if (mtimer->timer_irqs[hartid + mtimer->num_harts]) {
+        qemu_irq_lower(mtimer->timer_irqs[hartid + mtimer->num_harts]);
+    }
     diff = mtimer->timecmp[hartid] - rtc;
     /* back to ns (note args switched in muldiv64) */
     uint64_t ns_diff = muldiv64(diff, NANOSECONDS_PER_SECOND, timebase_freq);
@@ -118,6 +127,9 @@ static void riscv_aclint_mtimer_cb(void *opaque)
     riscv_aclint_mtimer_callback *state = opaque;
 
     qemu_irq_raise(state->s->timer_irqs[state->num]);
+    if (state->s->timer_irqs[state->num + state->s->num_harts]) {
+        qemu_irq_raise(state->s->timer_irqs[state->num + state->s->num_harts]);
+    }
 }
 
 /* CPU read MTIMER register */
@@ -148,11 +160,12 @@ static uint64_t riscv_aclint_mtimer_read(void *opaque, hwaddr addr,
                           "aclint-mtimer: invalid read: %08x", (uint32_t)addr);
             return 0;
         }
-    } else if (addr == mtimer->time_base) {
+    } else if ((mtimer->time_base != UINT32_MAX) && addr == mtimer->time_base) {
         /* time_lo for RV32/RV64 or timecmp for RV64 */
         uint64_t rtc = cpu_riscv_read_rtc(mtimer);
         return (size == 4) ? (rtc & 0xFFFFFFFF) : rtc;
-    } else if (addr == mtimer->time_base + 4) {
+    } else if ((mtimer->time_base != UINT32_MAX)
+                && addr == mtimer->time_base + 4) {
         /* time_hi */
         return (cpu_riscv_read_rtc(mtimer) >> 32) & 0xFFFFFFFF;
     }
@@ -206,7 +219,8 @@ static void riscv_aclint_mtimer_write(void *opaque, hwaddr addr,
                           (uint32_t)addr);
         }
         return;
-    } else if (addr == mtimer->time_base || addr == mtimer->time_base + 4) {
+    } else if ((mtimer->time_base != UINT32_MAX) &&
+               (addr == mtimer->time_base || addr == mtimer->time_base + 4)) {
         uint64_t rtc_r = cpu_riscv_read_rtc_raw(mtimer->timebase_freq);
         uint64_t rtc = cpu_riscv_read_rtc(mtimer);
 
@@ -286,15 +300,16 @@ static void riscv_aclint_mtimer_realize(DeviceState *dev, Error **errp)
                           s, TYPE_RISCV_ACLINT_MTIMER, s->aperture_size);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->mmio);
 
-    s->timer_irqs = g_new(qemu_irq, s->num_harts);
-    qdev_init_gpio_out(dev, s->timer_irqs, s->num_harts);
+    s->timer_irqs = g_new(qemu_irq, s->num_harts * 2);
+    qdev_init_gpio_out(dev, s->timer_irqs, s->num_harts * 2);
 
     s->timers = g_new0(QEMUTimer *, s->num_harts);
     s->timecmp = g_new0(uint64_t, s->num_harts);
     /* Claim timer interrupt bits */
     for (i = 0; i < s->num_harts; i++) {
         RISCVCPU *cpu = RISCV_CPU(cpu_by_arch_id(s->hartid_base + i));
-        if (riscv_cpu_claim_interrupts(cpu, MIP_MTIP) < 0) {
+        if (riscv_cpu_claim_interrupts(cpu, s->time_base == UINT32_MAX ?
+                                       MIP_STIP : MIP_MTIP) < 0) {
             error_report("MTIP already claimed");
             exit(1);
         }
@@ -361,7 +376,9 @@ DeviceState *riscv_aclint_mtimer_create(hwaddr addr, hwaddr size,
     assert(num_harts <= RISCV_ACLINT_MAX_HARTS);
     assert(!(addr & 0x7));
     assert(!(timecmp_base & 0x7));
-    assert(!(time_base & 0x7));
+    if (time_base != UINT32_MAX) {
+        assert(!(time_base & 0x7));
+    }
 
     qdev_prop_set_uint32(dev, "hartid-base", hartid_base);
     qdev_prop_set_uint32(dev, "num-harts", num_harts);
@@ -391,10 +408,20 @@ DeviceState *riscv_aclint_mtimer_create(hwaddr addr, hwaddr size,
         cb->num = i;
         s->timers[i] = timer_new_ns(QEMU_CLOCK_VIRTUAL,
                                   &riscv_aclint_mtimer_cb, cb);
-        s->timecmp[i] = 0;
+        s->timecmp[i] = UINT64_MAX;
 
         qdev_connect_gpio_out(dev, i,
-                              qdev_get_gpio_in(DEVICE(rvcpu), IRQ_M_TIMER));
+                              qdev_get_gpio_in(DEVICE(rvcpu),
+                              time_base == UINT32_MAX ? IRQ_S_TIMER :
+                                                        IRQ_M_TIMER));
+        if (env->clic) {
+            XTCLICState *clic = env->clic;
+            int s_timer = i * (clic->num_sources) + IRQ_S_TIMER;
+            int m_timer = i * (clic->num_sources) + IRQ_M_TIMER;
+            qdev_connect_gpio_out(dev, num_harts + i,
+                    qdev_get_gpio_in(DEVICE(clic),
+                        time_base == UINT32_MAX ? s_timer : m_timer));
+        }
     }
 
     return dev;
@@ -439,9 +466,19 @@ static void riscv_aclint_swi_write(void *opaque, hwaddr addr, uint64_t value,
         } else if ((addr & 0x3) == 0) {
             if (value & 0x1) {
                 qemu_irq_raise(swi->soft_irqs[hartid - swi->hartid_base]);
+                if (swi->soft_irqs[swi->num_harts + hartid -
+                    swi->hartid_base]) {
+                    qemu_irq_raise(swi->soft_irqs[swi->num_harts + hartid -
+                                                  swi->hartid_base]);
+                }
             } else {
                 if (!swi->sswi) {
                     qemu_irq_lower(swi->soft_irqs[hartid - swi->hartid_base]);
+                    if (swi->soft_irqs[swi->num_harts + hartid -
+                        swi->hartid_base]) {
+                        qemu_irq_lower(swi->soft_irqs[swi->num_harts + hartid -
+                                                      swi->hartid_base]);
+                    }
                 }
             }
             return;
@@ -466,6 +503,8 @@ static Property riscv_aclint_swi_properties[] = {
     DEFINE_PROP_UINT32("hartid-base", RISCVAclintSwiState, hartid_base, 0),
     DEFINE_PROP_UINT32("num-harts", RISCVAclintSwiState, num_harts, 1),
     DEFINE_PROP_UINT32("sswi", RISCVAclintSwiState, sswi, false),
+    DEFINE_PROP_UINT32("swi-size", RISCVAclintSwiState, swi_size,
+                       RISCV_ACLINT_SWI_SIZE),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -475,11 +514,11 @@ static void riscv_aclint_swi_realize(DeviceState *dev, Error **errp)
     int i;
 
     memory_region_init_io(&swi->mmio, OBJECT(dev), &riscv_aclint_swi_ops, swi,
-                          TYPE_RISCV_ACLINT_SWI, RISCV_ACLINT_SWI_SIZE);
+                          TYPE_RISCV_ACLINT_SWI, swi->swi_size);
     sysbus_init_mmio(SYS_BUS_DEVICE(dev), &swi->mmio);
 
-    swi->soft_irqs = g_new(qemu_irq, swi->num_harts);
-    qdev_init_gpio_out(dev, swi->soft_irqs, swi->num_harts);
+    swi->soft_irqs = g_new(qemu_irq, 2 * swi->num_harts);
+    qdev_init_gpio_out(dev, swi->soft_irqs, 2 * swi->num_harts);
 
     /* Claim software interrupt bits */
     for (i = 0; i < swi->num_harts; i++) {
@@ -507,6 +546,9 @@ static void riscv_aclint_swi_reset_enter(Object *obj, ResetType type)
         for (i = 0; i < swi->num_harts; i++) {
             /* Clear MSIP registers by lowering software interrupts. */
             qemu_irq_lower(swi->soft_irqs[i]);
+            if (swi->soft_irqs[i + swi->num_harts]) {
+                qemu_irq_lower(swi->soft_irqs[i + swi->num_harts]);
+            }
         }
     }
 }
@@ -531,7 +573,7 @@ static const TypeInfo riscv_aclint_swi_info = {
  * Create ACLINT [M|S]SWI device.
  */
 DeviceState *riscv_aclint_swi_create(hwaddr addr, uint32_t hartid_base,
-    uint32_t num_harts, bool sswi)
+    uint32_t num_harts, bool sswi, uint32_t size)
 {
     int i;
     DeviceState *dev = qdev_new(TYPE_RISCV_ACLINT_SWI);
@@ -542,18 +584,28 @@ DeviceState *riscv_aclint_swi_create(hwaddr addr, uint32_t hartid_base,
     qdev_prop_set_uint32(dev, "hartid-base", hartid_base);
     qdev_prop_set_uint32(dev, "num-harts", num_harts);
     qdev_prop_set_uint32(dev, "sswi", sswi ? true : false);
+    if (size != 0) {
+        qdev_prop_set_uint32(dev, "swi-size", size);
+    }
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
 
     for (i = 0; i < num_harts; i++) {
         CPUState *cpu = cpu_by_arch_id(hartid_base + i);
         RISCVCPU *rvcpu = RISCV_CPU(cpu);
+        CPURISCVState *env = &rvcpu->env;
 
         qdev_connect_gpio_out(dev, i,
                               qdev_get_gpio_in(DEVICE(rvcpu),
                                   (sswi) ? IRQ_S_SOFT : IRQ_M_SOFT));
+        if (env->clic) {
+            XTCLICState *clic = env->clic;
+            qdev_connect_gpio_out(dev, num_harts + i,
+                qdev_get_gpio_in(DEVICE(clic),
+                    (sswi) ? i * clic->num_sources + IRQ_S_SOFT :
+                             i * clic->num_sources + IRQ_M_SOFT));
+        }
     }
-
     return dev;
 }
 

@@ -36,6 +36,25 @@ static bool trans_lui(DisasContext *ctx, arg_lui *a)
     return true;
 }
 
+static bool trans_lpad(DisasContext *ctx, arg_lpad *a)
+{
+    /*
+     * If Zicfilp is not enabled, lpad revert to auipc
+     * but auipc will do nothing for rd == 0, So we just
+     * return true as a no-op.
+     */
+    if (!ctx->cfg_ptr->ext_zicfilp) {
+        return true;
+    }
+#ifndef CONFIG_USER_ONLY
+    TCGv pc = tcg_constant_tl(ctx->base.pc_next);
+    TCGv lpl = tcg_constant_tl(a->imm_u);
+    TCGv x7 = get_gpr(ctx, 7, EXT_NONE);
+    gen_helper_lpad(tcg_env, pc, lpl, x7);
+#endif
+    return true;
+}
+
 static bool trans_auipc(DisasContext *ctx, arg_auipc *a)
 {
     TCGv target_pc = dest_gpr(ctx, a->rd);
@@ -55,6 +74,11 @@ static bool trans_jalr(DisasContext *ctx, arg_jalr *a)
     TCGLabel *misaligned = NULL;
     TCGv target_pc = tcg_temp_new();
     TCGv succ_pc = dest_gpr(ctx, a->rd);
+#ifndef CONFIG_USER_ONLY
+    TCGv rd = tcg_constant_tl(a->rd);
+    TCGv rs1 = tcg_constant_tl(a->rs1);
+    TCGv src = tcg_constant_tl(ctx->base.pc_next);
+#endif
 
     tcg_gen_addi_tl(target_pc, get_gpr(ctx, a->rs1, EXT_NONE), a->imm);
     tcg_gen_andi_tl(target_pc, target_pc, (target_ulong)-2);
@@ -75,6 +99,9 @@ static bool trans_jalr(DisasContext *ctx, arg_jalr *a)
     gen_set_gpr(ctx, a->rd, succ_pc);
 
     tcg_gen_mov_tl(cpu_pc, target_pc);
+#ifndef CONFIG_USER_ONLY
+    gen_helper_ctr_jalr(tcg_env, src, cpu_pc, rd, rs1);
+#endif
     lookup_and_goto_ptr(ctx);
 
     if (misaligned) {
@@ -164,6 +191,11 @@ static bool gen_branch(DisasContext *ctx, arg_b *a, TCGCond cond)
     TCGv src1 = get_gpr(ctx, a->rs1, EXT_SIGN);
     TCGv src2 = get_gpr(ctx, a->rs2, EXT_SIGN);
     target_ulong orig_pc_save = ctx->pc_save;
+#ifndef CONFIG_USER_ONLY
+    TCGv src = tcg_constant_tl(ctx->base.pc_next);
+    TCGv taken;
+    TCGv dest;
+#endif
 
     if (get_xl(ctx) == MXL_RV128) {
         TCGv src1h = get_gprh(ctx, a->rs1);
@@ -176,6 +208,14 @@ static bool gen_branch(DisasContext *ctx, arg_b *a, TCGCond cond)
     } else {
         tcg_gen_brcond_tl(cond, src1, src2, l);
     }
+
+#ifndef CONFIG_USER_ONLY
+    dest = tcg_constant_tl(ctx->base.pc_next + ctx->cur_insn_len);
+    taken = tcg_constant_tl(0);
+
+    gen_helper_ctr_branch(tcg_env, src, dest, taken);
+#endif
+
     gen_goto_tb(ctx, 1, ctx->cur_insn_len);
     ctx->pc_save = orig_pc_save;
 
@@ -188,6 +228,12 @@ static bool gen_branch(DisasContext *ctx, arg_b *a, TCGCond cond)
         gen_pc_plus_diff(target_pc, ctx, a->imm);
         gen_exception_inst_addr_mis(ctx, target_pc);
     } else {
+#ifndef CONFIG_USER_ONLY
+        dest = tcg_constant_tl(ctx->base.pc_next + a->imm);
+        taken = tcg_constant_tl(1);
+
+        gen_helper_ctr_branch(tcg_env, src, dest, taken);
+#endif
         gen_goto_tb(ctx, 0, a->imm);
     }
     ctx->pc_save = -1;
@@ -232,6 +278,7 @@ static bool gen_load_tl(DisasContext *ctx, arg_lb *a, MemOp memop)
     TCGv addr = get_address(ctx, a->rs1, a->imm);
 
     tcg_gen_qemu_ld_tl(dest, addr, ctx->mem_idx, memop);
+    gen_load_internal(ctx, memop, dest, addr);
     gen_set_gpr(ctx, a->rd, dest);
     return true;
 }
@@ -268,6 +315,9 @@ static bool gen_load(DisasContext *ctx, arg_lb *a, MemOp memop)
 {
     bool out;
 
+    if (ctx->cfg_ptr->ext_zama16b && (ctx->cur_insn_len != 2)) {
+        memop |= MO_ATOM_WITHIN16;
+    }
     decode_save_opc(ctx);
     if (get_xl(ctx) == MXL_RV128) {
         out = gen_load_i128(ctx, a, memop);
@@ -341,6 +391,7 @@ static bool gen_store_tl(DisasContext *ctx, arg_sb *a, MemOp memop)
     }
 
     tcg_gen_qemu_st_tl(data, addr, ctx->mem_idx, memop);
+    gen_store_internal(ctx, memop, data, addr);
     return true;
 }
 
@@ -366,6 +417,9 @@ static bool gen_store_i128(DisasContext *ctx, arg_sb *a, MemOp memop)
 
 static bool gen_store(DisasContext *ctx, arg_sb *a, MemOp memop)
 {
+    if (ctx->cfg_ptr->ext_zama16b && (ctx->cur_insn_len != 2)) {
+        memop |= MO_ATOM_WITHIN16;
+    }
     decode_save_opc(ctx);
     if (get_xl(ctx) == MXL_RV128) {
         return gen_store_i128(ctx, a, memop);
@@ -796,6 +850,11 @@ static bool trans_pause(DisasContext *ctx, arg_pause *a)
      * end the TB and return to main loop
      */
     gen_update_pc(ctx, ctx->cur_insn_len);
+
+    if (gen_tb_trace()) {
+        csky_trace_tb_exit(0x2, ctx->base.pc_next + ctx->cur_insn_len -
+                           ctx->base.pc_first);
+    }
     exit_tb(ctx);
     ctx->base.is_jmp = DISAS_NORETURN;
 
@@ -820,6 +879,10 @@ static bool trans_fence_i(DisasContext *ctx, arg_fence_i *a)
      * however we need to end the translation block
      */
     gen_update_pc(ctx, ctx->cur_insn_len);
+    if (gen_tb_trace()) {
+        csky_trace_tb_exit(0x2, ctx->base.pc_next + ctx->cur_insn_len -
+                           ctx->base.pc_first);
+    }
     exit_tb(ctx);
     ctx->base.is_jmp = DISAS_NORETURN;
     return true;

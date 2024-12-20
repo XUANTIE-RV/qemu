@@ -76,16 +76,11 @@ static void riscv_cpu_write_misa_bit(RISCVCPU *cpu, uint32_t bit,
 
 static const char *cpu_priv_ver_to_str(int priv_ver)
 {
-    switch (priv_ver) {
-    case PRIV_VERSION_1_10_0:
-        return "v1.10.0";
-    case PRIV_VERSION_1_11_0:
-        return "v1.11.0";
-    case PRIV_VERSION_1_12_0:
-        return "v1.12.0";
-    }
+    const char *priv_spec_str = priv_spec_to_str(priv_ver);
 
-    g_assert_not_reached();
+    g_assert(priv_spec_str);
+
+    return priv_spec_str;
 }
 
 static void riscv_cpu_synchronize_from_tb(CPUState *cs,
@@ -94,7 +89,8 @@ static void riscv_cpu_synchronize_from_tb(CPUState *cs,
     if (!(tb_cflags(tb) & CF_PCREL)) {
         RISCVCPU *cpu = RISCV_CPU(cs);
         CPURISCVState *env = &cpu->env;
-        RISCVMXL xl = FIELD_EX32(tb->flags, TB_FLAGS, XL);
+        CPURISCVTBFlags tb_flags = { tb->flags, tb->cs_base };
+        RISCVMXL xl = EX_TBFLAGS_ANY(tb_flags, XL);
 
         tcg_debug_assert(!(cs->tcg_cflags & CF_PCREL));
 
@@ -112,7 +108,8 @@ static void riscv_restore_state_to_opc(CPUState *cs,
 {
     RISCVCPU *cpu = RISCV_CPU(cs);
     CPURISCVState *env = &cpu->env;
-    RISCVMXL xl = FIELD_EX32(tb->flags, TB_FLAGS, XL);
+    CPURISCVTBFlags tb_flags = { tb->flags, tb->cs_base };
+    RISCVMXL xl = EX_TBFLAGS_ANY(tb_flags, XL);
     target_ulong pc;
 
     if (tb_cflags(tb) & CF_PCREL) {
@@ -281,6 +278,25 @@ static void riscv_cpu_validate_v(CPURISCVState *env, RISCVCPUConfig *cfg,
     }
 }
 
+static void th_cpu_validate_v(CPURISCVState *env, RISCVCPUConfig *cfg,
+                              Error **errp)
+{
+    uint32_t vlen = cfg->vlenb << 3;
+
+    if (vlen < 32) {
+        error_setg(errp,
+                   "In XTheadVector extension, VLEN must be "
+                   "greater than or equal to 32");
+    }
+
+    if (vlen < cfg->elen) {
+        error_setg(errp,
+                   "In XTheadVector extension, VLEN must be "
+                   "greater than or equal to ELEN");
+        return;
+    }
+}
+
 static void riscv_cpu_disable_priv_spec_isa_exts(RISCVCPU *cpu)
 {
     CPURISCVState *env = &cpu->env;
@@ -321,6 +337,10 @@ static void riscv_cpu_update_named_features(RISCVCPU *cpu)
 
     if (cpu->env.priv_ver >= PRIV_VERSION_1_12_0) {
         cpu->cfg.has_priv_1_12 = true;
+    }
+
+    if (cpu->env.priv_ver >= PRIV_VERSION_1_13_0) {
+        cpu->cfg.has_priv_1_13 = true;
     }
 
     /* zic64b is 1.12 or later */
@@ -399,6 +419,41 @@ static void riscv_cpu_validate_b(RISCVCPU *cpu)
     }
 }
 
+static void riscv_cpu_validate_p(CPURISCVState *env, RISCVCPUConfig *cfg,
+                                 Error **errp)
+{
+    if (env->pext_ver) {
+        if (env->pext_ver != PEXT_VERSION_0_09_4) {
+            error_setg(errp,
+                       "Unsupported packed spec version  0x%" PRIx64 "",
+                      (uint64_t)env->pext_ver);
+            return;
+        }
+    } else {
+        qemu_log("packed verison is not specified, "
+                 "use the default value v0.9.4\n");
+    }
+    if (env->misa_mxl == MXL_RV64) {
+        if (!cfg->ext_psfoperand) {
+            error_setg(errp, "The Zpsfoperand"
+                             "sub-extensions is required for RV64P.");
+            return;
+        }
+    }
+}
+
+static void riscv_cpu_validate_matrix(CPURISCVState *env, RISCVCPUConfig *cfg,
+                                      Error **errp)
+{
+    if (cfg->ext_matrix) {
+        if (cfg->mrowlen > RV_RLEN_MAX || cfg->mrowlen < 128) {
+            error_setg(errp,
+                    "Matrix extension implementation only supports MLEN "
+                    "in the range [128, %d]", RV_RLEN_MAX);
+            return;
+        }
+    }
+}
 /*
  * Check consistency between chosen extensions while setting
  * cpu->cfg accordingly.
@@ -485,6 +540,34 @@ void riscv_cpu_validate_set_extensions(RISCVCPU *cpu, Error **errp)
         return;
     }
 
+    if (riscv_has_ext(env, RVP)) {
+        riscv_cpu_validate_p(env, &cpu->cfg, &local_err);
+        if (local_err != NULL) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    }
+
+    riscv_cpu_validate_matrix(env, &cpu->cfg, &local_err);
+    if (local_err != NULL) {
+        error_propagate(errp, local_err);
+        return;
+    }
+
+    if (cpu->cfg.ext_xtheadvector && riscv_has_ext(env, RVV)) {
+        error_setg(errp, "XTheadVector extension is incompatible with "
+                         "RVV extension");
+        return;
+    }
+
+    if (cpu->cfg.ext_xtheadvector) {
+        th_cpu_validate_v(env, &cpu->cfg, &local_err);
+        if (local_err != NULL) {
+            error_propagate(errp, local_err);
+            return;
+        }
+    }
+
     if (riscv_has_ext(env, RVV)) {
         riscv_cpu_validate_v(env, &cpu->cfg, &local_err);
         if (local_err != NULL) {
@@ -498,22 +581,31 @@ void riscv_cpu_validate_set_extensions(RISCVCPU *cpu, Error **errp)
 
     /* The Zve64d extension depends on the Zve64f extension */
     if (cpu->cfg.ext_zve64d) {
+        if (!riscv_has_ext(env, RVD)) {
+            error_setg(errp, "Zve64d/V extensions require D extension");
+            return;
+        }
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zve64f), true);
     }
 
-    /* The Zve64f extension depends on the Zve32f extension */
+    /* The Zve64f extension depends on the Zve64x and Zve32f extensions */
     if (cpu->cfg.ext_zve64f) {
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zve64x), true);
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zve32f), true);
     }
 
-    if (cpu->cfg.ext_zve64d && !riscv_has_ext(env, RVD)) {
-        error_setg(errp, "Zve64d/V extensions require D extension");
-        return;
+    /* The Zve64x extension depends on the Zve32x extension */
+    if (cpu->cfg.ext_zve64x) {
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zve32x), true);
     }
 
-    if (cpu->cfg.ext_zve32f && !riscv_has_ext(env, RVF)) {
-        error_setg(errp, "Zve32f/Zve64f extensions require F extension");
-        return;
+    /* The Zve32f extension depends on the Zve32x extension */
+    if (cpu->cfg.ext_zve32f) {
+        if (!riscv_has_ext(env, RVF)) {
+            error_setg(errp, "Zve32f/Zve64f extensions require F extension");
+            return;
+        }
+        cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zve32x), true);
     }
 
     if (cpu->cfg.ext_zvfh) {
@@ -581,6 +673,11 @@ void riscv_cpu_validate_set_extensions(RISCVCPU *cpu, Error **errp)
         if (riscv_has_ext(env, RVD)) {
             cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zcd), true);
         }
+    }
+
+    if (cpu->cfg.ext_zcmop && !cpu->cfg.ext_zca) {
+        error_setg(errp, "Zcmop extensions require Zca");
+        return;
     }
 
     if (mcc->misa_mxl_max != MXL_RV32 && cpu->cfg.ext_zcf) {
@@ -658,22 +755,30 @@ void riscv_cpu_validate_set_extensions(RISCVCPU *cpu, Error **errp)
         cpu_cfg_ext_auto_update(cpu, CPU_CFG_OFFSET(ext_zvbc), true);
     }
 
-    /*
-     * In principle Zve*x would also suffice here, were they supported
-     * in qemu
-     */
     if ((cpu->cfg.ext_zvbb || cpu->cfg.ext_zvkb || cpu->cfg.ext_zvkg ||
          cpu->cfg.ext_zvkned || cpu->cfg.ext_zvknha || cpu->cfg.ext_zvksed ||
-         cpu->cfg.ext_zvksh) && !cpu->cfg.ext_zve32f) {
+         cpu->cfg.ext_zvksh) && !cpu->cfg.ext_zve32x) {
         error_setg(errp,
                    "Vector crypto extensions require V or Zve* extensions");
         return;
     }
 
-    if ((cpu->cfg.ext_zvbc || cpu->cfg.ext_zvknhb) && !cpu->cfg.ext_zve64f) {
+    if (cpu->cfg.ext_zvkgs && !cpu->cfg.ext_zvkg) {
+        error_setg(errp, "Zvkgs extension requires Zvkg extension");
+        return;
+    }
+
+    if ((cpu->cfg.ext_zvbc || cpu->cfg.ext_zvknhb) && !cpu->cfg.ext_zve64x) {
         error_setg(
             errp,
-            "Zvbc and Zvknhb extensions require V or Zve64{f,d} extensions");
+            "Zvbc and Zvknhb extensions require V or Zve64x extensions");
+        return;
+    }
+
+    if (cpu->cfg.ext_zvbc32e && !cpu->cfg.ext_zve32x) {
+        error_setg(
+            errp,
+            "Zvbc32e extensions require V or Zve32x extensions");
         return;
     }
 
@@ -720,7 +825,29 @@ void riscv_cpu_validate_set_extensions(RISCVCPU *cpu, Error **errp)
         cpu->cfg.pmu_mask = 0;
         cpu->pmu_avail_ctrs = 0;
     }
+    if (cpu->cfg.ext_smmtt && !cpu->cfg.ext_smsdid) {
+        error_setg(errp,
+                   "Invalid configuration: Smmtt requires Smsdid support");
+        return;
+    }
 
+    if (cpu->cfg.ext_zicfiss) {
+        if (!cpu->cfg.ext_zicsr) {
+            error_setg(errp, "Zicfiss extension requires Zicsr");
+            return;
+        }
+        if (!cpu->cfg.ext_zimop) {
+            error_setg(errp, "Zicfiss extension requires Zimop");
+            return;
+        }
+    }
+
+    if (cpu->cfg.ext_zicfilp) {
+        if (!cpu->cfg.ext_zicsr) {
+            error_setg(errp, "Zicfilp extension requires Zicsr");
+            return;
+        }
+    }
     /*
      * Disable isa extensions based on priv spec after we
      * validated and set everything we need.
@@ -858,6 +985,21 @@ void riscv_tcg_cpu_finalize_features(RISCVCPU *cpu, Error **errp)
     }
 }
 
+void riscv_tcg_cpu_finalize_dynamic_decoder(RISCVCPU *cpu)
+{
+    GPtrArray *dynamic_decoders;
+    dynamic_decoders = g_ptr_array_sized_new(decoder_table_size);
+    for (size_t i = 0; i < decoder_table_size; ++i) {
+        if (decoder_table[i].guard_func &&
+            decoder_table[i].guard_func(&cpu->cfg)) {
+            g_ptr_array_add(dynamic_decoders,
+                            (gpointer)decoder_table[i].riscv_cpu_decode_fn);
+        }
+    }
+
+    cpu->decoders = dynamic_decoders;
+}
+
 bool riscv_cpu_tcg_compatible(RISCVCPU *cpu)
 {
     return object_dynamic_cast(OBJECT(cpu), TYPE_RISCV_CPU_HOST) == NULL;
@@ -993,10 +1135,10 @@ static const RISCVCPUMisaExtConfig misa_ext_cfgs[] = {
     MISA_CFG(RVS, true),
     MISA_CFG(RVU, true),
     MISA_CFG(RVH, true),
-    MISA_CFG(RVJ, false),
     MISA_CFG(RVV, false),
     MISA_CFG(RVG, false),
     MISA_CFG(RVB, false),
+    MISA_CFG(RVP, false),
 };
 
 /*
@@ -1280,8 +1422,8 @@ static void riscv_init_max_cpu_extensions(Object *obj)
     CPURISCVState *env = &cpu->env;
     const RISCVCPUMultiExtConfig *prop;
 
-    /* Enable RVG, RVJ and RVV that are disabled by default */
-    riscv_cpu_set_misa_ext(env, env->misa_ext | RVG | RVJ | RVV);
+    /* Enable RVG, and RVV that are disabled by default */
+    riscv_cpu_set_misa_ext(env, env->misa_ext | RVB | RVG | RVV);
 
     for (prop = riscv_cpu_extensions; prop && prop->name; prop++) {
         isa_ext_update_enabled(cpu, prop->offset, true);

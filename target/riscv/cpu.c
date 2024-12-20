@@ -38,11 +38,15 @@
 #include "kvm/kvm_riscv.h"
 #include "tcg/tcg-cpu.h"
 #include "tcg/tcg.h"
+#include "exec/tracestub.h"
+#if !defined(CONFIG_USER_ONLY)
+#include "hw/intc/xt_clic.h"
+#endif
 
 /* RISC-V CPU definitions */
 static const char riscv_single_letter_exts[] = "IEMAFDQCBPVH";
 const uint32_t misa_bits[] = {RVI, RVE, RVM, RVA, RVF, RVD, RVV,
-                              RVC, RVS, RVU, RVH, RVJ, RVG, RVB, 0};
+                              RVC, RVS, RVU, RVH, RVG, RVB, 0};
 
 /*
  * From vector_helper.c
@@ -106,6 +110,8 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(ziccif, PRIV_VERSION_1_11_0, has_priv_1_11),
     ISA_EXT_DATA_ENTRY(zicclsm, PRIV_VERSION_1_11_0, has_priv_1_11),
     ISA_EXT_DATA_ENTRY(ziccrse, PRIV_VERSION_1_11_0, has_priv_1_11),
+    ISA_EXT_DATA_ENTRY(zicfilp, PRIV_VERSION_1_13_0, ext_zicfilp),
+    ISA_EXT_DATA_ENTRY(zicfiss, PRIV_VERSION_1_13_0, ext_zicfiss),
     ISA_EXT_DATA_ENTRY(zicond, PRIV_VERSION_1_12_0, ext_zicond),
     ISA_EXT_DATA_ENTRY(zicntr, PRIV_VERSION_1_12_0, ext_zicntr),
     ISA_EXT_DATA_ENTRY(zicsr, PRIV_VERSION_1_10_0, ext_zicsr),
@@ -114,21 +120,25 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(zihintpause, PRIV_VERSION_1_10_0, ext_zihintpause),
     ISA_EXT_DATA_ENTRY(zihpm, PRIV_VERSION_1_12_0, ext_zihpm),
     ISA_EXT_DATA_ENTRY(zmmul, PRIV_VERSION_1_12_0, ext_zmmul),
+    ISA_EXT_DATA_ENTRY(zpsfoperand, PRIV_VERSION_1_10_0, ext_psfoperand),
     ISA_EXT_DATA_ENTRY(za64rs, PRIV_VERSION_1_12_0, has_priv_1_11),
     ISA_EXT_DATA_ENTRY(zaamo, PRIV_VERSION_1_12_0, ext_zaamo),
     ISA_EXT_DATA_ENTRY(zacas, PRIV_VERSION_1_12_0, ext_zacas),
+    ISA_EXT_DATA_ENTRY(zama16b, PRIV_VERSION_1_13_0, ext_zama16b),
+    ISA_EXT_DATA_ENTRY(zabha, PRIV_VERSION_1_13_0, ext_zabha),
+    ISA_EXT_DATA_ENTRY(zalasr, PRIV_VERSION_1_13_0, ext_zalasr),
     ISA_EXT_DATA_ENTRY(zalrsc, PRIV_VERSION_1_12_0, ext_zalrsc),
     ISA_EXT_DATA_ENTRY(zawrs, PRIV_VERSION_1_12_0, ext_zawrs),
     ISA_EXT_DATA_ENTRY(zfa, PRIV_VERSION_1_12_0, ext_zfa),
     ISA_EXT_DATA_ENTRY(zfbfmin, PRIV_VERSION_1_12_0, ext_zfbfmin),
-    ISA_EXT_DATA_ENTRY(zfh, PRIV_VERSION_1_11_0, ext_zfh),
-    ISA_EXT_DATA_ENTRY(zfhmin, PRIV_VERSION_1_11_0, ext_zfhmin),
+    ISA_EXT_DATA_ENTRY(zfh, PRIV_VERSION_1_10_0, ext_zfh),
+    ISA_EXT_DATA_ENTRY(zfhmin, PRIV_VERSION_1_10_0, ext_zfhmin),
     ISA_EXT_DATA_ENTRY(zfinx, PRIV_VERSION_1_12_0, ext_zfinx),
     ISA_EXT_DATA_ENTRY(zdinx, PRIV_VERSION_1_12_0, ext_zdinx),
-    ISA_EXT_DATA_ENTRY(zca, PRIV_VERSION_1_12_0, ext_zca),
+    ISA_EXT_DATA_ENTRY(zca, PRIV_VERSION_1_10_0, ext_zca),
     ISA_EXT_DATA_ENTRY(zcb, PRIV_VERSION_1_12_0, ext_zcb),
-    ISA_EXT_DATA_ENTRY(zcf, PRIV_VERSION_1_12_0, ext_zcf),
-    ISA_EXT_DATA_ENTRY(zcd, PRIV_VERSION_1_12_0, ext_zcd),
+    ISA_EXT_DATA_ENTRY(zcf, PRIV_VERSION_1_10_0, ext_zcf),
+    ISA_EXT_DATA_ENTRY(zcd, PRIV_VERSION_1_10_0, ext_zcd),
     ISA_EXT_DATA_ENTRY(zce, PRIV_VERSION_1_12_0, ext_zce),
     ISA_EXT_DATA_ENTRY(zcmp, PRIV_VERSION_1_12_0, ext_zcmp),
     ISA_EXT_DATA_ENTRY(zcmt, PRIV_VERSION_1_12_0, ext_zcmt),
@@ -152,15 +162,19 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(ztso, PRIV_VERSION_1_12_0, ext_ztso),
     ISA_EXT_DATA_ENTRY(zvbb, PRIV_VERSION_1_12_0, ext_zvbb),
     ISA_EXT_DATA_ENTRY(zvbc, PRIV_VERSION_1_12_0, ext_zvbc),
+    ISA_EXT_DATA_ENTRY(zvbc32e, PRIV_VERSION_1_12_0, ext_zvbc32e),
     ISA_EXT_DATA_ENTRY(zve32f, PRIV_VERSION_1_10_0, ext_zve32f),
+    ISA_EXT_DATA_ENTRY(zve32x, PRIV_VERSION_1_10_0, ext_zve32x),
     ISA_EXT_DATA_ENTRY(zve64f, PRIV_VERSION_1_10_0, ext_zve64f),
     ISA_EXT_DATA_ENTRY(zve64d, PRIV_VERSION_1_10_0, ext_zve64d),
+    ISA_EXT_DATA_ENTRY(zve64x, PRIV_VERSION_1_10_0, ext_zve64x),
     ISA_EXT_DATA_ENTRY(zvfbfmin, PRIV_VERSION_1_12_0, ext_zvfbfmin),
     ISA_EXT_DATA_ENTRY(zvfbfwma, PRIV_VERSION_1_12_0, ext_zvfbfwma),
-    ISA_EXT_DATA_ENTRY(zvfh, PRIV_VERSION_1_12_0, ext_zvfh),
-    ISA_EXT_DATA_ENTRY(zvfhmin, PRIV_VERSION_1_12_0, ext_zvfhmin),
+    ISA_EXT_DATA_ENTRY(zvfh, PRIV_VERSION_1_10_0, ext_zvfh),
+    ISA_EXT_DATA_ENTRY(zvfhmin, PRIV_VERSION_1_10_0, ext_zvfhmin),
     ISA_EXT_DATA_ENTRY(zvkb, PRIV_VERSION_1_12_0, ext_zvkb),
     ISA_EXT_DATA_ENTRY(zvkg, PRIV_VERSION_1_12_0, ext_zvkg),
+    ISA_EXT_DATA_ENTRY(zvkgs, PRIV_VERSION_1_12_0, ext_zvkgs),
     ISA_EXT_DATA_ENTRY(zvkn, PRIV_VERSION_1_12_0, ext_zvkn),
     ISA_EXT_DATA_ENTRY(zvknc, PRIV_VERSION_1_12_0, ext_zvknc),
     ISA_EXT_DATA_ENTRY(zvkned, PRIV_VERSION_1_12_0, ext_zvkned),
@@ -175,32 +189,54 @@ const RISCVIsaExtData isa_edata_arr[] = {
     ISA_EXT_DATA_ENTRY(zvkt, PRIV_VERSION_1_12_0, ext_zvkt),
     ISA_EXT_DATA_ENTRY(zhinx, PRIV_VERSION_1_12_0, ext_zhinx),
     ISA_EXT_DATA_ENTRY(zhinxmin, PRIV_VERSION_1_12_0, ext_zhinxmin),
+    ISA_EXT_DATA_ENTRY(zimop, PRIV_VERSION_1_13_0, ext_zimop),
+    ISA_EXT_DATA_ENTRY(zcmop, PRIV_VERSION_1_13_0, ext_zcmop),
     ISA_EXT_DATA_ENTRY(smaia, PRIV_VERSION_1_12_0, ext_smaia),
+    ISA_EXT_DATA_ENTRY(smcdeleg, PRIV_VERSION_1_12_0, ext_smcdeleg),
+    ISA_EXT_DATA_ENTRY(smcntrpmf, PRIV_VERSION_1_12_0, ext_smcntrpmf),
+    ISA_EXT_DATA_ENTRY(smcsrind, PRIV_VERSION_1_12_0, ext_smcsrind),
+    ISA_EXT_DATA_ENTRY(smdbltrp, PRIV_VERSION_1_12_0, ext_smdbltrp),
     ISA_EXT_DATA_ENTRY(smepmp, PRIV_VERSION_1_12_0, ext_smepmp),
+    ISA_EXT_DATA_ENTRY(smmtt, PRIV_VERSION_1_13_0, ext_smmtt),
+    ISA_EXT_DATA_ENTRY(smsdid, PRIV_VERSION_1_13_0, ext_smsdid),
     ISA_EXT_DATA_ENTRY(smstateen, PRIV_VERSION_1_12_0, ext_smstateen),
     ISA_EXT_DATA_ENTRY(ssaia, PRIV_VERSION_1_12_0, ext_ssaia),
     ISA_EXT_DATA_ENTRY(ssccptr, PRIV_VERSION_1_11_0, has_priv_1_11),
+    ISA_EXT_DATA_ENTRY(ssccfg, PRIV_VERSION_1_12_0, ext_ssccfg),
     ISA_EXT_DATA_ENTRY(sscofpmf, PRIV_VERSION_1_12_0, ext_sscofpmf),
     ISA_EXT_DATA_ENTRY(sscounterenw, PRIV_VERSION_1_12_0, has_priv_1_12),
+    ISA_EXT_DATA_ENTRY(sscsrind, PRIV_VERSION_1_12_0, ext_sscsrind),
+    ISA_EXT_DATA_ENTRY(ssdbltrp, PRIV_VERSION_1_12_0, ext_ssdbltrp),
     ISA_EXT_DATA_ENTRY(sstc, PRIV_VERSION_1_12_0, ext_sstc),
     ISA_EXT_DATA_ENTRY(sstvala, PRIV_VERSION_1_12_0, has_priv_1_12),
     ISA_EXT_DATA_ENTRY(sstvecd, PRIV_VERSION_1_12_0, has_priv_1_12),
     ISA_EXT_DATA_ENTRY(svade, PRIV_VERSION_1_11_0, ext_svade),
+    ISA_EXT_DATA_ENTRY(smctr, PRIV_VERSION_1_12_0, ext_smctr),
+    ISA_EXT_DATA_ENTRY(ssctr, PRIV_VERSION_1_12_0, ext_ssctr),
     ISA_EXT_DATA_ENTRY(svadu, PRIV_VERSION_1_12_0, ext_svadu),
     ISA_EXT_DATA_ENTRY(svinval, PRIV_VERSION_1_12_0, ext_svinval),
     ISA_EXT_DATA_ENTRY(svnapot, PRIV_VERSION_1_12_0, ext_svnapot),
     ISA_EXT_DATA_ENTRY(svpbmt, PRIV_VERSION_1_12_0, ext_svpbmt),
-    ISA_EXT_DATA_ENTRY(xtheadba, PRIV_VERSION_1_11_0, ext_xtheadba),
-    ISA_EXT_DATA_ENTRY(xtheadbb, PRIV_VERSION_1_11_0, ext_xtheadbb),
-    ISA_EXT_DATA_ENTRY(xtheadbs, PRIV_VERSION_1_11_0, ext_xtheadbs),
-    ISA_EXT_DATA_ENTRY(xtheadcmo, PRIV_VERSION_1_11_0, ext_xtheadcmo),
-    ISA_EXT_DATA_ENTRY(xtheadcondmov, PRIV_VERSION_1_11_0, ext_xtheadcondmov),
-    ISA_EXT_DATA_ENTRY(xtheadfmemidx, PRIV_VERSION_1_11_0, ext_xtheadfmemidx),
-    ISA_EXT_DATA_ENTRY(xtheadfmv, PRIV_VERSION_1_11_0, ext_xtheadfmv),
-    ISA_EXT_DATA_ENTRY(xtheadmac, PRIV_VERSION_1_11_0, ext_xtheadmac),
-    ISA_EXT_DATA_ENTRY(xtheadmemidx, PRIV_VERSION_1_11_0, ext_xtheadmemidx),
-    ISA_EXT_DATA_ENTRY(xtheadmempair, PRIV_VERSION_1_11_0, ext_xtheadmempair),
-    ISA_EXT_DATA_ENTRY(xtheadsync, PRIV_VERSION_1_11_0, ext_xtheadsync),
+    ISA_EXT_DATA_ENTRY(ssnpm, PRIV_VERSION_1_12_0, ext_ssnpm),
+    ISA_EXT_DATA_ENTRY(smnpm, PRIV_VERSION_1_12_0, ext_smnpm),
+    ISA_EXT_DATA_ENTRY(smmpm, PRIV_VERSION_1_12_0, ext_smmpm),
+    ISA_EXT_DATA_ENTRY(xtheadba, PRIV_VERSION_1_10_0, ext_xtheadba),
+    ISA_EXT_DATA_ENTRY(xtheadbb, PRIV_VERSION_1_10_0, ext_xtheadbb),
+    ISA_EXT_DATA_ENTRY(xtheadbs, PRIV_VERSION_1_10_0, ext_xtheadbs),
+    ISA_EXT_DATA_ENTRY(xtheadcmo, PRIV_VERSION_1_10_0, ext_xtheadcmo),
+    ISA_EXT_DATA_ENTRY(xtheadcondmov, PRIV_VERSION_1_10_0, ext_xtheadcondmov),
+    ISA_EXT_DATA_ENTRY(xtheadcp, PRIV_VERSION_1_10_0, ext_xtheadcp),
+    ISA_EXT_DATA_ENTRY(xtheadfmemidx, PRIV_VERSION_1_10_0, ext_xtheadfmemidx),
+    ISA_EXT_DATA_ENTRY(xtheadfmv, PRIV_VERSION_1_10_0, ext_xtheadfmv),
+    ISA_EXT_DATA_ENTRY(xtheadmac, PRIV_VERSION_1_10_0, ext_xtheadmac),
+    ISA_EXT_DATA_ENTRY(xtheadmemidx, PRIV_VERSION_1_10_0, ext_xtheadmemidx),
+    ISA_EXT_DATA_ENTRY(xtheadmempair, PRIV_VERSION_1_10_0, ext_xtheadmempair),
+    ISA_EXT_DATA_ENTRY(xtheadsync, PRIV_VERSION_1_10_0, ext_xtheadsync),
+    ISA_EXT_DATA_ENTRY(xtheadvdot, PRIV_VERSION_1_10_0, ext_xtheadvdot),
+    ISA_EXT_DATA_ENTRY(xtheadvector, PRIV_VERSION_1_10_0, ext_xtheadvector),
+    ISA_EXT_DATA_ENTRY(xtheadisr, PRIV_VERSION_1_10_0, ext_xtheadisr),
+    ISA_EXT_DATA_ENTRY(xtheadmaee, PRIV_VERSION_1_10_0, ext_xtheadmaee),
+    ISA_EXT_DATA_ENTRY(xtheadmatrix, PRIV_VERSION_1_10_0, ext_matrix),
     ISA_EXT_DATA_ENTRY(xventanacondops, PRIV_VERSION_1_12_0, ext_XVentanaCondOps),
 
     DEFINE_PROP_END_OF_LIST(),
@@ -276,7 +312,7 @@ static const char * const riscv_excp_names[] = {
     "load_page_fault",
     "reserved",
     "store_page_fault",
-    "reserved",
+    "double_trap",
     "reserved",
     "reserved",
     "reserved",
@@ -305,8 +341,12 @@ static const char * const riscv_intr_names[] = {
     "reserved"
 };
 
-const char *riscv_cpu_get_trap_name(target_ulong cause, bool async)
+const char *riscv_cpu_get_trap_name(target_ulong cause, bool async, bool clic)
 {
+    if (clic) {
+        return "clic-interrupt";
+    }
+
     if (async) {
         return (cause < ARRAY_SIZE(riscv_intr_names)) ?
                riscv_intr_names[cause] : "(unknown)";
@@ -468,6 +508,25 @@ static void riscv_max_cpu_init(Object *obj)
     set_satp_mode_max_supported(cpu, VM_1_10_SV57);
 #endif
 #endif
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVP | RVV | RVM | RVC | RVU);
+    cpu->cfg.ext_psfoperand = true;
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadisr = true;
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_matrix = true;
+
 }
 
 #if defined(TARGET_RISCV64)
@@ -525,8 +584,9 @@ static void rv64_thead_c906_cpu_init(Object *obj)
     CPURISCVState *env = &RISCV_CPU(obj)->env;
     RISCVCPU *cpu = RISCV_CPU(obj);
 
-    riscv_cpu_set_misa_ext(env, RVG | RVC | RVS | RVU);
+    riscv_cpu_set_misa_ext(env, RVG | RVC | RVS | RVU | RVP);
     env->priv_ver = PRIV_VERSION_1_11_0;
+    env->pext_ver = PEXT_VERSION_0_09_4;
 
     cpu->cfg.ext_zfa = true;
     cpu->cfg.ext_zfh = true;
@@ -541,14 +601,528 @@ static void rv64_thead_c906_cpu_init(Object *obj)
     cpu->cfg.ext_xtheadmemidx = true;
     cpu->cfg.ext_xtheadmempair = true;
     cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadvector = true;
+    cpu->cfg.ext_xtheadmaee = true;
 
     cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    cpu->cfg.ext_psfoperand = true;
+    cpu->cfg.ext_matrix = true;
 #ifndef CONFIG_USER_ONLY
     set_satp_mode_max_supported(cpu, VM_1_10_SV39);
 #endif
+    th_register_custom_csrs(cpu);
 
     /* inherited from parent obj via riscv_cpu_init() */
     cpu->cfg.pmp = true;
+}
+
+static void rv64_c906_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadmaee = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV39);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+static void rv64_c906fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVF | RVD | RVS | RVU);
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+static void rv64_c906fdv_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVF | RVD | RVS | RVU);
+    cpu->cfg.ext_xtheadvector = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+static void rv64_c908i_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x89140e00;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadmaee = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicboz = true;
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_smepmp = true;
+    cpu->cfg.ext_svpbmt = true;
+    cpu->cfg.ext_svinval = true;
+    cpu->cfg.ext_svnapot = true;
+    cpu->cfg.ext_sstc = true;
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV48);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv64_c908_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c908i_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+
+static void rv64_c908v_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c908_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVV | RVC | RVS | RVU);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+    /* TODO: ZVAMO 20210129 */
+}
+static void rv64_c910_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadmaee = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zfh = true;
+    /* TODO: bfloat16 not support */
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV39);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+static void rv64_c910v_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c910_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVF | RVD | RVS | RVU);
+    cpu->cfg.ext_xtheadvector = true;
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.frac_elen_check = true;
+}
+static void rv64_r910_cpu_init(Object *obj)
+{
+#ifndef CONFIG_USER_ONLY
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    env->mdtcmcr = set_field(env->mdtcmcr, MDTCMCR_SIZE, 0x5);
+    env->mitcmcr = set_field(env->mitcmcr, MITCMCR_SIZE, 0x5);
+#endif
+    rv64_c910_cpu_init(obj);
+}
+static void rv64_r920_cpu_init(Object *obj)
+{
+#ifndef CONFIG_USER_ONLY
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    env->mdtcmcr = set_field(env->mdtcmcr, MDTCMCR_SIZE, 0x5);
+    env->mitcmcr = set_field(env->mitcmcr, MITCMCR_SIZE, 0x5);
+#endif
+    rv64_c910v_cpu_init(obj);
+}
+static void rv64_c907_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x8d183000;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zawrs = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.ext_zicond = true;
+    cpu->cfg.ext_zcb = true;
+    cpu->cfg.ext_zihintntl = true;
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_smepmp = true;
+    cpu->cfg.ext_svpbmt = true;
+    cpu->cfg.ext_svinval = true;
+    cpu->cfg.ext_svnapot = true;
+    cpu->cfg.ext_sstc = true;
+    cpu->cfg.ext_sscofpmf = true;
+    cpu->cfg.pmu_mask = MAKE_64BIT_MASK(3, RV_MAX_MHPMCOUNTERS - 3);
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV48);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+static void rv64_c907fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_zfa = true;
+    cpu->cfg.ext_zfbfmin = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+static void rv64_c907fdv_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c907fd_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVV | RVC | RVS | RVU);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.ext_zvfbfmin = true;
+    cpu->cfg.ext_zvfbfwma = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+}
+static void rv64_c907fdvm_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c907fdv_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVV | RVC | RVS | RVU);
+    cpu->cfg.ext_matrix = true;
+    env->xmisa = MATRIX_MULT_F16F16
+                 | MATRIX_MULT_I4I32
+                 | MATRIX_MULT_I8I32;
+}
+
+static void rv64_c910v2_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVF | RVD | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x8d0c3000;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zawrs = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.ext_zicond = true;
+    cpu->cfg.ext_zcb = true;
+    cpu->cfg.ext_zfbfmin = true;
+    cpu->cfg.ext_zfa = true;
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_zihintntl = true;
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_smepmp = true;
+    cpu->cfg.ext_svpbmt = true;
+    cpu->cfg.ext_svinval = true;
+    cpu->cfg.ext_svnapot = true;
+    cpu->cfg.ext_sstc = true;
+    cpu->cfg.ext_sscofpmf = true;
+    cpu->cfg.pmu_mask = MAKE_64BIT_MASK(3, RV_MAX_MHPMCOUNTERS - 3);
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV48);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv64_c920v2_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_c910v2_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVF
+                              | RVD | RVS | RVV | RVU);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.ext_zvfbfmin = true;
+    cpu->cfg.ext_zvfbfwma = true;
+    cpu->cfg.ext_xtheadvdot = true;
+    cpu->cfg.frac_elen_check = true;
+}
+
+static void rv64_c910v3_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    rv64_c910v2_cpu_init(obj);
+    env->priv_ver = PRIV_VERSION_1_13_0;
+    cpu->cfg.ext_zimop = true;
+    cpu->cfg.ext_zcmop = true;
+}
+
+static void rv64_c910v3_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    rv64_c910v2_cpu_init(obj);
+    env->priv_ver = PRIV_VERSION_1_13_0;
+    cpu->cfg.ext_zimop = true;
+    cpu->cfg.ext_zcmop = true;
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+}
+
+static void rv64_c920v3_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    rv64_c920v2_cpu_init(obj);
+    env->priv_ver = PRIV_VERSION_1_13_0;
+    cpu->cfg.ext_zimop = true;
+    cpu->cfg.ext_zcmop = true;
+}
+
+static void rv64_c920v3_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    CPURISCVState *env = &cpu->env;
+    rv64_c920v2_cpu_init(obj);
+    env->priv_ver = PRIV_VERSION_1_13_0;
+    cpu->cfg.ext_zimop = true;
+    cpu->cfg.ext_zcmop = true;
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+    cpu->cfg.ext_xtheadvdot = false;
+}
+
+static void rv64_r908_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x88480e00;
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadmaee = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zicntr = true;
+    cpu->cfg.ext_zihpm = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicbop = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zca = true;
+    cpu->cfg.ext_zcb = true;
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_smepmp = true;
+    cpu->cfg.mmu = true;
+    cpu->cfg.ext_svpbmt = true;
+    cpu->cfg.ext_svinval = true;
+    cpu->cfg.ext_svnapot = true;
+    cpu->cfg.ext_sstc = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV48);
+    env->mdtcmcr = set_field(env->mdtcmcr, MDTCMCR_SIZE, 0x5);
+    env->mitcmcr = set_field(env->mitcmcr, MITCMCR_SIZE, 0x5);
+    env->clint_clic = true;
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv64_r908_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_r908_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+}
+
+static void rv64_r908fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_r908_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+
+static void rv64_r908fd_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_r908fd_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+}
+
+static void rv64_r908fdv_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_r908fd_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU | RVV);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+
+    cpu->cfg.ext_zvfh = true;
+}
+
+static void rv64_r908fdv_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv64_r908fdv_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+    cpu->cfg.ext_xtheadvdot = false;
 }
 
 static void rv64_veyron_v1_cpu_init(Object *obj)
@@ -708,6 +1282,453 @@ static void rv32_imafcu_nommu_cpu_init(Object *obj)
     cpu->cfg.pmp = true;
 }
 
+static void rv32_e902_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVE | RVC);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+#ifndef CONFIG_USER_ONLY
+    set_satp_mode_max_supported(cpu, VM_1_10_MBARE);
+#endif
+    /* inherited from parent obj via riscv_cpu_init() */
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.pmp = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+static void rv32_e902m_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVE | RVM | RVC);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+#ifndef CONFIG_USER_ONLY
+    set_satp_mode_max_supported(cpu, VM_1_10_MBARE);
+#endif
+
+    /* inherited from parent obj via riscv_cpu_init() */
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.pmp = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_e906_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+#ifndef CONFIG_USER_ONLY
+    set_satp_mode_max_supported(cpu, VM_1_10_MBARE);
+#endif
+    cpu->cfg.ext_xtheadisr = true;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadsync = true;
+    /* inherited from parent obj via riscv_cpu_init() */
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.pmp = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_e906f_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+
+    rv32_e906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVC);
+}
+
+static void rv32_e906fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+
+    rv32_e906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC);
+}
+
+static void rv32_e906fdp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_e906p_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_e906fp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e906_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_e907_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC);
+    env->priv_ver = PRIV_VERSION_1_10_0;
+#ifndef CONFIG_USER_ONLY
+    set_satp_mode_max_supported(cpu, VM_1_10_MBARE);
+    /* Try to use 32KB TCM on QEMU */
+    env->mdtcmcr = set_field(env->mdtcmcr, MDTCMCR_SIZE, 0x6);
+    env->mitcmcr = set_field(env->mitcmcr, MITCMCR_SIZE, 0x6);
+#endif
+    cpu->cfg.ext_xtheadisr = true;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadsync = true;
+    /* inherited from parent obj via riscv_cpu_init() */
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.pmp = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_e907f_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+
+    rv32_e907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVC);
+}
+
+static void rv32_e907fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+
+    rv32_e907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC);
+}
+
+static void rv32_e907fdp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_e907p_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_e907fp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+
+    rv32_e907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVP | RVC);
+    env->pext_ver = PEXT_VERSION_0_09_4;
+    cpu->cfg.ext_psfoperand = true;
+}
+
+static void rv32_c907_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x8d183000;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zawrs = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.ext_zicond = true;
+    cpu->cfg.ext_zcb = true;
+    cpu->cfg.ext_zihintntl = true;
+#ifndef CONFIG_USER_ONLY
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_smepmp = true;
+    cpu->cfg.ext_svpbmt = true;
+    cpu->cfg.ext_svinval = true;
+    cpu->cfg.ext_svnapot = true;
+    cpu->cfg.ext_sstc = true;
+    cpu->cfg.ext_sscofpmf = true;
+    cpu->cfg.pmu_mask = MAKE_64BIT_MASK(3, RV_MAX_MHPMCOUNTERS - 3);
+    cpu->cfg.mmu = true;
+    set_satp_mode_max_supported(RISCV_CPU(obj), VM_1_10_SV32);
+#endif
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+static void rv32_c907fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_c907_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_zfa = true;
+    cpu->cfg.ext_zfbfmin = true;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+static void rv32_c907fdv_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_c907fd_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVV | RVC | RVS | RVU);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.ext_zvfbfmin = true;
+    cpu->cfg.ext_zvfbfwma = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+}
+static void rv32_c907fdvm_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_c907fdv_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVV | RVC | RVS | RVU);
+    cpu->cfg.ext_matrix = true;
+    env->xmisa = MATRIX_MULT_F16F16
+                 | MATRIX_MULT_I4I32
+                 | MATRIX_MULT_I8I32;
+}
+
+#ifdef CONFIG_USER_ONLY
+static void rv32_r908_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_xtheadmaee = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zicntr = true;
+    cpu->cfg.ext_zihpm = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicbop = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zca = true;
+    cpu->cfg.ext_zcb = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_r908_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_r908_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+    cpu->cfg.ext_xtheadfmv = false;
+}
+
+static void rv32_r908fd_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_r908_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+
+static void rv32_r908fd_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_r908fd_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+    cpu->cfg.ext_xtheadfmv = false;
+}
+
+static void rv32_r908fdv_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_r908fd_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU | RVV);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+}
+
+static void rv32_r908fdv_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_r908fdv_cpu_init(obj);
+    cpu->cfg.ext_xtheadcp = true;
+    cpu->cfg.ext_xtheadba = false;
+    cpu->cfg.ext_xtheadbb = false;
+    cpu->cfg.ext_xtheadbs = false;
+    cpu->cfg.ext_xtheadcondmov = false;
+    cpu->cfg.ext_xtheadfmemidx = false;
+    cpu->cfg.ext_xtheadmac = false;
+    cpu->cfg.ext_xtheadmemidx = false;
+    cpu->cfg.ext_xtheadmempair = false;
+    cpu->cfg.ext_xtheadvdot = false;
+    cpu->cfg.ext_xtheadfmv = false;
+}
+
+static void rv32_c908i_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVC | RVS | RVU);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+    cpu->cfg.marchid = 0x8d143000;
+
+    cpu->cfg.ext_xtheadba = true;
+    cpu->cfg.ext_xtheadbb = true;
+    cpu->cfg.ext_xtheadbs = true;
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_xtheadcondmov = true;
+    cpu->cfg.ext_xtheadmac = true;
+    cpu->cfg.ext_xtheadmemidx = true;
+    cpu->cfg.ext_xtheadmempair = true;
+    cpu->cfg.ext_xtheadsync = true;
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbc = true;
+    cpu->cfg.ext_zbs = true;
+    cpu->cfg.ext_zkt = true;
+    cpu->cfg.ext_zbkc = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zihintpause = true;
+    cpu->cfg.ext_zicbom = true;
+    cpu->cfg.ext_zicboz = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_c908_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_c908i_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD | RVC | RVS | RVU);
+    cpu->cfg.ext_zfh = true;
+    cpu->cfg.ext_xtheadfmv = true;
+    cpu->cfg.ext_xtheadfmemidx = true;
+}
+
+static void rv32_c908v_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_c908_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVI | RVM | RVA | RVF | RVD |
+                                RVC | RVV | RVS | RVU);
+    env->vext_ver = VEXT_VERSION_1_00_0;
+    cpu->cfg.ext_zvfh = true;
+    cpu->cfg.ext_zve32f = true;
+    cpu->cfg.frac_elen_check = true;
+    cpu->cfg.ext_xtheadvdot = true;
+}
+#endif
+
 static void rv32i_bare_cpu_init(Object *obj)
 {
     CPURISCVState *env = &RISCV_CPU(obj)->env;
@@ -793,13 +1814,6 @@ static void riscv_cpu_dump_state(CPUState *cs, FILE *f, int flags)
             CSR_MSCRATCH,
             CSR_SSCRATCH,
             CSR_SATP,
-            CSR_MMTE,
-            CSR_UPMBASE,
-            CSR_UPMMASK,
-            CSR_SPMBASE,
-            CSR_SPMMASK,
-            CSR_MPMBASE,
-            CSR_MPMMASK,
         };
 
         for (i = 0; i < ARRAY_SIZE(dump_csrs); ++i) {
@@ -896,15 +1910,58 @@ static vaddr riscv_cpu_get_pc(CPUState *cs)
     return env->pc;
 }
 
+static bool riscv_cpu_has_pctrace(CPUState *cs)
+{
+#ifndef CONFIG_USER_ONLY
+    CPURISCVState *env = cpu_env(cs);
+    return env->pctrace == 1;
+#else
+    return false;
+#endif
+}
+
+static uint32_t riscv_cpu_get_pcbits(CPUState *cs)
+{
+    RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cs);
+    return 16 << mcc->misa_mxl_max;
+}
+
+static uint32_t riscv_cpu_get_pcindex(CPUState *cs)
+{
+    CPURISCVState *env = cpu_env(cs);
+    return env->trace_index;
+}
+
+static struct csky_trace_info *riscv_cpu_get_pcinfo(CPUState *cs)
+{
+    CPURISCVState *env = cpu_env(cs);
+    return env->trace_info;
+}
+
 static bool riscv_cpu_has_work(CPUState *cs)
 {
 #ifndef CONFIG_USER_ONLY
     RISCVCPU *cpu = RISCV_CPU(cs);
     CPURISCVState *env = &cpu->env;
+    /* For xiaohui platform */
+    if (cpu->power_state == XT_POWER_OFF) {
+        return false;
+    }
     /*
      * Definition of the WFI instruction requires it to ignore the privilege
      * mode and delegation registers, but respect individual enables
      */
+    /*
+     * We can't use the mip for interrupt pending when clic is enabled. It's
+     * hardware encoded into zero.
+     * If we don't implement cpu_has_work interface, QEMU will block itself
+     * in qemu_wait_io_event.
+     * This fix the error reported at
+     * https://aone.alibaba-inc.com/v2/workitem#viewIdentifier=1c46ee8637e0c978f115b6f7&openWorkitemIdentifier=48580069
+     */
+     if (xt_clic_is_clic_mode(env)) {
+        return !!env->exccode;
+     }
     return riscv_cpu_all_pending(env) != 0 ||
         riscv_cpu_sirq_pending(env) != RISCV_EXCP_NONE ||
         riscv_cpu_vsirq_pending(env) != RISCV_EXCP_NONE;
@@ -918,6 +1975,76 @@ static int riscv_cpu_mmu_index(CPUState *cs, bool ifetch)
     return riscv_env_mmu_index(cpu_env(cs), ifetch);
 }
 
+static void csky_cpu_handle_opts(CPURISCVState *env)
+{
+    QemuOptsList *ret;
+    QemuOpts *opts;
+    bool b;
+    char *str;
+
+#ifndef CONFIG_USER_ONLY
+    ret = qemu_find_opts("cpu-prop");
+    if (ret) {
+        opts = qemu_opts_find(ret, NULL);
+        if (opts) {
+
+            b = qemu_opt_get_bool(opts, "pctrace", false);
+            if (b) {
+                env->pctrace = 1;
+            }
+        }
+     }
+#endif
+    ret = qemu_find_opts("csky-extend");
+    if (ret) {
+        opts = qemu_opts_find(ret, NULL);
+        if (opts) {
+            str = qemu_opt_get_del(opts, "jcount_start");
+            if (str != NULL) {
+                env->jcount_start = strtoul(str, NULL, 0);
+                if (env->jcount_start != 0) {
+                    env->jcount_enable = 1;
+                }
+            } else {
+                env->jcount_start = 0;
+                env->jcount_enable = 0;
+            }
+
+            str = qemu_opt_get_del(opts, "jcount_end");
+            if (str != NULL) {
+                env->jcount_end = strtoul(str, NULL, 0);
+            } else {
+                env->jcount_end = 0;
+                env->jcount_enable = 0;
+            }
+
+            b = qemu_opt_get_bool(opts, "tb_trace", false);
+            if (b) {
+                env->tb_trace = 1;
+            }
+        }
+    }
+    ret = qemu_find_opts("csky-trace");
+    if (ret) {
+        opts = qemu_opts_find(ret, NULL);
+        if (opts) {
+            str = qemu_opt_get_del(opts, "start");
+            if (str != NULL) {
+                tfilter.stsp_range[0].start = strtoull(str, NULL, 0);
+                tfilter.stsp_range[0].end = UINT64_MAX;
+                str = qemu_opt_get_del(opts, "exit");
+                if (str != NULL) {
+                    tfilter.stsp_range[0].end = strtoull(str, NULL, 0);
+                }
+                tfilter.stsp_num = 1;
+                tfilter.sstsp = STSP_EXIT;
+            }
+            tfilter.proxy = qemu_opt_get_bool(opts, "proxy_trace", false);
+        }
+    }
+}
+
+static int csky_handle_opts;
 static void riscv_cpu_reset_hold(Object *obj)
 {
 #ifndef CONFIG_USER_ONLY
@@ -953,12 +2080,16 @@ static void riscv_cpu_reset_hold(Object *obj)
             env->mstatus_hs = set_field(env->mstatus_hs,
                                         MSTATUS64_UXL, env->misa_mxl);
         }
+        if (riscv_cpu_cfg(env)->ext_smdbltrp) {
+            env->mstatus = set_field(env->mstatus, MSTATUS_MDT, 1);
+        }
     }
     env->mcause = 0;
     env->miclaim = MIP_SGEIP;
     env->pc = env->resetvec;
     env->bins = 0;
     env->two_stage_lookup = false;
+    env->mstatus = set_field(env->mstatus, MSTATUS_MPP, 3);
 
     env->menvcfg = (cpu->cfg.ext_svpbmt ? MENVCFG_PBMTE : 0) |
                    (!cpu->cfg.ext_svade && cpu->cfg.ext_svadu ?
@@ -979,8 +2110,6 @@ static void riscv_cpu_reset_hold(Object *obj)
         }
         i++;
     }
-    /* mmte is supposed to have pm.current hardwired to 1 */
-    env->mmte |= (EXT_STATUS_INITIAL | MMTE_M_PM_CURRENT);
 
     /*
      * Bits 10, 6, 2 and 12 of mideleg are read only 1 when the Hypervisor
@@ -1002,7 +2131,6 @@ static void riscv_cpu_reset_hold(Object *obj)
     pmp_unlock_entries(env);
 #endif
     env->xl = riscv_cpu_mxl(env);
-    riscv_cpu_update_mask(env);
     cs->exception_index = RISCV_EXCP_NONE;
     env->load_res = -1;
     set_default_nan_mode(1, &env->fp_status);
@@ -1016,6 +2144,30 @@ static void riscv_cpu_reset_hold(Object *obj)
         kvm_riscv_reset_vcpu(cpu);
     }
 #endif
+    if (!env->xmisa && cpu->cfg.ext_matrix) {
+        env->xmisa = MATRIX_PW_FLOAT
+                     | MATRIX_PW_INT
+                     | MATRIX_SPARSITY_FLOAT
+                     | MATRIX_SPARSITY_INT
+                     | MATRIX_FLOAT_INT_CVT
+                     | MATRIX_MULT_F8F32
+                     | MATRIX_MULT_F8F16
+                     | MATRIX_MULT_F32F64
+                     | MATRIX_MULT_F16F32
+                     | MATRIX_MULT_F32F32
+                     | MATRIX_MULT_F64F64
+                     | MATRIX_MULT_F16F16
+                     | MATRIX_MULT_I16I64
+                     | MATRIX_MULT_I8I32
+                     | MATRIX_MULT_I4I32;
+    }
+    env->trace_info = g_malloc0(sizeof(struct csky_trace_info) * TB_TRACE_NUM);
+    env->trace_index = 0;
+    if (csky_handle_opts == 0) {
+        csky_cpu_handle_opts(env);
+        csky_trace_handle_opts(cs, 0);
+        csky_handle_opts = 1;
+    }
 }
 
 static void riscv_cpu_disas_set_info(CPUState *s, disassemble_info *info)
@@ -1132,6 +2284,7 @@ void riscv_cpu_finalize_features(RISCVCPU *cpu, Error **errp)
             error_propagate(errp, local_err);
             return;
         }
+        riscv_tcg_cpu_finalize_dynamic_decoder(cpu);
     } else if (kvm_enabled()) {
         riscv_kvm_cpu_finalize_features(cpu, &local_err);
         if (local_err != NULL) {
@@ -1393,10 +2546,10 @@ static const MISAExtInfo misa_ext_info_arr[] = {
     MISA_EXT_INFO(RVS, "s", "Supervisor-level instructions"),
     MISA_EXT_INFO(RVU, "u", "User-level instructions"),
     MISA_EXT_INFO(RVH, "h", "Hypervisor"),
-    MISA_EXT_INFO(RVJ, "x-j", "Dynamic translated languages"),
     MISA_EXT_INFO(RVV, "v", "Vector operations"),
     MISA_EXT_INFO(RVG, "g", "General purpose (IMAFD_Zicsr_Zifencei)"),
-    MISA_EXT_INFO(RVB, "x-b", "Bit manipulation (Zba_Zbb_Zbs)")
+    MISA_EXT_INFO(RVB, "b", "Bit manipulation (Zba_Zbb_Zbs)"),
+    MISA_EXT_INFO(RVP, "p", "Packed operations")
 };
 
 static void riscv_cpu_validate_misa_mxl(RISCVCPUClass *mcc)
@@ -1459,12 +2612,24 @@ const char *riscv_get_misa_ext_description(uint32_t bit)
 const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
     /* Defaults for standard extensions */
     MULTI_EXT_CFG_BOOL("sscofpmf", ext_sscofpmf, false),
+    MULTI_EXT_CFG_BOOL("smcntrpmf", ext_smcntrpmf, false),
+    MULTI_EXT_CFG_BOOL("smcsrind", ext_smcsrind, false),
+    MULTI_EXT_CFG_BOOL("sscsrind", ext_sscsrind, false),
+    MULTI_EXT_CFG_BOOL("smcdeleg", ext_smcdeleg, false),
+    MULTI_EXT_CFG_BOOL("ssccfg", ext_ssccfg, false),
+    MULTI_EXT_CFG_BOOL("smctr", ext_smctr, false),
+    MULTI_EXT_CFG_BOOL("ssctr", ext_ssctr, false),
     MULTI_EXT_CFG_BOOL("zifencei", ext_zifencei, true),
     MULTI_EXT_CFG_BOOL("zicsr", ext_zicsr, true),
     MULTI_EXT_CFG_BOOL("zihintntl", ext_zihintntl, true),
     MULTI_EXT_CFG_BOOL("zihintpause", ext_zihintpause, true),
+    MULTI_EXT_CFG_BOOL("zimop", ext_zimop, false),
+    MULTI_EXT_CFG_BOOL("zcmop", ext_zcmop, false),
     MULTI_EXT_CFG_BOOL("zacas", ext_zacas, false),
+    MULTI_EXT_CFG_BOOL("zama16b", ext_zama16b, false),
+    MULTI_EXT_CFG_BOOL("zabha", ext_zabha, false),
     MULTI_EXT_CFG_BOOL("zaamo", ext_zaamo, false),
+    MULTI_EXT_CFG_BOOL("zalasr", ext_zalasr, false),
     MULTI_EXT_CFG_BOOL("zalrsc", ext_zalrsc, false),
     MULTI_EXT_CFG_BOOL("zawrs", ext_zawrs, true),
     MULTI_EXT_CFG_BOOL("zfa", ext_zfa, true),
@@ -1472,8 +2637,10 @@ const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
     MULTI_EXT_CFG_BOOL("zfh", ext_zfh, false),
     MULTI_EXT_CFG_BOOL("zfhmin", ext_zfhmin, false),
     MULTI_EXT_CFG_BOOL("zve32f", ext_zve32f, false),
+    MULTI_EXT_CFG_BOOL("zve32x", ext_zve32x, false),
     MULTI_EXT_CFG_BOOL("zve64f", ext_zve64f, false),
     MULTI_EXT_CFG_BOOL("zve64d", ext_zve64d, false),
+    MULTI_EXT_CFG_BOOL("zve64x", ext_zve64x, false),
     MULTI_EXT_CFG_BOOL("zvfbfmin", ext_zvfbfmin, false),
     MULTI_EXT_CFG_BOOL("zvfbfwma", ext_zvfbfwma, false),
     MULTI_EXT_CFG_BOOL("zvfh", ext_zvfh, false),
@@ -1482,6 +2649,8 @@ const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
 
     MULTI_EXT_CFG_BOOL("smaia", ext_smaia, false),
     MULTI_EXT_CFG_BOOL("smepmp", ext_smepmp, false),
+    MULTI_EXT_CFG_BOOL("smmtt", ext_smmtt, false),
+    MULTI_EXT_CFG_BOOL("smsdid", ext_smsdid, false),
     MULTI_EXT_CFG_BOOL("smstateen", ext_smstateen, false),
     MULTI_EXT_CFG_BOOL("ssaia", ext_ssaia, false),
     MULTI_EXT_CFG_BOOL("svade", ext_svade, false),
@@ -1522,6 +2691,7 @@ const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
     MULTI_EXT_CFG_BOOL("zicboz", ext_zicboz, true),
 
     MULTI_EXT_CFG_BOOL("zmmul", ext_zmmul, false),
+    MULTI_EXT_CFG_BOOL("zpsfoperand", ext_psfoperand, false),
 
     MULTI_EXT_CFG_BOOL("zca", ext_zca, false),
     MULTI_EXT_CFG_BOOL("zcb", ext_zcb, false),
@@ -1530,13 +2700,17 @@ const RISCVCPUMultiExtConfig riscv_cpu_extensions[] = {
     MULTI_EXT_CFG_BOOL("zcf", ext_zcf, false),
     MULTI_EXT_CFG_BOOL("zcmp", ext_zcmp, false),
     MULTI_EXT_CFG_BOOL("zcmt", ext_zcmt, false),
+    MULTI_EXT_CFG_BOOL("zicfilp", ext_zicfilp, false),
+    MULTI_EXT_CFG_BOOL("zicfiss", ext_zicfiss, false),
     MULTI_EXT_CFG_BOOL("zicond", ext_zicond, false),
 
     /* Vector cryptography extensions */
     MULTI_EXT_CFG_BOOL("zvbb", ext_zvbb, false),
     MULTI_EXT_CFG_BOOL("zvbc", ext_zvbc, false),
-    MULTI_EXT_CFG_BOOL("zvkb", ext_zvkg, false),
+    MULTI_EXT_CFG_BOOL("zvbc32e", ext_zvbc32e, false),
+    MULTI_EXT_CFG_BOOL("zvkb", ext_zvkb, false),
     MULTI_EXT_CFG_BOOL("zvkg", ext_zvkg, false),
+    MULTI_EXT_CFG_BOOL("zvkgs", ext_zvkgs, false),
     MULTI_EXT_CFG_BOOL("zvkned", ext_zvkned, false),
     MULTI_EXT_CFG_BOOL("zvknha", ext_zvknha, false),
     MULTI_EXT_CFG_BOOL("zvknhb", ext_zvknhb, false),
@@ -1559,12 +2733,15 @@ const RISCVCPUMultiExtConfig riscv_cpu_vendor_exts[] = {
     MULTI_EXT_CFG_BOOL("xtheadbs", ext_xtheadbs, false),
     MULTI_EXT_CFG_BOOL("xtheadcmo", ext_xtheadcmo, false),
     MULTI_EXT_CFG_BOOL("xtheadcondmov", ext_xtheadcondmov, false),
+    MULTI_EXT_CFG_BOOL("xtheadcp", ext_xtheadcp, false),
     MULTI_EXT_CFG_BOOL("xtheadfmemidx", ext_xtheadfmemidx, false),
     MULTI_EXT_CFG_BOOL("xtheadfmv", ext_xtheadfmv, false),
     MULTI_EXT_CFG_BOOL("xtheadmac", ext_xtheadmac, false),
     MULTI_EXT_CFG_BOOL("xtheadmemidx", ext_xtheadmemidx, false),
     MULTI_EXT_CFG_BOOL("xtheadmempair", ext_xtheadmempair, false),
     MULTI_EXT_CFG_BOOL("xtheadsync", ext_xtheadsync, false),
+    MULTI_EXT_CFG_BOOL("xtheadvector", ext_xtheadvector, false),
+    MULTI_EXT_CFG_BOOL("xtheadisr", ext_xtheadisr, false),
     MULTI_EXT_CFG_BOOL("xventanacondops", ext_XVentanaCondOps, false),
 
     DEFINE_PROP_END_OF_LIST(),
@@ -1572,6 +2749,13 @@ const RISCVCPUMultiExtConfig riscv_cpu_vendor_exts[] = {
 
 /* These are experimental so mark with 'x-' */
 const RISCVCPUMultiExtConfig riscv_cpu_experimental_exts[] = {
+    /* Zjpm v0.8 extensions */
+    MULTI_EXT_CFG_BOOL("x-ssnpm", ext_ssnpm, false),
+    MULTI_EXT_CFG_BOOL("x-smnpm", ext_smnpm, false),
+    MULTI_EXT_CFG_BOOL("x-smmpm", ext_smmpm, false),
+
+    MULTI_EXT_CFG_BOOL("x-ssdbltrp", ext_ssdbltrp, false),
+    MULTI_EXT_CFG_BOOL("x-smdbltrp", ext_smdbltrp, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -1769,7 +2953,9 @@ static int priv_spec_from_str(const char *priv_spec_str)
 {
     int priv_version = -1;
 
-    if (!g_strcmp0(priv_spec_str, PRIV_VER_1_12_0_STR)) {
+    if (!g_strcmp0(priv_spec_str, PRIV_VER_1_13_0_STR)) {
+        priv_version = PRIV_VERSION_1_13_0;
+    } else if (!g_strcmp0(priv_spec_str, PRIV_VER_1_12_0_STR)) {
         priv_version = PRIV_VERSION_1_12_0;
     } else if (!g_strcmp0(priv_spec_str, PRIV_VER_1_11_0_STR)) {
         priv_version = PRIV_VERSION_1_11_0;
@@ -1780,7 +2966,7 @@ static int priv_spec_from_str(const char *priv_spec_str)
     return priv_version;
 }
 
-static const char *priv_spec_to_str(int priv_version)
+const char *priv_spec_to_str(int priv_version)
 {
     switch (priv_version) {
     case PRIV_VERSION_1_10_0:
@@ -1789,6 +2975,8 @@ static const char *priv_spec_to_str(int priv_version)
         return PRIV_VER_1_11_0_STR;
     case PRIV_VERSION_1_12_0:
         return PRIV_VER_1_12_0_STR;
+    case PRIV_VERSION_1_13_0:
+        return PRIV_VER_1_13_0_STR;
     default:
         return NULL;
     }
@@ -1866,6 +3054,37 @@ static const PropertyInfo prop_vext_spec = {
     .set = prop_vext_spec_set,
 };
 
+static void prop_pext_spec_set(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    g_autofree char *value = NULL;
+
+    visit_type_str(v, name, &value, errp);
+
+    if (g_strcmp0(value, PEXT_VER_0_09_4_STR) != 0) {
+        error_setg(errp, "Unsupported packed spec version '%s'", value);
+        return;
+    }
+
+    cpu_option_add_user_setting(name, PEXT_VERSION_0_09_4);
+    cpu->env.pext_ver = PEXT_VERSION_0_09_4;
+}
+
+static void prop_pext_spec_get(Object *obj, Visitor *v, const char *name,
+                               void *opaque, Error **errp)
+{
+    const char *value = PEXT_VER_0_09_4_STR;
+
+    visit_type_str(v, name, (char **)&value, errp);
+}
+
+static const PropertyInfo prop_pext_spec = {
+    .name = "pext_spec",
+    .get = prop_pext_spec_get,
+    .set = prop_pext_spec_set,
+};
+
 static void prop_vlen_set(Object *obj, Visitor *v, const char *name,
                          void *opaque, Error **errp)
 {
@@ -1878,13 +3097,6 @@ static void prop_vlen_set(Object *obj, Visitor *v, const char *name,
 
     if (!is_power_of_2(value)) {
         error_setg(errp, "Vector extension VLEN must be power of 2");
-        return;
-    }
-
-    if (value != cpu->cfg.vlenb && riscv_cpu_is_vendor(obj)) {
-        cpu_set_prop_err(cpu, name, errp);
-        error_append_hint(errp, "Current '%s' val: %u\n",
-                          name, cpu->cfg.vlenb << 3);
         return;
     }
 
@@ -1918,13 +3130,6 @@ static void prop_elen_set(Object *obj, Visitor *v, const char *name,
 
     if (!is_power_of_2(value)) {
         error_setg(errp, "Vector extension ELEN must be power of 2");
-        return;
-    }
-
-    if (value != cpu->cfg.elen && riscv_cpu_is_vendor(obj)) {
-        cpu_set_prop_err(cpu, name, errp);
-        error_append_hint(errp, "Current '%s' val: %u\n",
-                          name, cpu->cfg.elen);
         return;
     }
 
@@ -2230,9 +3435,42 @@ static RISCVCPUProfile RVA22S64 = {
     }
 };
 
+static RISCVCPUProfile RVB23U64 = {
+    .parent = &RVA22U64,
+    .name = "rvb23u64",
+    .ext_offsets = {
+        /* rvb23u64 exts */
+        CPU_CFG_OFFSET(ext_zicond), CPU_CFG_OFFSET(ext_zimop),
+        CPU_CFG_OFFSET(ext_zcmop), CPU_CFG_OFFSET(ext_zcb),
+        CPU_CFG_OFFSET(ext_zfa), CPU_CFG_OFFSET(ext_zawrs),
+        CPU_CFG_OFFSET(ext_zihintntl),
+
+        RISCV_PROFILE_EXT_LIST_END
+    }
+};
+
+static RISCVCPUProfile RVB23S64 = {
+    .parent = &RVB23U64,
+    .name = "rvb23s64",
+    .misa_ext = RVS,
+    .priv_spec = PRIV_VERSION_1_13_0,
+    .satp_mode = VM_1_10_SV39,
+    .ext_offsets = {
+        /* rvb23s64 exts */
+        CPU_CFG_OFFSET(ext_zifencei), CPU_CFG_OFFSET(ext_svpbmt),
+        CPU_CFG_OFFSET(ext_svinval), CPU_CFG_OFFSET(ext_svade),
+		CPU_CFG_OFFSET(ext_sstc), CPU_CFG_OFFSET(ext_sscofpmf),
+        CPU_CFG_OFFSET(ext_svnapot),
+
+        RISCV_PROFILE_EXT_LIST_END
+    }
+};
+
 RISCVCPUProfile *riscv_profiles[] = {
     &RVA22U64,
     &RVA22S64,
+    &RVB23U64,
+    &RVB23S64,
     NULL,
 };
 
@@ -2247,6 +3485,7 @@ static Property riscv_cpu_properties[] = {
 
     {.name = "priv_spec", .info = &prop_priv_spec},
     {.name = "vext_spec", .info = &prop_vext_spec},
+    {.name = "pext_spec", .info = &prop_pext_spec},
 
     {.name = "vlen", .info = &prop_vlen},
     {.name = "elen", .info = &prop_elen},
@@ -2267,12 +3506,14 @@ static Property riscv_cpu_properties[] = {
 
     DEFINE_PROP_BOOL("rvv_ta_all_1s", RISCVCPU, cfg.rvv_ta_all_1s, false),
     DEFINE_PROP_BOOL("rvv_ma_all_1s", RISCVCPU, cfg.rvv_ma_all_1s, false),
+    DEFINE_PROP_BOOL("frac_elen_check", RISCVCPU, cfg.frac_elen_check, false),
 
     /*
      * write_misa() is marked as experimental for now so mark
      * it with -x and default to 'false'.
      */
     DEFINE_PROP_BOOL("x-misa-w", RISCVCPU, cfg.misa_w, false),
+    DEFINE_PROP_UINT16("rlen", RISCVCPU, cfg.mrowlen, 128),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -2289,6 +3530,20 @@ static void rva22s64_profile_cpu_init(Object *obj)
     rv64i_bare_cpu_init(obj);
 
     RVA22S64.enabled = true;
+}
+
+static void rvb23u64_profile_cpu_init(Object *obj)
+{
+    rv64i_bare_cpu_init(obj);
+
+    RVB23U64.enabled = true;
+}
+
+static void rvb23s64_profile_cpu_init(Object *obj)
+{
+    rv64i_bare_cpu_init(obj);
+
+    RVB23S64.enabled = true;
 }
 #endif
 
@@ -2341,6 +3596,10 @@ static void riscv_cpu_common_class_init(ObjectClass *c, void *data)
 
     cc->class_by_name = riscv_cpu_class_by_name;
     cc->has_work = riscv_cpu_has_work;
+    cc->has_pctrace = riscv_cpu_has_pctrace;
+    cc->get_pcbits = riscv_cpu_get_pcbits;
+    cc->get_pcindex = riscv_cpu_get_pcindex;
+    cc->get_pcinfo = riscv_cpu_get_pcinfo;
     cc->mmu_index = riscv_cpu_mmu_index;
     cc->dump_state = riscv_cpu_dump_state;
     cc->set_pc = riscv_cpu_set_pc;
@@ -2541,6 +3800,37 @@ static const TypeInfo riscv_cpu_type_infos[] = {
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_SIFIVE_U34, MXL_RV32,  rv32_sifive_u_cpu_init),
     DEFINE_BARE_CPU(TYPE_RISCV_CPU_RV32I,        MXL_RV32,  rv32i_bare_cpu_init),
     DEFINE_BARE_CPU(TYPE_RISCV_CPU_RV32E,        MXL_RV32,  rv32e_bare_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E902,       MXL_RV32,  rv32_e902_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E902T,      MXL_RV32,  rv32_e902_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E902M,      MXL_RV32,  rv32_e902m_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E902MT,     MXL_RV32,  rv32_e902m_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906,       MXL_RV32,  rv32_e906_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906F,      MXL_RV32,  rv32_e906f_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906FD,     MXL_RV32,  rv32_e906fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906FDP,    MXL_RV32,  rv32_e906fdp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906P,      MXL_RV32,  rv32_e906p_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E906FP,     MXL_RV32,  rv32_e906fp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907,       MXL_RV32,  rv32_e907_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907F,      MXL_RV32,  rv32_e907f_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907FD,     MXL_RV32,  rv32_e907fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907FDP,    MXL_RV32,  rv32_e907fdp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907P,      MXL_RV32,  rv32_e907p_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E907FP,     MXL_RV32,  rv32_e907fp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907RV32,   MXL_RV32,  rv32_c907_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDRV32, MXL_RV32,  rv32_c907fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVRV32,  MXL_RV32, rv32_c907fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVMRV32, MXL_RV32, rv32_c907fdvm_cpu_init),
+#if defined(CONFIG_USER_ONLY)
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908IRV32,  MXL_RV32,  rv32_c908i_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908RV32,   MXL_RV32,  rv32_c908_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908VRV32,  MXL_RV32,  rv32_c908v_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908RV32,       MXL_RV32,  rv32_r908_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908_CPRV32,    MXL_RV32,  rv32_r908_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FDRV32,     MXL_RV32,  rv32_r908fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FD_CPRV32,  MXL_RV32,  rv32_r908fd_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FDVRV32,    MXL_RV32,  rv32_r908fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FDV_CPRV32, MXL_RV32,  rv32_r908fdv_cp_cpu_init),
+#endif
 #elif defined(TARGET_RISCV64)
     DEFINE_DYNAMIC_CPU(TYPE_RISCV_CPU_ANY,       MXL_RV64,  riscv_any_cpu_init),
     DEFINE_DYNAMIC_CPU(TYPE_RISCV_CPU_MAX,       MXL_RV64,  riscv_max_cpu_init),
@@ -2555,6 +3845,40 @@ static const TypeInfo riscv_cpu_type_infos[] = {
     DEFINE_BARE_CPU(TYPE_RISCV_CPU_RV64E,        MXL_RV64,  rv64e_bare_cpu_init),
     DEFINE_PROFILE_CPU(TYPE_RISCV_CPU_RVA22U64,  MXL_RV64,  rva22u64_profile_cpu_init),
     DEFINE_PROFILE_CPU(TYPE_RISCV_CPU_RVA22S64,  MXL_RV64,  rva22s64_profile_cpu_init),
+    DEFINE_PROFILE_CPU(TYPE_RISCV_CPU_RVB23U64,  MXL_RV64,  rvb23u64_profile_cpu_init),
+    DEFINE_PROFILE_CPU(TYPE_RISCV_CPU_RVB23S64,  MXL_RV64,  rvb23s64_profile_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C910,       MXL_RV64,  rv64_c910_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C910V,      MXL_RV64,  rv64_c910v_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C920,       MXL_RV64,  rv64_c910v_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C906,       MXL_RV64,  rv64_c906_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C906FD,     MXL_RV64,  rv64_c906fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C906FDV,    MXL_RV64,  rv64_c906fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908I,      MXL_RV64,  rv64_c908i_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908,       MXL_RV64,  rv64_c908_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908V,      MXL_RV64,  rv64_c908v_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C960,       MXL_RV64,  rv64_c910_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R910,       MXL_RV64,  rv64_r910_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R920,       MXL_RV64,  rv64_r920_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907,       MXL_RV64,  rv64_c907_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FD,     MXL_RV64,  rv64_c907fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDV,    MXL_RV64,  rv64_c907fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVM,   MXL_RV64,  rv64_c907fdvm_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907RV64,   MXL_RV64,  rv64_c907_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDRV64, MXL_RV64,  rv64_c907fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVRV64,  MXL_RV64, rv64_c907fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVMRV64, MXL_RV64, rv64_c907fdvm_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C910V2,     MXL_RV64,  rv64_c910v2_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C920V2,     MXL_RV64,  rv64_c920v2_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C910V3,     MXL_RV64,  rv64_c910v3_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C910V3_CP,  MXL_RV64,  rv64_c910v3_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C920V3,     MXL_RV64,  rv64_c920v3_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C920V3_CP,  MXL_RV64,  rv64_c920v3_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908,       MXL_RV64,  rv64_r908_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908_CP,    MXL_RV64,  rv64_r908_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FD,     MXL_RV64,  rv64_r908fd_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FD_CP,  MXL_RV64,  rv64_r908fd_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FDV,    MXL_RV64,  rv64_r908fdv_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_R908FDV_CP, MXL_RV64,  rv64_r908fdv_cp_cpu_init),
 #endif
 };
 

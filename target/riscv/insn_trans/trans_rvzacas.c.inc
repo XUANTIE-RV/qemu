@@ -22,23 +22,10 @@
     }                                     \
 } while (0)
 
-static bool gen_cmpxchg(DisasContext *ctx, arg_atomic *a, MemOp mop)
-{
-    TCGv dest = get_gpr(ctx, a->rd, EXT_NONE);
-    TCGv src1 = get_address(ctx, a->rs1, 0);
-    TCGv src2 = get_gpr(ctx, a->rs2, EXT_NONE);
-
-    decode_save_opc(ctx);
-    tcg_gen_atomic_cmpxchg_tl(dest, src1, dest, src2, ctx->mem_idx, mop);
-
-    gen_set_gpr(ctx, a->rd, dest);
-    return true;
-}
-
 static bool trans_amocas_w(DisasContext *ctx, arg_amocas_w *a)
 {
     REQUIRE_ZACAS(ctx);
-    return gen_cmpxchg(ctx, a, MO_ALIGN | MO_TESL);
+    return gen_cmpxchg(ctx, a, MO_TESL);
 }
 
 static TCGv_i64 get_gpr_pair(DisasContext *ctx, int reg_num)
@@ -84,6 +71,11 @@ static bool gen_cmpxchg64(DisasContext *ctx, arg_atomic *a, MemOp mop)
     if ((a->rs2 | a->rd) & 1) {
         return false;
     }
+    if (ctx->cfg_ptr->ext_zama16b) {
+        mop |= MO_ATOM_WITHIN16;
+    } else {
+        mop |= MO_ALIGN;
+    }
 
     TCGv_i64 dest = get_gpr_pair(ctx, a->rd);
     TCGv src1 = get_address(ctx, a->rs1, 0);
@@ -101,10 +93,10 @@ static bool trans_amocas_d(DisasContext *ctx, arg_amocas_d *a)
     REQUIRE_ZACAS(ctx);
     switch (get_ol(ctx)) {
     case MXL_RV32:
-        return gen_cmpxchg64(ctx, a, MO_ALIGN | MO_TEUQ);
+        return gen_cmpxchg64(ctx, a, MO_TEUQ);
     case MXL_RV64:
     case MXL_RV128:
-        return gen_cmpxchg(ctx, a, MO_ALIGN | MO_TEUQ);
+        return gen_cmpxchg(ctx, a, MO_TEUQ);
     default:
         g_assert_not_reached();
     }
@@ -136,7 +128,7 @@ static bool trans_amocas_q(DisasContext *ctx, arg_amocas_q *a)
     tcg_gen_concat_i64_i128(dest, destl, desth);
     decode_save_opc(ctx);
     tcg_gen_atomic_cmpxchg_i128(dest, src1, dest, src2, ctx->mem_idx,
-                                (MO_ALIGN | MO_TEUO));
+                                (MO_ATOM_WITHIN16 | MO_TEUO));
 
     tcg_gen_extr_i128_i64(destl, desth, dest);
 

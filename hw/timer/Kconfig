@@ -60,3 +60,19 @@ config STELLARIS_GPTM
 
 config AVR_TIMER16
     bool
+
+config CSKY_CORET
+    bool
+    select PTIMER
+
+config CSKY_TIMER
+    bool
+    select PTIMER
+
+config CSKY_MPTIMER
+    bool
+    select PTIMER
+
+config CSKY_TIMER_FOR_ARM
+    bool
+    select PTIMER

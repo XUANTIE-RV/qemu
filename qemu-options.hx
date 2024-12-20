@@ -178,6 +178,128 @@ SRST
     selection)
 ERST
 
+DEF("cpu-prop", HAS_ARG, QEMU_OPTION_cpu_prop,
+    "-cpu-prop [pctrace=on|off][,elrw=on|off][,mem_prot=mmu|mpu|no]\n"
+    "          [,full_mmu=on|off][,unaligned_access=on|off]\n"
+    "                set CSKY CPU's properties\n"
+    "                pctrace= default is off, log no more than 511 items\n"
+    "                elrw= default is off\n"
+    "                mem_prot= ck610/ck807/ck810/ck860/c807/c810/c860 default is mmu, else mpu\n"
+    "                full_mmu= default is off\n"
+    "                unaligned_access= default is off\n"
+    , QEMU_ARCH_CSKY | QEMU_ARCH_RISCV)
+SRST
+``-cpu-prop [pctrace=on|off][,elrw=on|off][,mem_prot=mmu|mpu|no][,full_mmu=on|off][,unaligned_access=on|off]``
+    Choose extend CPU properties. Valid options are:
+
+    ``pctrace=on|off``
+        This option defines if need to record pctrace, default is off.
+        The number of pctrace is no more than 511.
+
+    ``elrw=on|off``
+        This option defines if has elrw extend.
+
+    ``mem_prot=mmu|mpu|no``
+        This option defines if need to select memory protect unit.
+
+    ``full_mmu=on|off``
+        This option defines if need simulate full csky MMU.
+
+    ``unaligned_access=on|off``
+        This option defines if cpu need support unaligned data access.
+ERST
+
+DEF("csky-extend", HAS_ARG, QEMU_OPTION_csky_extend,
+    "-csky-extend [vdsp=vdsp][,exit_addr=addr][,mmu_default=on|off][,tb_trace=on|off]\n"
+    "             [,denormal=on|off][,cpu_freq=@var{cpu_freq}][,hbreak=on|off][,exit_bkpt=on|off]\n"
+    "                set CSKY misc extend for experiment, debug, test, or deprecated\n"
+    "                vdsp= could be 64 or 128, default vdsp=0\n"
+    "                exit_addr= addr to exit QEMU, default is 0x0 and off\n"
+    "                mmu_default= default is off\n"
+    "                tb_trace= default is off\n"
+    "                denormal= default is off\n"
+    "                cpu_freq= default is 0, and off\n"
+    "                hbreak= support hardware breakpoint before memory map build, default is on\n"
+    "                exit_bkpt= support exit QEMU by an bkpt, default is off\n"
+    , QEMU_ARCH_CSKY | QEMU_ARCH_RISCV)
+SRST
+``-csky-extend vdsp=@var{vdsp}[,exit_addr=@var{addr}][,mmu_default=on|off][,tb_trace=on|off][,denormal=on|off][,cpu_freq=@var{cpu_freq}][,hbreak=on|off]``
+    Choose CSKY misc extend. Valid options are:
+
+    ``vdsp=@var{vdsp}``
+        This option defines is 0, means CPU does not support VDSP, CPU's vdsp is 64 or 128.
+
+    ``exit_addr=@var{addr}``
+        This option defines is 0, and would not effect. QEMU will call exit if @var{addr} match PC.
+
+    ``mmu_default=on|off``
+        This option defines if need open MMU before elf load.
+
+    ``tb_trace=on|off``
+        This option defines if trace beginning of all TranslationBlock's PC. To log it, type "-d tb_trace".
+
+    ``denormal=on|off``
+        This option defines if fpu instructions need to excute in denormalized mode.
+
+    ``cpu_freq=@var{cpu_freq}``
+        This option defines is 0, means using the frequency that have setting in board information strcut.
+
+    ``hbreak=on|off``
+        This option defines if hardware breakpoints are supported before the virtual address memory map build, with side effects of no warning in memory query command like "x".
+ERST
+
+DEF("CPF", 0, QEMU_OPTION_CPF,
+    "-CPF            CSKY PROFILING\n",
+    QEMU_ARCH_CSKY | QEMU_ARCH_RISCV)
+SRST
+``-CPF``
+    Enable CSKY PROFILING (CSKY only).
+ERST
+
+DEF("csky-trace", HAS_ARG, QEMU_OPTION_csky_trace,
+    "-csky-trace port=port[,tb_trace=on|off][,mem_trace=on|off][,start=addr][exit=addr][,proxy_trace=on|off]\n"
+    "                set CSKY trace properties\n"
+    "                port= socket parameter,default is 8810\n"
+    "                tb_trace= trace basic block or not, default is on\n"
+    "                mem_trace= trace ld/st or not, default is on\n"
+    "                proxy_trace= add pc for memory trace or not, default is off\n"
+    "                auto_trace= auto gen trace or not, default is on\n"
+    "                start= start trace from addr, default is the entry point\n"
+    "                exit= exit trace from addr\n"
+    , QEMU_ARCH_CSKY | QEMU_ARCH_RISCV)
+SRST
+``-csky-trace port=@var{port}[,tb_trace=on|off][,mem_trace=on|off][,auto_trace=on|off]``
+    Choose extend CSKY trace properities. Valid options are:
+
+    ``device=@var{device}``
+        This option must set to support a channel to output trace info.
+
+    ``tb_trace=on|off``
+        This option defines if must not trace basic blocks.
+
+    ``mem_trace=on|off``
+        This option defines if must not trace ld/st operations.
+ERST
+
+DEF("soc", HAS_ARG, QEMU_OPTION_soc,
+    "-soc shm=on|off[,shmkey=key][,xmlpath=path]\n"
+    "                -soc loads all CSKY's modules, \n"
+    "                setting shm= default is on.\n"
+    "                setting shmkey= to connect to shm, used when shm=on, key range 0-9999\n"
+    "                setting xmlpath= to point out where xml file is.[have not implemented]\n"
+    "                Note: if setting shm=on ignores xmlpath= .\n"
+    , QEMU_ARCH_CSKY | QEMU_ARCH_RISCV)
+SRST
+``-soc shm=on|off[,xmlpath=@var{path}]``
+    Loads all modules, and using shm to point out how to using modules. Valid options are:
+
+    ``shm=on|off``
+        This option defines is on, get a description from cskysim to orgnize a dynsoc.
+
+    ``xmlpath=@var{path}``
+        This option deparse xml to get a description to orgnize the dynsoc.
+ERST
+
 DEF("accel", HAS_ARG, QEMU_OPTION_accel,
     "-accel [accel=]accelerator[,prop[=value][,...]]\n"
     "                select accelerator (kvm, xen, hvf, nvmm, whpx or tcg; use 'help' for a list)\n"

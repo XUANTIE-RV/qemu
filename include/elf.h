@@ -185,6 +185,9 @@ typedef struct mips_elf_abiflags_v0 {
 
 #define EM_LOONGARCH        258 /* LoongArch */
 
+#define EM_CSKY         252      /* CSKY */
+#define EM_CSKY_OLD     39
+
 /*
  * This is an interim value that we will use until the committee comes
  * up with a final number.

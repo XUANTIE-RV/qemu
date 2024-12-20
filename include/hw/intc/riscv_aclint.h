@@ -65,11 +65,12 @@ typedef struct RISCVAclintSwiState {
     uint32_t hartid_base;
     uint32_t num_harts;
     uint32_t sswi;
+    uint32_t swi_size;
     qemu_irq *soft_irqs;
 } RISCVAclintSwiState;
 
 DeviceState *riscv_aclint_swi_create(hwaddr addr, uint32_t hartid_base,
-    uint32_t num_harts, bool sswi);
+    uint32_t num_harts, bool sswi, uint32_t size);
 
 enum {
     RISCV_ACLINT_DEFAULT_MTIMECMP      = 0x0,

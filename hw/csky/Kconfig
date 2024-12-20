@@ -1,0 +1,88 @@
+config CSKY_VIRT
+    bool
+    imply PCI_DEVICES
+    imply TEST_DEVICES
+    select PCI
+    select CSKY_EXIT
+    select CSKY_MPTIMER
+    select CSKY_MIC
+    select CSKY_INTC
+    select CSKY_TIMER
+    select CSKY_UART
+    select VIRTIO_MMIO
+    select VIRTIO_VGA
+    select PCI_EXPRESS_GENERIC_BRIDGE
+
+config YUNVOICE_V2
+    bool
+    select CSKY_EXIT
+    select CSKY_UART
+    select CSKY_CORET
+    select CSKY_TCIP
+    select CSKY_FFT
+    select CSKY_MCA
+
+config SMARTL
+    bool
+    select CSKY_EXIT
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_CORET
+    select CSKY_TCIP
+    select CSKY_MEMLOG
+
+config TRILOBITE
+    bool
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_INTC
+    select CSKY_LCDC
+
+config TRILOBITE_V2
+    bool
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_INTC
+    select CSKY_LCDC
+
+config SMART_CARD
+    bool
+    select CSKY_UART
+    select CSKY_CORET
+    select CSKY_TCIP
+
+config HOBBIT1_V2
+    bool
+    select CSKY_UART
+    select CSKY_CORET
+    select CSKY_TCIP
+
+config DEIMOS
+    bool
+    select CSKY_UART
+    select CSKY_CORET
+    select CSKY_TCIP
+
+config SMARTH
+    bool
+    select CSKY_EXIT
+    select CSKY_INTC
+    select CSKY_TIMER
+    select CSKY_UART
+
+config DUMMYH
+    bool
+    select CSKY_INTC
+    select CSKY_TCIP
+    select CSKY_TIMER
+    select CSKY_CORET
+    select CSKY_UART
+    select CSKY_MAC
+    select CSKY_MAC_V2
+    select CSKY_LCDC
+    select CSKY_EXIT
+    select CSKY_MEMLOG
+    select CSKY_NAND
+    select CSKY_SDHC
+    select CSKY_IIS
+    select CSKY_DMA

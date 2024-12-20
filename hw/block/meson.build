@@ -21,3 +21,4 @@ specific_ss.add(when: 'CONFIG_VIRTIO_BLK', if_true: files('virtio-blk.c', 'virti
 specific_ss.add(when: 'CONFIG_VHOST_USER_BLK', if_true: files('vhost-user-blk.c', 'virtio-blk-common.c'))
 
 subdir('dataplane')
+system_ss.add(when: 'CONFIG_CSKY_NAND', if_true: files('csky_nfc.c'))

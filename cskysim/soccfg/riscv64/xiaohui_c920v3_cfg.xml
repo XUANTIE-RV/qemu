@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Board name="xiaohui" arch="riscv64" cskysimv="2.0">
+    <cpu_info cpu="c920v3" endian="little" abi="riscv64"></cpu_info>
+    <dyndev shm="on">
+        <dev name="csky_clic"  filename="builtin" addr="0xc010000" type="INTC" extra="" irq=""></dev>
+        <dev name="csky_plic" filename="builtin" addr="0x8000000" type="INTC" extra="" irq=""></dev>
+        <dev name="csky_clint" filename="builtin" addr="0xc000000" type="INTC" extra="" irq=""></dev>
+        <dev name="csky_uart" filename="csky_uart" addr="0x1900d000" type="UART" extra="" irq="20"></dev>
+        <dev name="csky_timer" filename="csky_timer" addr="0x19001000" type="TIMER" extra="" irq="25"></dev>
+        <dev name="csky_exit"  filename="csky_exit" addr="0x4c000000" type="EXIT" extra="" irq=""></dev>
+    </dyndev>
+    <memory>
+        <mem name="xiaohui_sram" addr="0x0" size ="0x00100000" attr ="MEM_RAM"></mem>
+        <mem name="xiaohui_dram" addr="0x50000000" size ="0x40000000" attr ="MEM_RAM"></mem>
+    </memory>
+    <cpu_prop>
+        <cpu name="pctrace"                 value="off"> on/off </cpu>
+        <cpu name="elrw"                    value="off"> on/off </cpu>
+        <cpu name="mem_prot"                value="mpu"> no/mmu/mpu </cpu>
+        <cpu name="unaligned_access"        value="off"> on/off </cpu>
+    </cpu_prop>
+    <Description> This file is used for dynamic configuration
+        <AutoDescription>
+            CPU Type: c920v3 Little Endian
+            Memory Sections:
+                xiaohui_sram, Start: 0x0, Length: 0x100000
+                xiaohui_dram, Start: 0x50000000, Length: 0x40000000
+        </AutoDescription>
+    </Description>
+</Board>

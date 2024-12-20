@@ -21,6 +21,11 @@ fs = import('fs')
 host_os = host_machine.system()
 config_host = keyval.load(meson.current_build_dir() / 'config-host.mak')
 
+csky_dynsoc = false
+if 'CONFIG_DYNSOC' in config_host
+    csky_dynsoc = true
+endif
+
 # Temporary directory used for files created while
 # configure runs. Since it is in the build directory
 # we can safely blow away any previous version of it
@@ -574,6 +579,7 @@ endif
 
 qemu_common_flags += cc.get_supported_arguments(hardening_flags)
 
+qemu_ldflags += ['-lstdc++']
 add_global_arguments(qemu_common_flags, native: false, language: all_languages)
 add_global_link_arguments(qemu_ldflags, native: false, language: all_languages)
 
@@ -678,10 +684,12 @@ emulator_link_args = []
 midl = not_found
 widl = not_found
 pathcch = not_found
+asp_win = not_found
 host_dsosuf = '.so'
 if host_os == 'windows'
   midl = find_program('midl', required: false)
   widl = find_program('widl', required: false)
+  asp_win = cc.find_library('Theadasp_win', dirs:join_paths(meson.project_source_root() + '/hw/misc/'), required: true)
   pathcch = cc.find_library('pathcch')
   socket = cc.find_library('ws2_32')
   winmm = cc.find_library('winmm')
@@ -2052,6 +2060,10 @@ endif
 
 config_host_data = configuration_data()
 
+if 'CONFIG_DYNSOC' in config_host
+    config_host_data.set('CONFIG_DYNSOC', 1)
+endif
+
 audio_drivers_selected = []
 if have_system
   audio_drivers_available = {
@@ -2981,6 +2993,7 @@ disassemblers = {
   'sparc' : ['CONFIG_SPARC_DIS'],
   'xtensa' : ['CONFIG_XTENSA_DIS'],
   'loongarch' : ['CONFIG_LOONGARCH_DIS'],
+  'csky' : ['CONFIG_CSKY_DIS'],
 }
 
 have_ivshmem = config_host_data.get('CONFIG_EVENTFD')
@@ -3364,6 +3377,7 @@ if have_system
     'hw/rdma',
     'hw/rdma/vmw',
     'hw/rtc',
+    'hw/riscv',
     'hw/s390x',
     'hw/scsi',
     'hw/sd',
@@ -3903,6 +3917,13 @@ foreach target : target_dirs
   arch_srcs += target_specific.sources()
   arch_deps += target_specific.dependencies()
 
+  if 'CONFIG_CSKY_TRACE' in config_target
+    if config_target['CONFIG_CSKY_TRACE'] == 'y'
+      arch_srcs += files('tracestub.c', 'csky-trace.c')
+    endif
+  else
+    arch_srcs += files('tracestub-common.c')
+  endif
   lib = static_library('qemu-' + target,
                  sources: arch_srcs + genh,
                  dependencies: arch_deps,
@@ -3953,7 +3974,7 @@ foreach target : target_dirs
     emulator = executable(exe_name, exe['sources'],
                install: true,
                c_args: c_args,
-               dependencies: arch_deps + deps + exe['dependencies'],
+               dependencies: arch_deps + deps + exe['dependencies'] + asp_win,
                objects: lib.extract_all_objects(recursive: true),
                link_depends: [block_syms, qemu_syms],
                link_args: link_args,

@@ -18,3 +18,4 @@ source sh4/Kconfig
 source sparc/Kconfig
 source tricore/Kconfig
 source xtensa/Kconfig
+source csky/Kconfig

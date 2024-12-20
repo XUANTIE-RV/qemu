@@ -1,3 +1,6 @@
+config RISCV_IOMMU
+    bool
+
 config RISCV_NUMA
     bool
 
@@ -38,6 +41,7 @@ config RISCV_VIRT
     select SERIAL
     select RISCV_ACLINT
     select RISCV_APLIC
+    select RISCV_IOMMU
     select RISCV_IMSIC
     select SIFIVE_PLIC
     select SIFIVE_TEST
@@ -47,6 +51,7 @@ config RISCV_VIRT
     select PLATFORM_BUS
     select ACPI
     select ACPI_PCI
+    select RISCV_IOPMP
 
 config SHAKTI_C
     bool
@@ -87,3 +92,50 @@ config SPIKE
     select HTIF
     select RISCV_ACLINT
     select SIFIVE_PLIC
+
+config THEAD_PMU
+    bool
+
+config RISCV_SMARTL
+    bool
+    select XT_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select CSKY_EXIT
+    select THEAD_PMU
+
+config RISCV_SMARTH
+    bool
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_EXIT
+
+config THEAD_ASP_V1
+    bool
+    select RISCV_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select THEAD_ASP_NNE_V1
+    select CSKY_EXIT
+
+config RISCV_DUMMYH
+    bool
+    select XT_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select CSKY_EXIT
+    select CSKY_CORET
+    select RISCV_ACLINT
+    select SIFIVE_PLIC
+    select XIAOHUI_CPR
+
+config RISCV_XIAOHUI
+    bool
+    select XT_CLIC
+    select CSKY_TIMER
+    select CSKY_UART
+    select CSKY_EXIT
+    select XIAOHUI_CPR

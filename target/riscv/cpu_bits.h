@@ -9,6 +9,13 @@
                  (((uint64_t)(val) * ((mask) & ~((mask) << 1))) & \
                  (uint64_t)(mask)))
 
+#define CSR_TH_SXSTATUS 0x5c0
+
+/* TH_SXSTATUS bits */
+#define TH_SXSTATUS_UCME        BIT(16)
+#define TH_SXSTATUS_MAEE        BIT(21)
+#define TH_SXSTATUS_THEADISAEE  BIT(22)
+
 /* Extension context status mask */
 #define EXT_STATUS_MASK     0x3ULL
 
@@ -156,6 +163,8 @@
 
 /* 32-bit only */
 #define CSR_MSTATUSH        0x310
+#define CSR_MEDELEGH        0x312
+#define CSR_HEDELEGH        0x612
 
 /* Machine Trap Handling */
 #define CSR_MSCRATCH        0x340
@@ -167,6 +176,13 @@
 /* Machine-Level Window to Indirectly Accessed Registers (AIA) */
 #define CSR_MISELECT        0x350
 #define CSR_MIREG           0x351
+
+/* Machine Indirect Register Alias */
+#define CSR_MIREG2          0x352
+#define CSR_MIREG3          0x353
+#define CSR_MIREG4          0x355
+#define CSR_MIREG5          0x356
+#define CSR_MIREG6          0x357
 
 /* Machine-Level Interrupts (AIA) */
 #define CSR_MTOPEI          0x35c
@@ -198,6 +214,9 @@
 #define CSR_SSTATEEN2       0x10E
 #define CSR_SSTATEEN3       0x10F
 
+/* Supervisor Counter Delegation */
+#define CSR_SCOUNTINHIBIT   0x120
+
 /* Supervisor Trap Handling */
 #define CSR_SSCRATCH        0x140
 #define CSR_SEPC            0x141
@@ -217,6 +236,13 @@
 #define CSR_SISELECT        0x150
 #define CSR_SIREG           0x151
 
+/* Supervisor Indirect Register Alias */
+#define CSR_SIREG2          0x152
+#define CSR_SIREG3          0x153
+#define CSR_SIREG4          0x155
+#define CSR_SIREG5          0x156
+#define CSR_SIREG6          0x157
+
 /* Supervisor-Level Interrupts (AIA) */
 #define CSR_STOPEI          0x15c
 #define CSR_STOPI           0xdb0
@@ -224,6 +250,17 @@
 /* Supervisor-Level High-Half CSRs (AIA) */
 #define CSR_SIEH            0x114
 #define CSR_SIPH            0x154
+
+/* Machine-Level Control transfer records CSRs */
+#define CSR_MCTRCTL         0x34e
+
+/* Supervisor-Level Control transfer records CSRs */
+#define CSR_SCTRCTL         0x14e
+#define CSR_SCTRSTATUS      0x14f
+#define CSR_SCTRDEPTH       0x15f
+
+/* VS-Level Control transfer records CSRs */
+#define CSR_VSCTRCTL        0x24e
 
 /* Hpervisor CSRs */
 #define CSR_HSTATUS         0x600
@@ -283,6 +320,13 @@
 #define CSR_VSISELECT       0x250
 #define CSR_VSIREG          0x251
 
+/* Virtual Supervisor Indirect Alias */
+#define CSR_VSIREG2         0x252
+#define CSR_VSIREG3         0x253
+#define CSR_VSIREG4         0x255
+#define CSR_VSIREG5         0x256
+#define CSR_VSIREG6         0x257
+
 /* VS-Level Interrupts (H-extension with AIA) */
 #define CSR_VSTOPEI         0x25c
 #define CSR_VSTOPI          0xeb0
@@ -315,10 +359,12 @@
 #define SMSTATEEN0_CS       (1ULL << 0)
 #define SMSTATEEN0_FCSR     (1ULL << 1)
 #define SMSTATEEN0_JVT      (1ULL << 2)
+#define SMSTATEEN0_P1P13    (1ULL << 56)
+#define SMSTATEEN0_CTR      (1ULL << 54)
 #define SMSTATEEN0_HSCONTXT (1ULL << 57)
 #define SMSTATEEN0_IMSIC    (1ULL << 58)
 #define SMSTATEEN0_AIA      (1ULL << 59)
-#define SMSTATEEN0_SVSLCT   (1ULL << 60)
+#define SMSTATEEN0_CSRIND   (1ULL << 60)
 #define SMSTATEEN0_HSENVCFG (1ULL << 62)
 #define SMSTATEEN_STATEEN   (1ULL << 63)
 
@@ -394,6 +440,10 @@
 /* Machine counter-inhibit register */
 #define CSR_MCOUNTINHIBIT   0x320
 
+/* Machine counter configuration registers */
+#define CSR_MCYCLECFG       0x321
+#define CSR_MINSTRETCFG     0x322
+
 #define CSR_MHPMEVENT3      0x323
 #define CSR_MHPMEVENT4      0x324
 #define CSR_MHPMEVENT5      0x325
@@ -423,6 +473,9 @@
 #define CSR_MHPMEVENT29     0x33d
 #define CSR_MHPMEVENT30     0x33e
 #define CSR_MHPMEVENT31     0x33f
+
+#define CSR_MCYCLECFGH      0x721
+#define CSR_MINSTRETCFGH    0x722
 
 #define CSR_MHPMEVENT3H     0x723
 #define CSR_MHPMEVENT4H     0x724
@@ -484,37 +537,6 @@
 #define CSR_MHPMCOUNTER30H  0xb9e
 #define CSR_MHPMCOUNTER31H  0xb9f
 
-/*
- * User PointerMasking registers
- * NB: actual CSR numbers might be changed in future
- */
-#define CSR_UMTE            0x4c0
-#define CSR_UPMMASK         0x4c1
-#define CSR_UPMBASE         0x4c2
-
-/*
- * Machine PointerMasking registers
- * NB: actual CSR numbers might be changed in future
- */
-#define CSR_MMTE            0x3c0
-#define CSR_MPMMASK         0x3c1
-#define CSR_MPMBASE         0x3c2
-
-/*
- * Supervisor PointerMaster registers
- * NB: actual CSR numbers might be changed in future
- */
-#define CSR_SMTE            0x1c0
-#define CSR_SPMMASK         0x1c1
-#define CSR_SPMBASE         0x1c2
-
-/*
- * Hypervisor PointerMaster registers
- * NB: actual CSR numbers might be changed in future
- */
-#define CSR_VSMTE           0x2c0
-#define CSR_VSPMMASK        0x2c1
-#define CSR_VSPMBASE        0x2c2
 #define CSR_SCOUNTOVF       0xda0
 
 /* Crypto Extension */
@@ -542,8 +564,13 @@
 #define MSTATUS_TVM         0x00100000 /* since: priv-1.10 */
 #define MSTATUS_TW          0x00200000 /* since: priv-1.10 */
 #define MSTATUS_TSR         0x00400000 /* since: priv-1.10 */
+#define MSTATUS_SPELP       0x00800000
+#define MSTATUS_TH_MS       0x06000000 /* since: priv-1.10 */
+#define MSTATUS_SDT         0x01000000 /* Ssdbltrp extension */
 #define MSTATUS_GVA         0x4000000000ULL
 #define MSTATUS_MPV         0x8000000000ULL
+#define MSTATUS_MPELP       0x20000000000ULL
+#define MSTATUS_MDT         0x200000000000ULL /* Smdbltrp extension */
 
 #define MSTATUS64_UXL       0x0000000300000000ULL
 #define MSTATUS64_SXL       0x0000000C00000000ULL
@@ -572,6 +599,8 @@ typedef enum {
 #define SSTATUS_XS          0x00018000
 #define SSTATUS_SUM         0x00040000 /* since: priv-1.10 */
 #define SSTATUS_MXR         0x00080000
+#define SSTATUS_SPELP       MSTATUS_SPELP
+#define SSTATUS_SDT         0x01000000 /* Ssdbltrp extension */
 
 #define SSTATUS64_UXL       0x0000000300000000ULL
 
@@ -600,6 +629,7 @@ typedef enum {
 
 /* vsstatus CSR bits */
 #define VSSTATUS64_UXL       0x0000000300000000ULL
+#define VSSTATUS_SPELP       MSTATUS_SPELP
 
 /* Privilege modes */
 #define PRV_U 0
@@ -670,13 +700,20 @@ typedef enum RISCVException {
     RISCV_EXCP_INST_PAGE_FAULT = 0xc, /* since: priv-1.10.0 */
     RISCV_EXCP_LOAD_PAGE_FAULT = 0xd, /* since: priv-1.10.0 */
     RISCV_EXCP_STORE_PAGE_FAULT = 0xf, /* since: priv-1.10.0 */
-    RISCV_EXCP_SEMIHOST = 0x10,
+    RISCV_EXCP_SW_CHECK = 0x12, /* since: priv-1.13.0 */
+    RISCV_EXCP_HW_ERR = 0x13, /* since: priv-1.13.0 */
+    RISCV_EXCP_DOUBLE_TRAP = 0x10, /* Ssdbltrp extension */
     RISCV_EXCP_INST_GUEST_PAGE_FAULT = 0x14,
     RISCV_EXCP_LOAD_GUEST_ACCESS_FAULT = 0x15,
     RISCV_EXCP_VIRT_INSTRUCTION_FAULT = 0x16,
     RISCV_EXCP_STORE_GUEST_AMO_ACCESS_FAULT = 0x17,
+    RISCV_EXCP_SEMIHOST = 0x3f,
 } RISCVException;
 
+#define RISCV_EXCP_SW_CHECK_FCFI_VIOLATION_CODE 2
+#define RISCV_EXCP_SW_CHECK_BCFI_VIOLATION_CODE 3
+
+#define RISCV_EXCP_INT_CLIC                0x40000000
 #define RISCV_EXCP_INT_FLAG                0x80000000
 #define RISCV_EXCP_INT_MASK                0x7fffffff
 
@@ -734,93 +771,193 @@ typedef enum RISCVException {
 #define VS_MODE_INTERRUPTS ((uint64_t)(MIP_VSSIP | MIP_VSTIP | MIP_VSEIP))
 #define HS_MODE_INTERRUPTS ((uint64_t)(MIP_SGEIP | VS_MODE_INTERRUPTS))
 
-/* General PointerMasking CSR bits */
-#define PM_ENABLE       0x00000001ULL
-#define PM_CURRENT      0x00000002ULL
-#define PM_INSN         0x00000004ULL
-
 /* Execution environment configuration bits */
 #define MENVCFG_FIOM                       BIT(0)
+#define MENVCFG_LPE                        BIT(2)
+#define MENVCFG_SSE                        BIT(3)
 #define MENVCFG_CBIE                       (3UL << 4)
 #define MENVCFG_CBCFE                      BIT(6)
 #define MENVCFG_CBZE                       BIT(7)
+#define MENVCFG_CDE                        (1ULL << 60)
+#define MENVCFG_PMM                        (3ULL << 32)
+#define MENVCFG_DTE                        (1ULL << 59) /* Ssdbltrp extension */
 #define MENVCFG_ADUE                       (1ULL << 61)
 #define MENVCFG_PBMTE                      (1ULL << 62)
 #define MENVCFG_STCE                       (1ULL << 63)
 
 /* For RV32 */
+#define MENVCFGH_DTE                       BIT(27) /* Ssdbltrp extension */
 #define MENVCFGH_ADUE                      BIT(29)
 #define MENVCFGH_PBMTE                     BIT(30)
 #define MENVCFGH_STCE                      BIT(31)
 
 #define SENVCFG_FIOM                       MENVCFG_FIOM
+#define SENVCFG_LPE                        MENVCFG_LPE
+#define SENVCFG_SSE                        MENVCFG_SSE
 #define SENVCFG_CBIE                       MENVCFG_CBIE
 #define SENVCFG_CBCFE                      MENVCFG_CBCFE
 #define SENVCFG_CBZE                       MENVCFG_CBZE
+#define SENVCFG_PMM                        MENVCFG_PMM
 
 #define HENVCFG_FIOM                       MENVCFG_FIOM
+#define HENVCFG_LPE                        MENVCFG_LPE
+#define HENVCFG_SSE                        MENVCFG_SSE
 #define HENVCFG_CBIE                       MENVCFG_CBIE
 #define HENVCFG_CBCFE                      MENVCFG_CBCFE
 #define HENVCFG_CBZE                       MENVCFG_CBZE
+#define HENVCFG_PMM                        MENVCFG_PMM
+#define HENVCFG_DTE                        MENVCFG_DTE
 #define HENVCFG_ADUE                       MENVCFG_ADUE
 #define HENVCFG_PBMTE                      MENVCFG_PBMTE
 #define HENVCFG_STCE                       MENVCFG_STCE
 
 /* For RV32 */
+#define HENVCFGH_DTE                        MENVCFGH_DTE
 #define HENVCFGH_ADUE                       MENVCFGH_ADUE
 #define HENVCFGH_PBMTE                      MENVCFGH_PBMTE
 #define HENVCFGH_STCE                       MENVCFGH_STCE
 
-/* Offsets for every pair of control bits per each priv level */
-#define XS_OFFSET    0ULL
-#define U_OFFSET     2ULL
-#define S_OFFSET     5ULL
-#define M_OFFSET     8ULL
+/* mctrctl CSR bits. */
+#define MCTRCTL_U_ENABLE        BIT_ULL(0)
+#define MCTRCTL_S_ENABLE        BIT_ULL(1)
+#define MCTRCTL_M_ENABLE        BIT_ULL(2)
+#define MCTRCTL_RASEMU          BIT_ULL(7)
+#define MCTRCTL_STE             BIT_ULL(8)
+#define MCTRCTL_MTE             BIT_ULL(9)
+#define MCTRCTL_BPFRZ           BIT_ULL(11)
+#define MCTRCTL_LCOFIFRZ        BIT_ULL(12)
+#define MCTRCTL_EXCINH          BIT_ULL(33)
+#define MCTRCTL_INTRINH         BIT_ULL(34)
+#define MCTRCTL_TRETINH         BIT_ULL(35)
+#define MCTRCTL_NTBREN          BIT_ULL(36)
+#define MCTRCTL_TKBRINH         BIT_ULL(37)
+#define MCTRCTL_INDCALL_INH     BIT_ULL(40)
+#define MCTRCTL_DIRCALL_INH     BIT_ULL(41)
+#define MCTRCTL_INDJUMP_INH     BIT_ULL(42)
+#define MCTRCTL_DIRJUMP_INH     BIT_ULL(43)
+#define MCTRCTL_CORSWAP_INH     BIT_ULL(44)
+#define MCTRCTL_RET_INH         BIT_ULL(45)
+#define MCTRCTL_INDOJUMP_INH    BIT_ULL(46)
+#define MCTRCTL_DIROJUMP_INH    BIT_ULL(47)
 
-#define PM_XS_BITS   (EXT_STATUS_MASK << XS_OFFSET)
-#define U_PM_ENABLE  (PM_ENABLE  << U_OFFSET)
-#define U_PM_CURRENT (PM_CURRENT << U_OFFSET)
-#define U_PM_INSN    (PM_INSN    << U_OFFSET)
-#define S_PM_ENABLE  (PM_ENABLE  << S_OFFSET)
-#define S_PM_CURRENT (PM_CURRENT << S_OFFSET)
-#define S_PM_INSN    (PM_INSN    << S_OFFSET)
-#define M_PM_ENABLE  (PM_ENABLE  << M_OFFSET)
-#define M_PM_CURRENT (PM_CURRENT << M_OFFSET)
-#define M_PM_INSN    (PM_INSN    << M_OFFSET)
+#define MCTRCTL_INH_START       32U
 
-/* mmte CSR bits */
-#define MMTE_PM_XS_BITS     PM_XS_BITS
-#define MMTE_U_PM_ENABLE    U_PM_ENABLE
-#define MMTE_U_PM_CURRENT   U_PM_CURRENT
-#define MMTE_U_PM_INSN      U_PM_INSN
-#define MMTE_S_PM_ENABLE    S_PM_ENABLE
-#define MMTE_S_PM_CURRENT   S_PM_CURRENT
-#define MMTE_S_PM_INSN      S_PM_INSN
-#define MMTE_M_PM_ENABLE    M_PM_ENABLE
-#define MMTE_M_PM_CURRENT   M_PM_CURRENT
-#define MMTE_M_PM_INSN      M_PM_INSN
-#define MMTE_MASK    (MMTE_U_PM_ENABLE | MMTE_U_PM_CURRENT | MMTE_U_PM_INSN | \
-                      MMTE_S_PM_ENABLE | MMTE_S_PM_CURRENT | MMTE_S_PM_INSN | \
-                      MMTE_M_PM_ENABLE | MMTE_M_PM_CURRENT | MMTE_M_PM_INSN | \
-                      MMTE_PM_XS_BITS)
+#define MCTRCTL_MASK (MCTRCTL_M_ENABLE | MCTRCTL_S_ENABLE |       \
+                      MCTRCTL_U_ENABLE | MCTRCTL_RASEMU |         \
+                      MCTRCTL_MTE | MCTRCTL_STE |                 \
+                      MCTRCTL_BPFRZ | MCTRCTL_LCOFIFRZ |          \
+                      MCTRCTL_EXCINH | MCTRCTL_INTRINH |          \
+                      MCTRCTL_TRETINH | MCTRCTL_NTBREN |          \
+                      MCTRCTL_TKBRINH | MCTRCTL_INDCALL_INH |     \
+                      MCTRCTL_DIRCALL_INH | MCTRCTL_INDJUMP_INH | \
+                      MCTRCTL_DIRJUMP_INH | MCTRCTL_CORSWAP_INH | \
+                      MCTRCTL_RET_INH | MCTRCTL_INDOJUMP_INH |    \
+                      MCTRCTL_DIROJUMP_INH)
 
-/* (v)smte CSR bits */
-#define SMTE_PM_XS_BITS     PM_XS_BITS
-#define SMTE_U_PM_ENABLE    U_PM_ENABLE
-#define SMTE_U_PM_CURRENT   U_PM_CURRENT
-#define SMTE_U_PM_INSN      U_PM_INSN
-#define SMTE_S_PM_ENABLE    S_PM_ENABLE
-#define SMTE_S_PM_CURRENT   S_PM_CURRENT
-#define SMTE_S_PM_INSN      S_PM_INSN
-#define SMTE_MASK    (SMTE_U_PM_ENABLE | SMTE_U_PM_CURRENT | SMTE_U_PM_INSN | \
-                      SMTE_S_PM_ENABLE | SMTE_S_PM_CURRENT | SMTE_S_PM_INSN | \
-                      SMTE_PM_XS_BITS)
+/* sctrctl CSR bits. */
+#define SCTRCTL_U_ENABLE          MCTRCTL_U_ENABLE
+#define SCTRCTL_S_ENABLE          MCTRCTL_S_ENABLE
+#define SCTRCTL_RASEMU            MCTRCTL_RASEMU
+#define SCTRCTL_STE               MCTRCTL_STE
+#define SCTRCTL_BPFRZ             MCTRCTL_BPFRZ
+#define SCTRCTL_LCOFIFRZ          MCTRCTL_LCOFIFRZ
+#define SCTRCTL_EXCINH            MCTRCTL_EXCINH
+#define SCTRCTL_INTRINH           MCTRCTL_INTRINH
+#define SCTRCTL_TRETINH           MCTRCTL_TRETINH
+#define SCTRCTL_NTBREN            MCTRCTL_NTBREN
+#define SCTRCTL_TKBRINH           MCTRCTL_TKBRINH
+#define SCTRCTL_INDCALL_INH       MCTRCTL_INDCALL_INH
+#define SCTRCTL_DIRCALL_INH       MCTRCTL_DIRCALL_INH
+#define SCTRCTL_INDJUMP_INH       MCTRCTL_INDJUMP_INH
+#define SCTRCTL_DIRJUMP_INH       MCTRCTL_DIRJUMP_INH
+#define SCTRCTL_CORSWAP_INH       MCTRCTL_CORSWAP_INH
+#define SCTRCTL_RET_INH           MCTRCTL_RET_INH
+#define SCTRCTL_INDOJUMP_INH      MCTRCTL_INDOJUMP_INH
+#define SCTRCTL_DIROJUMP_INH      MCTRCTL_DIROJUMP_INH
 
-/* umte CSR bits */
-#define UMTE_U_PM_ENABLE    U_PM_ENABLE
-#define UMTE_U_PM_CURRENT   U_PM_CURRENT
-#define UMTE_U_PM_INSN      U_PM_INSN
-#define UMTE_MASK     (UMTE_U_PM_ENABLE | MMTE_U_PM_CURRENT | UMTE_U_PM_INSN)
+#define SCTRCTL_MASK (SCTRCTL_S_ENABLE | SCTRCTL_U_ENABLE |       \
+                      SCTRCTL_RASEMU | SCTRCTL_STE |              \
+                      SCTRCTL_BPFRZ | SCTRCTL_LCOFIFRZ |          \
+                      SCTRCTL_EXCINH | SCTRCTL_INTRINH |          \
+                      SCTRCTL_TRETINH | SCTRCTL_NTBREN |          \
+                      SCTRCTL_TKBRINH | SCTRCTL_INDCALL_INH |     \
+                      SCTRCTL_DIRCALL_INH | SCTRCTL_INDJUMP_INH | \
+                      SCTRCTL_DIRJUMP_INH | SCTRCTL_CORSWAP_INH | \
+                      SCTRCTL_RET_INH | SCTRCTL_INDOJUMP_INH |    \
+                      SCTRCTL_DIROJUMP_INH)
+
+/* sctrstatus CSR bits. */
+#define SCTRSTATUS_WRPTR_MASK       0xFF
+#define SCTRSTATUS_FROZEN           BIT(31)
+#define SCTRSTATUS_MASK             (SCTRSTATUS_WRPTR_MASK | SCTRSTATUS_FROZEN)
+
+/* sctrdepth CSR bits. */
+#define SCTRDEPTH_MASK              0x7
+#define SCTRDEPTH_MIN               0U  /* 16 Entries. */
+#define SCTRDEPTH_MAX               4U  /* 256 Entries. */
+
+/* vsctrctl CSR bits. */
+#define VSCTRCTL_VU_ENABLE         MCTRCTL_U_ENABLE
+#define VSCTRCTL_VS_ENABLE         MCTRCTL_S_ENABLE
+#define VSCTRCTL_RASEMU            MCTRCTL_RASEMU
+#define VSCTRCTL_VSTE              MCTRCTL_STE
+#define VSCTRCTL_BPFRZ             MCTRCTL_BPFRZ
+#define VSCTRCTL_LCOFIFRZ          MCTRCTL_LCOFIFRZ
+#define VSCTRCTL_EXCINH            MCTRCTL_EXCINH
+#define VSCTRCTL_INTRINH           MCTRCTL_INTRINH
+#define VSCTRCTL_TRETINH           MCTRCTL_TRETINH
+#define VSCTRCTL_NTBREN            MCTRCTL_NTBREN
+#define VSCTRCTL_TKBRINH           MCTRCTL_TKBRINH
+#define VSCTRCTL_INDCALL_INH       MCTRCTL_INDCALL_INH
+#define VSCTRCTL_DIRCALL_INH       MCTRCTL_DIRCALL_INH
+#define VSCTRCTL_INDJUMP_INH       MCTRCTL_INDJUMP_INH
+#define VSCTRCTL_DIRJUMP_INH       MCTRCTL_DIRJUMP_INH
+#define VSCTRCTL_CORSWAP_INH       MCTRCTL_CORSWAP_INH
+#define VSCTRCTL_RET_INH           MCTRCTL_RET_INH
+#define VSCTRCTL_INDOJUMP_INH      MCTRCTL_INDOJUMP_INH
+#define VSCTRCTL_DIROJUMP_INH      MCTRCTL_DIROJUMP_INH
+
+#define VSCTRCTL_MASK (VSCTRCTL_VS_ENABLE | VSCTRCTL_VU_ENABLE |     \
+                       VSCTRCTL_RASEMU | VSCTRCTL_VSTE |             \
+                       VSCTRCTL_BPFRZ | VSCTRCTL_LCOFIFRZ |          \
+                       VSCTRCTL_EXCINH | VSCTRCTL_INTRINH |          \
+                       VSCTRCTL_TRETINH | VSCTRCTL_NTBREN |          \
+                       VSCTRCTL_TKBRINH | VSCTRCTL_INDCALL_INH |     \
+                       VSCTRCTL_DIRCALL_INH | VSCTRCTL_INDJUMP_INH | \
+                       VSCTRCTL_DIRJUMP_INH | VSCTRCTL_CORSWAP_INH | \
+                       VSCTRCTL_RET_INH | VSCTRCTL_INDOJUMP_INH |    \
+                       VSCTRCTL_DIROJUMP_INH)
+
+#define CTR_ENTRIES_FIRST                  0x200
+#define CTR_ENTRIES_LAST                   0x2ff
+
+#define CTRSOURCE_VALID                    BIT(0)
+#define CTRTARGET_MISP                     BIT(0)
+
+#define CTRDATA_TYPE_MASK                   0xF
+#define CTRDATA_CCV                         BIT(15)
+#define CTRDATA_CCM_MASK                    0xFFF0000
+#define CTRDATA_CCE_MASK                    0xF0000000
+
+#define CTRDATA_MASK            (CTRDATA_TYPE_MASK | CTRDATA_CCV |  \
+                                 CTRDATA_CCM_MASK | CTRDATA_CCE_MASK)
+
+#define CTRDATA_TYPE_NONE                   0
+#define CTRDATA_TYPE_EXCEPTION              1
+#define CTRDATA_TYPE_INTERRUPT              2
+#define CTRDATA_TYPE_EXCEP_INT_RET          3
+#define CTRDATA_TYPE_NONTAKEN_BRANCH        4
+#define CTRDATA_TYPE_TAKEN_BRANCH           5
+#define CTRDATA_TYPE_RESERVED_0             6
+#define CTRDATA_TYPE_RESERVED_1             7
+#define CTRDATA_TYPE_INDIRECT_CALL          8
+#define CTRDATA_TYPE_DIRECT_CALL            9
+#define CTRDATA_TYPE_INDIRECT_JUMP          10
+#define CTRDATA_TYPE_DIRECT_JUMP            11
+#define CTRDATA_TYPE_CO_ROUTINE_SWAP        12
+#define CTRDATA_TYPE_RETURN                 13
+#define CTRDATA_TYPE_OTHER_INDIRECT_JUMP    14
+#define CTRDATA_TYPE_OTHER_DIRECT_JUMP      15
 
 /* MISELECT, SISELECT, and VSISELECT bits (AIA) */
 #define ISELECT_IPRIO0                     0x30
@@ -833,10 +970,15 @@ typedef enum RISCVException {
 #define ISELECT_IMSIC_EIE63                0xff
 #define ISELECT_IMSIC_FIRST                ISELECT_IMSIC_EIDELIVERY
 #define ISELECT_IMSIC_LAST                 ISELECT_IMSIC_EIE63
-#define ISELECT_MASK                       0x1ff
+#define ISELECT_MASK_AIA                   0x1ff
+
+/* [M|S|VS]SELCT value for Indirect CSR Access Extension */
+#define ISELECT_CD_FIRST                   0x40
+#define ISELECT_CD_LAST                    0x5f
+#define ISELECT_MASK_SXCSRIND              0xfff
 
 /* Dummy [M|S|VS]ISELECT value for emulating [M|S|VS]TOPEI CSRs */
-#define ISELECT_IMSIC_TOPEI                (ISELECT_MASK + 1)
+#define ISELECT_IMSIC_TOPEI                (ISELECT_MASK_AIA + 1)
 
 /* IMSIC bits (AIA) */
 #define IMSIC_TOPEI_IID_SHIFT              16
@@ -878,6 +1020,28 @@ typedef enum RISCVException {
 /* PMU related bits */
 #define MIE_LCOFIE                         (1 << IRQ_PMU_OVF)
 
+#define MCYCLECFG_BIT_MINH                 BIT_ULL(62)
+#define MCYCLECFGH_BIT_MINH                BIT(30)
+#define MCYCLECFG_BIT_SINH                 BIT_ULL(61)
+#define MCYCLECFGH_BIT_SINH                BIT(29)
+#define MCYCLECFG_BIT_UINH                 BIT_ULL(60)
+#define MCYCLECFGH_BIT_UINH                BIT(28)
+#define MCYCLECFG_BIT_VSINH                BIT_ULL(59)
+#define MCYCLECFGH_BIT_VSINH               BIT(27)
+#define MCYCLECFG_BIT_VUINH                BIT_ULL(58)
+#define MCYCLECFGH_BIT_VUINH               BIT(26)
+
+#define MINSTRETCFG_BIT_MINH               BIT_ULL(62)
+#define MINSTRETCFGH_BIT_MINH              BIT(30)
+#define MINSTRETCFG_BIT_SINH               BIT_ULL(61)
+#define MINSTRETCFGH_BIT_SINH              BIT(29)
+#define MINSTRETCFG_BIT_UINH               BIT_ULL(60)
+#define MINSTRETCFGH_BIT_UINH              BIT(28)
+#define MINSTRETCFG_BIT_VSINH              BIT_ULL(59)
+#define MINSTRETCFGH_BIT_VSINH             BIT(27)
+#define MINSTRETCFG_BIT_VUINH              BIT_ULL(58)
+#define MINSTRETCFGH_BIT_VUINH             BIT(26)
+
 #define MHPMEVENT_BIT_OF                   BIT_ULL(63)
 #define MHPMEVENTH_BIT_OF                  BIT(31)
 #define MHPMEVENT_BIT_MINH                 BIT_ULL(62)
@@ -891,6 +1055,11 @@ typedef enum RISCVException {
 #define MHPMEVENT_BIT_VUINH                BIT_ULL(58)
 #define MHPMEVENTH_BIT_VUINH               BIT(26)
 
+#define MHPMEVENT_FILTER_MASK              (MHPMEVENT_BIT_MINH  | \
+                                            MHPMEVENT_BIT_SINH  | \
+                                            MHPMEVENT_BIT_UINH  | \
+                                            MHPMEVENT_BIT_VSINH | \
+                                            MHPMEVENT_BIT_VUINH)
 #define MHPMEVENT_SSCOF_MASK               _ULL(0xFFFF000000000000)
 #define MHPMEVENT_IDX_MASK                 0xFFFFF
 #define MHPMEVENT_SSCOF_RESVD              16
@@ -904,4 +1073,302 @@ typedef enum RISCVException {
 #define MCONTEXT64                         0x0000000000001FFFULL
 #define MCONTEXT32_HCONTEXT                0x0000007F
 #define MCONTEXT64_HCONTEXT                0x0000000000003FFFULL
+
+/* Xuantie custom CSRs */
+#define TH_MSTATUS_VS     0x01800000
+
+#define TH_FSR_VXRM_SHIFT      9
+#define TH_FSR_VXRM            (0x3 << TH_FSR_VXRM_SHIFT)
+
+#define TH_FSR_VXSAT_SHIFT     8
+#define TH_FSR_VXSAT           (0x1 << TH_FSR_VXSAT_SHIFT)
+
+#define TH_VTYPE_LMUL_SHIFT    0
+#define TH_VTYPE_LMUL          (0x3 << TH_VTYPE_LMUL_SHIFT)
+
+#define TH_VTYPE_SEW_SHIFT     2
+#define TH_VTYPE_SEW           (0x7 << TH_VTYPE_SEW_SHIFT)
+
+#define TH_VTYPE_CLEAR_SHIFT   5
+#define TH_VTYPE_CLEAR         (0x7 << TH_VTYPE_CLEAR_SHIFT)
+
+/* Matrix CSR */
+#define CSR_MRSTART         0x801
+#define CSR_MCSR            0x802
+#define CSR_MSIZE           0x803
+#define CSR_MREGSIZE        0xCC0
+#define CSR_MLENB           0xCC1
+#define CSR_XMISA           0xCC2
+
+#define MXSTATUS_MSD        0x1
+
+#define MEXSTATUS_EXPT      0x20
+#define MEXSTATUS_SPSWAP    0x20000
+
+/* Matrix Sub Extension */
+#define MATRIX_PW_FLOAT         0x80000000
+#define MATRIX_SPARSITY_FLOAT   0x40000000
+#define MATRIX_FLOAT_INT_CVT    0x20000000
+#define MATRIX_PW_INT           0x10000000
+#define MATRIX_SPARSITY_INT     0x8000000
+#define MATRIX_MULT_F8F32       0x200
+#define MATRIX_MULT_F8F16       0x100
+#define MATRIX_MULT_F32F64      0x80
+#define MATRIX_MULT_F16F32      0x40
+#define MATRIX_MULT_F64F64      0x20
+#define MATRIX_MULT_F32F32      0x10
+#define MATRIX_MULT_F16F16      0x8
+#define MATRIX_MULT_I16I64      0x4
+#define MATRIX_MULT_I8I32       0x2
+#define MATRIX_MULT_I4I32       0x1
+
+/* Matrix Status */
+#define MCSR_RM            0x3
+#define MCSR_SAT           0x4
+#define MCSR_FFLAGS        0xf8
+#define MCSR_FRM           0x700
+
+/* Xuantie CSR */
+#define CSR_FXCR            0x800
+#define CSR_MXSTATUS        0x7c0
+#define CSR_MHCR            0x7c1
+#define CSR_MCOR            0x7c2
+#define CSR_MCCR2           0x7c3
+#define CSR_MCER2           0x7c4
+#define CSR_MHINT           0x7c5
+#define CSR_MRMR            0x7c6
+#define CSR_MRVBR           0x7c7
+#define CSR_MCER            0x7c8
+#define CSR_MCOUNTERWEN     0x7c9
+#define CSR_MCOUNTERINTEN   0x7ca
+#define CSR_MCOUNTEROF      0x7cb
+#define CSR_MHINT2          0x7cc
+#define CSR_MHINT3          0x7cd
+#define CSR_MHINT4          0x7ce
+#define CSR_USP             0x7d1
+#define CSR_MCINS           0x7d2
+#define CSR_MCINDEX         0x7d3
+#define CSR_MCDATA0         0x7d4
+#define CSR_MCDATA1         0x7d5
+#define CSR_MEICR           0x7d6
+#define CSR_MEICR2          0x7d7
+#define CSR_MBEADDR         0x7d8
+#define CSR_MCPER           0x7d9
+#define CSR_MCINDEXH        0x7da
+#define CSR_MCDATA0H        0x7db
+#define CSR_MCDATA1H        0x7dc
+#define CSR_MRADDR          0x7e0
+#define CSR_MEXSTATUS       0x7e1
+#define CSR_MNMICAUSE       0x7e2
+#define CSR_MNMIPC          0x7e3
+#define CSR_MHPMCR          0x7f0
+#define CSR_MHPMSR          0x7f1
+#define CSR_MHPMER          0x7f2
+#define CSR_MSMPR           0x7f3
+#define CSR_MZONEID         0x7f5
+#define CSR_ML2PID          0x7f6
+#define CSR_ML2WP           0x7f7
+#define CSR_MDTCMCR         0x7f8
+#define CSR_MITCMCR         0x7f9
+#define CSR_MIESR           0x7fa
+#define CSR_MSBEPA          0x7fb
+#define CSR_MSBEPA2         0x7fc
+#define CSR_ML2WPH          0x7fd
+#define CSR_MCERH           0x7fe
+#define CSR_MCER2H          0x7ff
+#define CSR_CPUID           0xfc0
+#define CSR_MAPBADDR        0xfc1
+#define CSR_MHALTCAUSE      0xfe0
+#define CSR_MDBGINFO        0xfe1
+#define CSR_MPCFIFO         0xfe2
+#define CSR_MDBGFIFO2       0xfe3
+#define CSR_SXSTATUS        0x5c0
+#define CSR_SHCR            0x5c1
+#define CSR_SCER2           0x5c2
+#define CSR_SCER            0x5c3
+#define CSR_SCOUNTERINTEN   0x5c4
+#define CSR_SCOUNTEROF      0x5c5
+#define CSR_SHINT           0x5c6
+#define CSR_SHINT2          0x5c7
+#define CSR_SHPMINHIBIT     0x5c8
+#define CSR_SHPMCR          0x5c9
+#define CSR_SHPMSR          0x5ca
+#define CSR_SHPMER          0x5cb
+#define CSR_SL2PID          0x5cc
+#define CSR_SL2WP           0x5cd
+#define CSR_SIESR           0x5ce
+#define CSR_SL2WPH          0x5cf
+#define CSR_SBEADDR         0x5d0
+#define CSR_SSBEPA          0x5d1
+#define CSR_SSBEPA2         0x5d2
+#define CSR_SCERH           0x5d3
+#define CSR_SCER2H          0x5d4
+#define CSR_CYCLE_C910      0x5e0
+#define CSR_SHPMCOUNTER1    0x5e1
+#define CSR_SHPMCOUNTER2    0x5e2
+#define CSR_SHPMCOUNTER3    0x5e3
+#define CSR_SHPMCOUNTER4    0x5e4
+#define CSR_SHPMCOUNTER5    0x5e5
+#define CSR_SHPMCOUNTER6    0x5e6
+#define CSR_SHPMCOUNTER7    0x5e7
+#define CSR_SHPMCOUNTER8    0x5e8
+#define CSR_SHPMCOUNTER9    0x5e9
+#define CSR_SHPMCOUNTER10   0x5ea
+#define CSR_SHPMCOUNTER11   0x5eb
+#define CSR_SHPMCOUNTER12   0x5ec
+#define CSR_SHPMCOUNTER13   0x5ed
+#define CSR_SHPMCOUNTER14   0x5ee
+#define CSR_SHPMCOUNTER15   0x5ef
+#define CSR_SHPMCOUNTER16   0x5f0
+#define CSR_SHPMCOUNTER17   0x5f1
+#define CSR_SHPMCOUNTER18   0x5f2
+#define CSR_SHPMCOUNTER19   0x5f3
+#define CSR_SHPMCOUNTER20   0x5f4
+#define CSR_SHPMCOUNTER21   0x5f5
+#define CSR_SHPMCOUNTER22   0x5f6
+#define CSR_SHPMCOUNTER23   0x5f7
+#define CSR_SHPMCOUNTER24   0x5f8
+#define CSR_SHPMCOUNTER25   0x5f9
+#define CSR_SHPMCOUNTER26   0x5fa
+#define CSR_SHPMCOUNTER27   0x5fb
+#define CSR_SHPMCOUNTER28   0x5fc
+#define CSR_SHPMCOUNTER29   0x5fd
+#define CSR_SHPMCOUNTER30   0x5fe
+#define CSR_SHPMCOUNTER31   0x5ff
+#define CSR_SMIR            0x9c0
+#define CSR_SMLO0           0x9c1
+#define CSR_SMEH            0x9c2
+#define CSR_SMCIR           0x9c3
+
+#define CSR_SCYCLEH          0x9e0
+#define CSR_SINSTRETH        0x9e2
+#define CSR_SHPMCOUNTER3H    0x9e3
+#define CSR_SHPMCOUNTER4H    0x9e4
+#define CSR_SHPMCOUNTER5H    0x9e5
+#define CSR_SHPMCOUNTER6H    0x9e6
+#define CSR_SHPMCOUNTER7H    0x9e7
+#define CSR_SHPMCOUNTER8H    0x9e8
+#define CSR_SHPMCOUNTER9H    0x9e9
+#define CSR_SHPMCOUNTER10H   0x9ea
+#define CSR_SHPMCOUNTER11H   0x9eb
+#define CSR_SHPMCOUNTER12H   0x9ec
+#define CSR_SHPMCOUNTER13H   0x9ed
+#define CSR_SHPMCOUNTER14H   0x9ee
+#define CSR_SHPMCOUNTER15H   0x9ef
+#define CSR_SHPMCOUNTER16H   0x9f0
+#define CSR_SHPMCOUNTER17H   0x9f1
+#define CSR_SHPMCOUNTER18H   0x9f2
+#define CSR_SHPMCOUNTER19H   0x9f3
+#define CSR_SHPMCOUNTER20H   0x9f4
+#define CSR_SHPMCOUNTER21H   0x9f5
+#define CSR_SHPMCOUNTER22H   0x9f6
+#define CSR_SHPMCOUNTER23H   0x9f7
+#define CSR_SHPMCOUNTER24H   0x9f8
+#define CSR_SHPMCOUNTER25H   0x9f9
+#define CSR_SHPMCOUNTER26H   0x9fa
+#define CSR_SHPMCOUNTER27H   0x9fb
+#define CSR_SHPMCOUNTER28H   0x9fc
+#define CSR_SHPMCOUNTER29H   0x9fd
+#define CSR_SHPMCOUNTER30H   0x9fe
+#define CSR_SHPMCOUNTER31H   0x9ff
+
+/* Floating point round mode in fxcr */
+#define FXCR_RD_SHIFT       24
+#define FXCR_RD             (0x7 << FXCR_RD_SHIFT)
+/* BF16 in fxcr */
+#define FXCR_BF16_SHIFT     31
+#define FXCR_BF16           (0x1 << FXCR_BF16_SHIFT)
+
+/* TCM support */
+#define MDTCMCR_EN          0x1
+#define MDTCMCR_ECC_EN      0x2
+#define MDTCMCR_INTERLEAVE  0x4
+#define MDTCMCR_SIZE        0xf0
+#define MDTCMCR_BASE_32     0xfffff000
+#define MDTCMCR_BASE_64     0xfffffffffffff000
+
+#define MITCMCR_EN          0x1
+#define MITCMCR_ECC_EN      0x2
+#define MITCMCR_INTERLEAVE  0x4
+#define MITCMCR_SIZE        0xf0
+#define MITCMCR_BASE_32     0xfffff000
+#define MITCMCR_BASE_64     0xfffffffffffff000
+
+/* MMU MCIR bit MASK */
+#define CSKY_SMCIR_TLBP_SHIFT        31
+#define CSKY_SMCIR_TLBP_MASK         (1 << CSKY_SMCIR_TLBP_SHIFT)
+#define CSKY_SMCIR_TLBR_SHIFT        30
+#define CSKY_SMCIR_TLBR_MASK         (1 << CSKY_SMCIR_TLBR_SHIFT)
+#define CSKY_SMCIR_TLBWI_SHIFT       29
+#define CSKY_SMCIR_TLBWI_MASK        (1 << CSKY_SMCIR_TLBWI_SHIFT)
+#define CSKY_SMCIR_TLBWR_SHIFT       28
+#define CSKY_SMCIR_TLBWR_MASK        (1 << CSKY_SMCIR_TLBWR_SHIFT)
+#define CSKY_SMCIR_TLBINV_SHIFT      27
+#define CSKY_SMCIR_TLBINV_MASK       (1 << CSKY_SMCIR_TLBINV_SHIFT)
+#define CSKY_SMCIR_TLBINV_ALL_SHIFT  26
+#define CSKY_SMCIR_TLBINV_ALL_MASK   (1 << CSKY_SMCIR_TLBINV_ALL_SHIFT)
+#define CSKY_SMCIR_TLBINV_IDX_SHIFT  25
+#define CSKY_SMCIR_TLBINV_IDX_MASK   (1 << CSKY_SMCIR_TLBINV_IDX_SHIFT)
+#define CSKY_SMCIR_TTLBINV_ALL_SHIFT 24
+#define CSKY_SMCIR_TTLBINV_ALL_MASK  (1 << CSKY_SMCIR_TTLBINV_ALL_SHIFT)
+
+/* CLIC */
+#define CSR_MINTSTATUS      0x346
+#define CSR_SINTSTATUS      0x146
+#define CSR_MCLICBASE       0x350
+#define CSR_MSCRATCHCSW     0x348
+#define CSR_MSCRATCHCSL     0x349
+
+/* mintstatus */
+#define MINTSTATUS_MIL                     0xff000000 /* mil[7:0] */
+#define MINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
+#define MINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
+
+/* sintstatus */
+#define SINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
+#define SINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
+
+#define CSR_MINTTHRESH      0x347
+#define CSR_SINTTHRESH      0x147
+
+#define CSR_MTVT            0x307
+#define CSR_STVT            0x107
+
+/* FIXME: only exist in 0.9 spec */
+#define CSR_MNXTI           0x345
+#define CSR_SNXTI           0x145
+/* mcause */
+#define MCAUSE_MINHV                       0x40000000 /* minhv */
+#define MCAUSE_MPP                         0x30000000 /* mpp[1:0] */
+#define MCAUSE_MPIE                        0x08000000 /* mpie */
+#define MCAUSE_MPIL                        0x00ff0000 /* mpil[7:0] */
+#define MCAUSE_EXCCODE                     0x00000fff /* exccode[11:0] */
+/* scause */
+#define SCAUSE_SINHV                       0x40000000 /* sinhv */
+#define SCAUSE_SPP                         0x10000000 /* spp */
+#define SCAUSE_SPIE                        0x08000000 /* spie */
+#define SCAUSE_SPIL                        0x00ff0000 /* spil[7:0] */
+#define SCAUSE_EXCCODE                     0x00000fff /* exccode[11:0] */
+
+/* Smsdid */
+#define CSR_MTTP        0xbc0
+#define CSR_MSDCFG      0xbd1
+
+#define MTTP_MODE_MASK_32   0xC0000000
+#define MTTP_SDID_MASK_32   0x3F000000
+#define MTTP_PPN_MASK_32    0x003FFFFF
+
+#define MTTP_MODE_SHIFT_32  30
+#define MTTP_SDID_SHIFT_32  24
+
+#define MTTP_MODE_MASK_64   0xF000000000000000ULL
+#define MTTP_SDID_MASK_64   0x0FC0000000000000ULL
+#define MTTP_PPN_MASK_64    0x00000FFFFFFFFFFFULL
+
+#define MTTP_MODE_SHIFT_64  60
+#define MTTP_SDID_SHIFT_64  54
+
+/* Zicfiss */
+#define CSR_SSP             0x011
+
 #endif

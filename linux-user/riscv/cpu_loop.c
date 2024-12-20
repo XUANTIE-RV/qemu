@@ -103,6 +103,7 @@ void target_cpu_copy_regs(CPUArchState *env, struct target_pt_regs *regs)
     env->pc = regs->sepc;
     env->gpr[xSP] = regs->sp;
     env->elf_flags = info->elf_flags;
+    env->elf_start = env->pc;
 
     if ((env->misa_ext & RVE) && !(env->elf_flags & EF_RISCV_RVE)) {
         error_report("Incompatible ELF: RVE cpu requires RVE ABI binary");

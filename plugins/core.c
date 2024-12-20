@@ -162,6 +162,7 @@ static void plugin_cb__udata(enum qemu_plugin_event ev)
     }
 }
 
+struct qemu_plugin_ctx *bbv_plugin_ctx;
 static void
 do_plugin_register_cb(qemu_plugin_id_t id, enum qemu_plugin_event ev,
                       void *func, void *udata)
@@ -170,12 +171,18 @@ do_plugin_register_cb(qemu_plugin_id_t id, enum qemu_plugin_event ev,
 
     QEMU_LOCK_GUARD(&plugin.lock);
     ctx = plugin_id_to_ctx_locked(id);
+    if (bbv_plugin_ctx == NULL) {
+        bbv_plugin_ctx = ctx;
+    }
     /* if the plugin is on its way out, ignore this request */
     if (unlikely(ctx->uninstalling)) {
         return;
     }
     if (func) {
         struct qemu_plugin_cb *cb = ctx->callbacks[ev];
+        if (ev == QEMU_PLUGIN_EV_VCPU_TB_TRANS) {
+            bbv_plugin_ctx->tb_trans_registered = true;
+        }
 
         if (cb) {
             cb->f.generic = func;
@@ -194,7 +201,19 @@ do_plugin_register_cb(qemu_plugin_id_t id, enum qemu_plugin_event ev,
             }
         }
     } else {
+        if (ev == QEMU_PLUGIN_EV_VCPU_TB_TRANS) {
+            bbv_plugin_ctx->tb_trans_registered = false;
+        }
         plugin_unregister_cb__locked(ctx, ev);
+    }
+}
+
+bool is_bbv_tb_trans_registered(void)
+{
+    if (bbv_plugin_ctx == NULL) {
+        return false;
+    } else {
+        return bbv_plugin_ctx->tb_trans_registered;
     }
 }
 
@@ -379,6 +398,34 @@ void qemu_plugin_tb_trans_cb(CPUState *cpu, struct qemu_plugin_tb *tb)
         qemu_plugin_vcpu_tb_trans_cb_t func = cb->f.vcpu_tb_trans;
 
         func(cb->ctx->id, tb);
+    }
+}
+
+void qemu_plugin_monitor_process_cb(void)
+{
+    struct qemu_plugin_cb *cb, *next;
+    enum qemu_plugin_event ev = QEMU_PLUGIN_EV_MONITOR_PROCESS;
+
+    /* no plugin_mask check here; caller should have checked */
+
+    QLIST_FOREACH_SAFE_RCU(cb, &plugin.cb_lists[ev], entry, next) {
+        qemu_plugin_monitor_process_cb_t func = cb->f.monitor_process;
+
+        func(cb->ctx->id);
+    }
+}
+
+void qemu_plugin_other_process_cb(void)
+{
+    struct qemu_plugin_cb *cb, *next;
+    enum qemu_plugin_event ev = QEMU_PLUGIN_EV_OTHER_PROCESS;
+
+    /* no plugin_mask check here; caller should have checked */
+
+    QLIST_FOREACH_SAFE_RCU(cb, &plugin.cb_lists[ev], entry, next) {
+        qemu_plugin_other_process_cb_t func = cb->f.other_process;
+
+        func(cb->ctx->id);
     }
 }
 

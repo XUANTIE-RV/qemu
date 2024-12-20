@@ -143,7 +143,9 @@
 #include "qapi/error.h"
 #include "fd-trans.h"
 #include "cpu_loop-common.h"
+#include "exec/tracestub.h"
 
+long long total_jcount;
 #ifndef CLONE_IO
 #define CLONE_IO                0x80000000      /* Clone io context */
 #endif
@@ -9140,6 +9142,14 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
 
         pthread_mutex_unlock(&clone_lock);
         preexit_cleanup(cpu_env, arg1);
+        if (total_jcount != 0) {
+            fprintf(stderr, "jcount = %lld\n", total_jcount);
+        }
+#if defined(TARGET_CSKY) || defined(TARGET_RISCV)
+        if (cpu->csky_trace_features & CSKY_TRACE) {
+            trace_exit_notify();
+        }
+#endif
         _exit(arg1);
         return 0; /* avoid warning */
     case TARGET_NR_read:
@@ -10342,6 +10352,9 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
                 }
             }
         }
+        if (total_jcount != 0) {
+            fprintf(stderr, "gettimeofday: jcount = %lld\n", total_jcount);
+        }
         return ret;
 #endif
 #if defined(TARGET_NR_settimeofday)
@@ -10364,6 +10377,10 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
                 ptz = &tz;
             }
 
+            if (total_jcount != 0) {
+                fprintf(stderr, "settimeofday: reset jcount\n");
+                total_jcount = 0;
+            }
             return get_errno(settimeofday(ptv, ptz));
         }
 #endif
@@ -10484,7 +10501,7 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
 #if (defined(TARGET_I386) && defined(TARGET_ABI32)) || \
     (defined(TARGET_ARM) && defined(TARGET_ABI32)) || \
     defined(TARGET_M68K) || defined(TARGET_CRIS) || defined(TARGET_MICROBLAZE) \
-    || defined(TARGET_S390X)
+    || defined(TARGET_S390X) || defined(TARGET_CSKY)
         {
             abi_ulong *v;
             abi_ulong v1, v2, v3, v4, v5, v6;
@@ -11050,6 +11067,14 @@ static abi_long do_syscall1(CPUArchState *cpu_env, int num, abi_long arg1,
         /* new thread calls */
     case TARGET_NR_exit_group:
         preexit_cleanup(cpu_env, arg1);
+        if (total_jcount != 0) {
+            fprintf(stderr, "jcount = %lld\n", total_jcount);
+        }
+#if defined(TARGET_CSKY) || defined(TARGET_RISCV)
+        if (cpu->csky_trace_features & CSKY_TRACE) {
+            trace_exit_notify();
+        }
+#endif
         return get_errno(exit_group(arg1));
 #endif
     case TARGET_NR_setdomainname:

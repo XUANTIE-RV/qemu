@@ -247,7 +247,7 @@ static void spike_board_init(MachineState *machine)
         /* Core Local Interruptor (timer and IPI) for each socket */
         riscv_aclint_swi_create(
             memmap[SPIKE_CLINT].base + i * memmap[SPIKE_CLINT].size,
-            base_hartid, hart_count, false);
+            base_hartid, hart_count, false, 0);
         riscv_aclint_mtimer_create(
             memmap[SPIKE_CLINT].base + i * memmap[SPIKE_CLINT].size +
                 RISCV_ACLINT_SWI_SIZE,

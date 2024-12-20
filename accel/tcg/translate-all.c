@@ -65,6 +65,7 @@
 #include "internal-target.h"
 #include "tcg/perf.h"
 #include "tcg/insn-start-words.h"
+#include "exec/tracestub.h"
 
 TBContext tb_ctx;
 
@@ -593,6 +594,17 @@ void tb_check_watchpoint(CPUState *cpu, uintptr_t retaddr)
 }
 
 #ifndef CONFIG_USER_ONLY
+static int
+cpu_unwind_data_from_tb_pcrel(TranslationBlock *tb, uintptr_t host_pc,
+                              uint64_t *data)
+{
+    assert(tb_cflags(tb) & CF_PCREL);
+    const uint8_t *p = tb->tc.ptr + tb->tc.size;
+    memset(data, 0, sizeof(uint64_t) * TARGET_INSN_START_WORDS);
+    data[0] = decode_sleb128(&p);
+    return 0;
+}
+
 /*
  * In deterministic execution mode, instructions doing device I/Os
  * must be at the end of the TB.
@@ -610,8 +622,24 @@ void cpu_io_recompile(CPUState *cpu, uintptr_t retaddr)
         cpu_abort(cpu, "cpu_io_recompile: could not find TB for pc=%p",
                   (void *)retaddr);
     }
+    /*
+     * After dcd092a0636ec36e69e42a3dbbe447d97cb0d113, mmio in tb will
+     * cause tb retranslation, thus we should exit current tb
+     */
+    if (gen_tb_trace()) {
+        uint64_t data[TARGET_INSN_START_WORDS];
+        uint64_t tb_size;
+        cpu_unwind_data_from_tb(tb, retaddr, data);
+        if (!(tb_cflags(tb) & CF_PCREL)) {
+            tb_size = data[0] - tb->pc;
+        } else {
+            tb_size = data[0];
+            cpu_unwind_data_from_tb_pcrel(tb, retaddr, data);
+            tb_size -= data[0];
+        }
+        extern_helper_trace_tb_exit(0x2, tb_size);
+    }
     cpu_restore_state_from_tb(cpu, tb, retaddr);
-
     /*
      * Some guests must re-execute the branch when re-executing a delay
      * slot instruction.  When this is the case, adjust icount and N

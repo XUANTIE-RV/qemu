@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<!-- Copyright (C) 2008 Free Software Foundation, Inc.
+
+     Copying and distribution of this file, with or without modification,
+     are permitted in any medium without royalty provided the copyright
+     notice and this notice are preserved.  -->
+
+<!DOCTYPE feature SYSTEM "gdb-target.dtd">
+<feature name="org.gnu.csky.abiv2.fpu2">
+  <!--float register-->
+  <reg name="fr16"  bitsize="64" regnum="1172" group="fpu2"/>
+  <reg name="fr17"  bitsize="64" regnum="1173" group="fpu2"/>
+  <reg name="fr18"  bitsize="64" regnum="1174" group="fpu2"/>
+  <reg name="fr19"  bitsize="64" regnum="1175" group="fpu2"/>
+  <reg name="fr20"  bitsize="64" regnum="1176" group="fpu2"/>
+  <reg name="fr21"  bitsize="64" regnum="1177" group="fpu2"/>
+  <reg name="fr22"  bitsize="64" regnum="1178" group="fpu2"/>
+  <reg name="fr23"  bitsize="64" regnum="1179" group="fpu2"/>
+  <reg name="fr24"  bitsize="64" regnum="1180" group="fpu2"/>
+  <reg name="fr25"  bitsize="64" regnum="1181" group="fpu2"/>
+  <reg name="fr26" bitsize="64" regnum="1182" group="fpu2"/>
+  <reg name="fr27" bitsize="64" regnum="1183" group="fpu2"/>
+  <reg name="fr28" bitsize="64" regnum="1184" group="fpu2"/>
+  <reg name="fr29" bitsize="64" regnum="1185" group="fpu2"/>
+  <reg name="fr30" bitsize="64" regnum="1186" group="fpu2"/>
+  <reg name="fr31" bitsize="64" regnum="1187" group="fpu2"/>
+</feature>

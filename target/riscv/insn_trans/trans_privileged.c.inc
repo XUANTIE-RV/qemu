@@ -62,9 +62,21 @@ static bool trans_ebreak(DisasContext *ctx, arg_ebreak *a)
     if (pre == 0x01f01013 && ebreak == 0x00100073 && post == 0x40705013) {
         generate_exception(ctx, RISCV_EXCP_SEMIHOST);
     } else {
+        tcg_gen_st_tl(tcg_constant_tl(ebreak_addr), tcg_env,
+                      offsetof(CPURISCVState, badaddr));
         generate_exception(ctx, RISCV_EXCP_BREAKPOINT);
     }
     return true;
+}
+
+static bool trans_sctrclr(DisasContext *ctx, arg_sctrclr *a)
+{
+#ifndef CONFIG_USER_ONLY
+    gen_helper_ctr_clear(tcg_env);
+    return true;
+#else
+    return false;
+#endif
 }
 
 static bool trans_uret(DisasContext *ctx, arg_uret *a)
@@ -76,9 +88,10 @@ static bool trans_sret(DisasContext *ctx, arg_sret *a)
 {
 #ifndef CONFIG_USER_ONLY
     if (has_ext(ctx, RVS)) {
+        TCGv src = tcg_constant_tl(ctx->base.pc_next);
         decode_save_opc(ctx);
         translator_io_start(&ctx->base);
-        gen_helper_sret(cpu_pc, tcg_env);
+        gen_helper_sret(cpu_pc, tcg_env, src);
         exit_tb(ctx); /* no chaining */
         ctx->base.is_jmp = DISAS_NORETURN;
     } else {
@@ -93,9 +106,10 @@ static bool trans_sret(DisasContext *ctx, arg_sret *a)
 static bool trans_mret(DisasContext *ctx, arg_mret *a)
 {
 #ifndef CONFIG_USER_ONLY
+    TCGv src = tcg_constant_tl(ctx->base.pc_next);
     decode_save_opc(ctx);
     translator_io_start(&ctx->base);
-    gen_helper_mret(cpu_pc, tcg_env);
+    gen_helper_mret(cpu_pc, tcg_env, src);
     exit_tb(ctx); /* no chaining */
     ctx->base.is_jmp = DISAS_NORETURN;
     return true;
@@ -126,7 +140,28 @@ static bool trans_sfence_vma(DisasContext *ctx, arg_sfence_vma *a)
     return false;
 }
 
-static bool trans_sfence_vm(DisasContext *ctx, arg_sfence_vm *a)
+static bool trans_mfence_spa(DisasContext *ctx, arg_mfence_spa *a)
 {
+#ifndef CONFIG_USER_ONLY
+    if (ctx->priv != PRV_M) {
+        return false;
+    }
+    decode_save_opc(ctx);
+    gen_helper_tlb_flush_all(tcg_env);
+    return true;
+#endif
+    return false;
+}
+
+static bool trans_minval_spa(DisasContext *ctx, arg_minval_spa *a)
+{
+#ifndef CONFIG_USER_ONLY
+    if (ctx->priv != PRV_M) {
+        return false;
+    }
+    decode_save_opc(ctx);
+    gen_helper_tlb_flush_all(tcg_env);
+    return true;
+#endif
     return false;
 }

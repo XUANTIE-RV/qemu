@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Board name="smart_card" arch="csky" cskysimv="2.0">
+    <cpu_info cpu="ck802" endian="big" abi="abiv2"></cpu_info>
+    <dyndev shm="on">
+        <dev name="csky_tcip_v1" filename="builtin" addr="0xe000e100" type="INTC" extra="" irq="31"></dev>
+        <dev name="csky_coret" filename="builtin" addr="0xe000e000" type="TIMER" extra="" irq="0"></dev>
+        <dev name="csky_uart" filename="csky_uart" addr="0xf15000" type="UART" extra="" irq="2"></dev>
+        <dev name="csky_exit"  filename="csky_exit" addr="0x10002000" type="EXIT" extra="" irq="30"></dev>
+    </dyndev>
+    <memory>
+        <mem name="smart_card.rom" addr="0x0" size ="0x20000" attr ="MEM_RAM"></mem>
+        <mem name="smart_sys_mem2" addr="0x00400000" size ="0x200000" attr ="MEM_RAM"></mem>
+        <mem name="smart_card.eeprom" addr="0x00600000" size ="0x10000" attr ="MEM_RAM"></mem>
+        <mem name="smart_card.flash" addr="0xF0000000" size ="0xff00000" attr ="MEM_ROM"></mem>
+    </memory>
+    <cpu_prop>
+        <cpu name="pctrace"                 value="off"> on/off </cpu>
+        <cpu name="elrw"                    value="off"> on/off </cpu>
+        <cpu name="mem_prot"                value="mpu"> no/mmu/mpu </cpu>
+        <cpu name="unaligned_access"        value="off"> on/off </cpu>
+    </cpu_prop>
+
+    <Description> This file is used for dynamic configuration
+        <AutoDescription>
+            CPU Type: ck802 Big Endian
+            Memory Sections:
+                smart_card.rom, Start: 0x0, Length: 0x20000
+                smart_sys_mem2, Start: 0x00400000, Length: 0x200000
+                smart_card.eeprom, Start: 0x00600000, Length: 0x10000
+                smart_card.flash, Start: 0xF0000000, Length: 0xff00000
+        </AutoDescription>
+    </Description>
+</Board>

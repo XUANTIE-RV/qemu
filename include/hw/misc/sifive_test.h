@@ -37,11 +37,15 @@ struct SiFiveTestState {
 };
 
 enum {
+    FINISHER_DUMP = 0x2222,
     FINISHER_FAIL = 0x3333,
     FINISHER_PASS = 0x5555,
     FINISHER_RESET = 0x7777
 };
 
 DeviceState *sifive_test_create(hwaddr addr);
+
+void sifive_save_context(uint32_t _seq);
+void sifive_save_next_pc(uint32_t _seq);
 
 #endif
