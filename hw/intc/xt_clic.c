@@ -272,7 +272,7 @@ xt_clic_hart_write(XTCLICState *clic, hwaddr addr,
 
     if (irq >= clic->num_sources) {
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "clic: invalid irq %lu: 0x%" HWADDR_PRIx "\n", irq, addr);
+                      "clic: invalid irq %zu: 0x%" HWADDR_PRIx "\n", irq, addr);
         return;
     }
     switch (req) {
@@ -285,7 +285,7 @@ xt_clic_hart_write(XTCLICState *clic, hwaddr addr,
              * pending, and clicintip[i]!=0 (not just 1) indicates an
              * interrupt is pending. (Section 3.4)
              */
-            if (value != clic->clicintip[irq]) {
+            if (value != clic->clicintip[irq_offset]) {
                 xt_clic_update_intip(clic, hartid, irq, value);
             }
         }
@@ -327,7 +327,7 @@ xt_clic_hart_read(XTCLICState *clic, hwaddr addr)
 
     if (irq >= clic->num_sources) {
         qemu_log_mask(LOG_GUEST_ERROR,
-                      "clic: invalid irq %lu: 0x%" HWADDR_PRIx "\n", irq, addr);
+                      "clic: invalid irq %zu: 0x%" HWADDR_PRIx "\n", irq, addr);
         return 0;
     }
     switch (req) {

@@ -28,6 +28,8 @@
 #include "qemu/log.h"
 #include "hw/ptimer.h"
 #include "hw/timer/csky_timer.h"
+#include "hw/qdev-properties.h"
+#include "qapi/error.h"
 
 #define TIMER_CTRL_ENABLE         (1 << 0)
 #define TIMER_CTRL_MODE           (1 << 1)
@@ -38,20 +40,31 @@ uint32_t csky_timer_freq = 1000000000ll;
 
 static void csky_timer_update(csky_timer_state *s, int index)
 {
+    int i, irq_num;
     /* Update interrupts.  */
     if (s->int_level[index] && !(s->control[index] & TIMER_CTRL_IE)) {
-        if (s->irq[index]) {
-            qemu_irq_raise(s->irq[index]);
+        if (s->irqs[index]) {
+            qemu_irq_raise(s->irqs[index]);
         }
-        if (s->clic_irq[index]) {
-            qemu_irq_raise(s->clic_irq[index]);
+        if (s->num_clic_irqs) {
+            for (i = 0; i < s->num_harts; i++) {
+                irq_num = index * s->num_harts + i;
+                if (s->clic_irqs[irq_num]) {
+                    qemu_irq_raise(s->clic_irqs[irq_num]);
+                }
+            }
         }
     } else {
-        if (s->irq[index]) {
-            qemu_irq_lower(s->irq[index]);
+        if (s->irqs[index]) {
+            qemu_irq_lower(s->irqs[index]);
         }
-        if (s->clic_irq[index]) {
-            qemu_irq_lower(s->clic_irq[index]);
+        if (s->num_clic_irqs) {
+            for (i = 0; i < s->num_harts; i++) {
+                irq_num = index * s->num_harts + i;
+                if (s->clic_irqs[irq_num]) {
+                    qemu_irq_lower(s->clic_irqs[irq_num]);
+                }
+            }
         }
     }
 }
@@ -245,35 +258,63 @@ void csky_timer_set_freq(uint32_t freq)
     csky_timer_freq = freq;
 }
 
+static void csky_timer_realize(DeviceState *dev, Error **errp)
+{
+    csky_timer_state *s = CSKY_TIMER(dev);
+
+    memory_region_init_io(&s->iomem, OBJECT(dev), &csky_timer_ops, s,
+                          TYPE_CSKY_TIMER, 0x1000);
+    sysbus_init_mmio(SYS_BUS_DEVICE(dev), &s->iomem);
+
+    s->irqs = g_new(qemu_irq, 4);
+    s->clic_irqs = g_new(qemu_irq, s->num_harts * 4);
+    qdev_init_gpio_out(dev, s->irqs, 4);
+    qdev_init_gpio_out(dev, s->clic_irqs, s->num_harts * 4);
+}
+
+DeviceState *
+csky_timer_create(hwaddr addr, qemu_irq *irq,
+                  qemu_irq *clic_irq, uint32_t harts_num,
+                  uint32_t clic_irqs_num)
+{
+    int i, j;
+    DeviceState *dev = qdev_new(TYPE_CSKY_TIMER);
+    qdev_prop_set_uint32(dev, "num-harts", harts_num);
+    qdev_prop_set_uint32(dev, "num-clic-irqs", clic_irqs_num);
+
+    sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
+    sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
+
+    for (i = 0; i < 4; i++) {
+        qdev_connect_gpio_out(dev, i, irq[i]);
+    }
+    if (clic_irq == NULL) {
+        return dev;
+    }
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < harts_num; j++) {
+            qdev_connect_gpio_out(dev, 4 + i * harts_num + j,
+                                  clic_irq[j * clic_irqs_num + i]);
+        }
+    }
+    return dev;
+}
+
 static void csky_timer_init(Object *obj)
 {
     csky_timer_state *s = CSKY_TIMER(obj);
-    SysBusDevice *sbd = SYS_BUS_DEVICE(obj);
 
     s->freq[0] = csky_timer_freq;
     s->timer[0] = ptimer_init(csky_timer_tick0, s, PTIMER_POLICY_LEGACY);
-    sysbus_init_irq(sbd, &s->irq[0]);
 
     s->freq[1] = csky_timer_freq;
     s->timer[1] = ptimer_init(csky_timer_tick1, s, PTIMER_POLICY_LEGACY);
-    sysbus_init_irq(sbd, &s->irq[1]);
 
     s->freq[2] = csky_timer_freq;
     s->timer[2] = ptimer_init(csky_timer_tick2, s, PTIMER_POLICY_LEGACY);
-    sysbus_init_irq(sbd, &s->irq[2]);
 
     s->freq[3] = csky_timer_freq;
     s->timer[3] = ptimer_init(csky_timer_tick3, s, PTIMER_POLICY_LEGACY);
-    sysbus_init_irq(sbd, &s->irq[3]);
- 
-    sysbus_init_irq(sbd, &s->clic_irq[0]);
-    sysbus_init_irq(sbd, &s->clic_irq[1]);
-    sysbus_init_irq(sbd, &s->clic_irq[2]);
-    sysbus_init_irq(sbd, &s->clic_irq[3]);
-
-    memory_region_init_io(&s->iomem, obj, &csky_timer_ops, s,
-                          TYPE_CSKY_TIMER, 0x1000);
-    sysbus_init_mmio(sbd, &s->iomem);
 }
 
 static const VMStateDescription vmstate_csky_timer = {
@@ -290,11 +331,21 @@ static const VMStateDescription vmstate_csky_timer = {
     }
 };
 
+static Property csky_timer_properties[] = {
+    DEFINE_PROP_UINT32("num-harts", csky_timer_state,
+        num_harts, 1),
+    DEFINE_PROP_UINT32("num-clic-irqs", csky_timer_state,
+        num_clic_irqs, 0),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
 static void csky_timer_class_init(ObjectClass *klass, void *data)
 {
     DeviceClass *dc = DEVICE_CLASS(klass);
     set_bit(DEVICE_CATEGORY_CSKY, dc->categories);
 
+    dc->realize = csky_timer_realize;
+    device_class_set_props(dc, csky_timer_properties);
     dc->vmsd = &vmstate_csky_timer;
     dc->desc = "cskysim type: TIMER";
     dc->user_creatable = true;

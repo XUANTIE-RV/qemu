@@ -18,6 +18,7 @@
 #include "qemu/log.h"
 #include "cpu.h"
 #include "qemu/config-file.h"
+#include "qemu/thread.h"
 #include "sysemu/runstate.h"
 struct csky_trace_server_state traceserver;
 #ifdef CONFIG_USER_ONLY
@@ -26,6 +27,10 @@ static int traceserver_fd = -1;
 long long csky_trace_icount;
 struct csky_trace_filter tfilter;
 int waddr_num, raddr_num;
+
+
+static QemuMutex cpf_lock;
+static bool cpf_mt_enable;
 
 QemuOptsList qemu_csky_trace_opts = {
     .name = "csky-trace",
@@ -63,6 +68,10 @@ QemuOptsList qemu_csky_trace_opts = {
             .name = "exit",
             .type = QEMU_OPT_STRING,
             .help = "trace exit addr",
+        },{
+            .name = "x_mt_trace",
+            .type = QEMU_OPT_BOOL,
+            .help = "trace experiment multi thread",
         },{
             .name = "proxy_trace",
             .type = QEMU_OPT_BOOL,
@@ -126,6 +135,7 @@ void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid)
             if (!b) {
                 tfilter.event &= ~TRACE_EVENT_X_LMUL;
             }
+            cpf_mt_enable = qemu_opt_get_bool(opts, "x_mt_trace", false);
             b = qemu_opt_get_bool(opts, "auto_trace", true);
             if (!b) {
                 tfilter.event &= ~TRACE_EVENT_DATA;
@@ -249,7 +259,9 @@ void trace_send_immediately(void)
 
 void write_trace_before(uint32_t packlen, bool header)
 {
-
+    if (cpf_mt_enable) {
+        qemu_mutex_lock(&cpf_lock);
+    }
     if (traceserver.buf == 0) {
         trace_buf_alloc(!header);
     }
@@ -338,6 +350,9 @@ static void csky_trace_compress(uint32_t packetlen, char *start)
 #else
     memcpy(traceserver.buf + traceserver.pos, start, packetlen);
     traceserver.pos += packetlen / sizeof(uint8_t);
+    if (cpf_mt_enable) {
+        qemu_mutex_unlock(&cpf_lock);
+    }
 #endif
 }
 
@@ -346,7 +361,6 @@ void write_trace_8(uint8_t type, uint32_t  packlen, uint32_t value)
     value =  (value << 8) | type;
 
     write_trace_before(packlen, false);
-
     assert((traceserver.pos + packlen) <= traceserver.len);
     csky_trace_compress(packlen, (char *)&value);
 }
@@ -461,6 +475,7 @@ int traceserver_start(int port, int debug_mode)
         write_trace_header(tfilter.event);
     }
     traceserver.initok = true;
+    qemu_mutex_init(&cpf_lock);
     return 0;
 }
 

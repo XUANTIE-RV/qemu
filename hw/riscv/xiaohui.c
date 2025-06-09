@@ -295,13 +295,13 @@ static uint64_t load_kernel(const char *kernel_filename)
 static void xiaohui_init(MachineState *machine)
 {
     qemu_irq irqs[128];
-    qemu_irq clic_irqs[128];
     RISCVXiaohuiState *s = RISCV_XIAOHUI_MACHINE(machine);
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *sram = g_new(MemoryRegion, 1);
     char *plic_hart_config;
-    int i;
+    int i, j;
     unsigned int smp_cpus = machine->smp.cpus;
+    qemu_irq *clic_irqs = g_new0(qemu_irq, smp_cpus * XIAOHUI_CLIC_IRQ_NUMS);
     uint64_t kernel_entry = 0;
     uint32_t fdt_load_addr;
     target_ulong firmware_end_addr, kernel_start_addr;
@@ -358,7 +358,12 @@ static void xiaohui_init(MachineState *machine)
     g_free(plic_hart_config);
     for (i = 0; i < 127; i++) {
         irqs[i] = qdev_get_gpio_in(DEVICE(plic), i);
-        clic_irqs[i] = qdev_get_gpio_in(DEVICE(clic), i);
+    }
+    for (i = 0; i < smp_cpus; i++) {
+        for (j = 0; j < XIAOHUI_CLIC_IRQ_NUMS; j++) {
+            int index = i * XIAOHUI_CLIC_IRQ_NUMS + j;
+            clic_irqs[index] = qdev_get_gpio_in(DEVICE(clic), index);
+        }
     }
     riscv_aclint_swi_create(xiaohui_memmap[XIAOHUI_CLINT].base, 0, smp_cpus,
                             false, 0);
@@ -403,10 +408,9 @@ static void xiaohui_init(MachineState *machine)
         sysbus_create_simple("csky_exit", xiaohui_memmap[XIAOHUI_TEST].base,
                              NULL);
         csky_timer_set_freq(XIAOHUI_TIMER_DEFAULT_TIMEBASE_FREQ);
-        sysbus_create_varargs("csky_timer", xiaohui_memmap[XIAOHUI_TIMER].base,
-                              irqs[25], irqs[26], irqs[27], irqs[28],
-                              clic_irqs[25], clic_irqs[26], clic_irqs[27],
-                              clic_irqs[28], NULL);
+        csky_timer_create(xiaohui_memmap[XIAOHUI_TIMER].base,
+                          &irqs[25], &clic_irqs[25], smp_cpus,
+                          XIAOHUI_CLIC_IRQ_NUMS);
         sysbus_create_simple("xiaohui_cpr",
                              xiaohui_memmap[XIAOHUI_AHB_CPR].base, NULL);
     }

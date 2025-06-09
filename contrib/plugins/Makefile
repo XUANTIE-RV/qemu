@@ -28,6 +28,8 @@ NAMES += hwprofile
 NAMES += cache
 NAMES += drcov
 
+NAMES += branchstats
+
 ifeq ($(CONFIG_WIN32),y)
 SO_SUFFIX := .dll
 LDLIBS += $(shell $(PKG_CONFIG) --libs glib-2.0)

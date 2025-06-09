@@ -164,7 +164,3 @@ system_ss.add(when: 'CONFIG_XIAOHUI_CPR', if_true: files('xiaohui_ahb_cpr.c'))
 system_ss.add(when: 'CONFIG_CSKY_MEMLOG', if_true: files('csky_memlog.c'))
 system_ss.add(when: 'CONFIG_CSKY_FFT', if_true: files('csky_fft.c'))
 system_ss.add(when: 'CONFIG_CSKY_MCA', if_true: files('csky_mca.c'))
-specific_ss.add(when: 'CONFIG_THEAD_ASP_NNE_V1', if_true: files('thead_asp_nne_v1.c'))
-if host_os != 'windows'
-  specific_ss.add(meson.get_compiler('c').find_library('Theadasp', dirs:join_paths((meson.project_source_root() / 'hw/misc/'))))
-endif

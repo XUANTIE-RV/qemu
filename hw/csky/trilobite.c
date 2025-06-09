@@ -82,8 +82,7 @@ static void trilobite_init(MachineState *machine)
                       serial_hd(0));
 
     csky_timer_set_freq(trilobite_binfo.freq);
-    sysbus_create_varargs("csky_timer", 0x10011000, intc[12], intc[13],
-                            intc[14], intc[15], NULL);
+    csky_timer_create(0x10011000, &intc[12], NULL, 1, 0);
 
     csky_mac_create(0x10006000, intc[26]);
 

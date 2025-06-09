@@ -256,6 +256,15 @@ SRST
     Enable CSKY PROFILING (CSKY only).
 ERST
 
+DEF("dsa", HAS_ARG, QEMU_OPTION_dsa,
+    "-dsa [file=]<file>[,<argname>=<argvalue>]\n"
+    "                choose the dsa lib file to load\n",
+    QEMU_ARCH_RISCV)
+SRST
+``-dsa``
+    choose the dsa lib file to load.
+ERST
+
 DEF("csky-trace", HAS_ARG, QEMU_OPTION_csky_trace,
     "-csky-trace port=port[,tb_trace=on|off][,mem_trace=on|off][,start=addr][exit=addr][,proxy_trace=on|off]\n"
     "                set CSKY trace properties\n"

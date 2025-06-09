@@ -28,11 +28,13 @@
 
 ReplayMode replay_mode = REPLAY_MODE_NONE;
 char *replay_snapshot;
+extern FILE *finst;
 
 /* Name of replay file  */
 static char *replay_filename;
 ReplayState replay_state;
 static GSList *replay_blockers;
+
 
 /* Replay breakpoints */
 uint64_t replay_break_icount = -1ULL;
@@ -360,6 +362,8 @@ static void replay_enable(const char *fname, int mode)
         fprintf(stderr, "Replay: open %s: %s\n", fname, strerror(errno));
         exit(1);
     }
+    finst = fopen("./finst", "wb");
+    assert(finst);
 
     replay_filename = g_strdup(fname);
     replay_mode = mode;

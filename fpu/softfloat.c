@@ -3126,13 +3126,155 @@ float8e4 bfloat16_to_float8e4(bfloat16 a, float_status *s)
     return float8e4_round_pack_canonical(&p, s);
 }
 
+static void uncanon_float8e4_normal(FloatParts64 *p, float_status *s,
+                                    const FloatFmt *fmt)
+{
+    const int exp_max = fmt->exp_max;
+    const int frac_shift = fmt->frac_shift;
+    const uint64_t round_mask = fmt->round_mask;
+    const uint64_t frac_lsb = round_mask + 1;
+    const uint64_t frac_lsbm1 = round_mask ^ (round_mask >> 1);
+    const uint64_t roundeven_mask = round_mask | frac_lsb;
+    uint64_t inc;
+    int exp, flags = 0;
+
+    switch (s->float_rounding_mode) {
+    case float_round_nearest_even:
+        inc = ((p->frac_lo & roundeven_mask) != frac_lsbm1
+               ? frac_lsbm1 : 0);
+        break;
+    case float_round_ties_away:
+        inc = frac_lsbm1;
+        break;
+    case float_round_to_zero:
+        inc = 0;
+        break;
+    case float_round_up:
+        inc = p->sign ? 0 : round_mask;
+        break;
+    case float_round_down:
+        inc = p->sign ? round_mask : 0;
+        break;
+    case float_round_to_odd:
+        /* fall through */
+    case float_round_to_odd_inf:
+        inc = p->frac_lo & frac_lsb ? 0 : round_mask;
+        break;
+    default:
+        g_assert_not_reached();
+    }
+
+    exp = p->exp + fmt->exp_bias;
+    if (likely(exp > 0)) {
+        if (p->frac_lo & round_mask) {
+            flags |= float_flag_inexact;
+            if (frac_addi(p, p, inc)) {
+                frac_shr(p, 1);
+                p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
+                exp++;
+            }
+            p->frac_lo &= ~round_mask;
+        }
+
+        if ((exp > exp_max) || ((exp == exp_max) &&
+                                ((p->frac_lo | round_mask) == UINT64_MAX))) {
+            flags |= float_flag_overflow | float_flag_inexact;
+            if (s->sat) {
+                exp = fmt->exp_max;
+                p->frac = 0b110;
+            } else {
+                p->cls = float_class_qnan;
+                exp = fmt->exp_max;
+                frac_allones(p);
+            }
+        } else {
+            frac_shr(p, frac_shift);
+        }
+    } else {
+        bool is_tiny = s->tininess_before_rounding || exp < 0;
+
+        if (!is_tiny) {
+            FloatParts64 discard;
+            is_tiny = !frac_addi(&discard, p, inc);
+        }
+
+        frac_shrjam(p, 1 - exp);
+
+        if (p->frac_lo & round_mask) {
+            /* Need to recompute round-to-even/round-to-odd. */
+            switch (s->float_rounding_mode) {
+            case float_round_nearest_even:
+                inc = ((p->frac_lo & roundeven_mask) != frac_lsbm1
+                       ? frac_lsbm1 : 0);
+                break;
+            case float_round_to_odd:
+            case float_round_to_odd_inf:
+                inc = p->frac_lo & frac_lsb ? 0 : round_mask;
+                break;
+            default:
+                break;
+            }
+            flags |= float_flag_inexact;
+            frac_addi(p, p, inc);
+            p->frac_lo &= ~round_mask;
+        }
+
+        exp = (p->frac_hi & DECOMPOSED_IMPLICIT_BIT);
+        frac_shr(p, frac_shift);
+
+        if (is_tiny && (flags & float_flag_inexact)) {
+            flags |= float_flag_underflow;
+        }
+        if (exp == 0 && frac_eqz(p)) {
+            p->cls = float_class_zero;
+        }
+    }
+    p->exp = exp;
+    float_raise(flags, s);
+}
+
+static void uncanon_float8e4(FloatParts64 *p, float_status *s,
+                             const FloatFmt *fmt)
+{
+    if (likely(p->cls == float_class_normal)) {
+        uncanon_float8e4_normal(p, s, fmt);
+    } else {
+        switch (p->cls) {
+        case float_class_zero:
+            p->exp = 0;
+            frac_clear(p);
+            return;
+        case float_class_inf:
+            if (s->sat) {
+                p->exp = fmt->exp_max;
+                p->frac = 0b110;
+            } else {
+                p->cls = float_class_qnan;
+                p->exp = fmt->exp_max;
+                frac_allones(p);
+            }
+            return;
+        case float_class_qnan:
+        case float_class_snan:
+            p->cls = float_class_qnan;
+            p->exp = fmt->exp_max;
+            frac_allones(p);
+            return;
+        default:
+            break;
+        }
+        g_assert_not_reached();
+    }
+}
+
 float8e4 float16_to_float8e4(float16 a, float_status *s)
 {
     FloatParts64 p;
 
     float16_unpack_canonical(&p, a, s);
     parts_float_to_float(&p, s);
-    return float8e4_round_pack_canonical(&p, s);
+    uncanon_float8e4(&p, s, &float8e4_params);
+    return float8e4_pack_raw(&p);
 }
 
 float8e4 float32_to_float8e4(float32 a, float_status *s)

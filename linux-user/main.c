@@ -511,6 +511,31 @@ static void handle_arg_csky_extend(const char *arg)
     }
 }
 
+
+static QemuOptsList qemu_dsa_opts = {
+    .name = "dsa",
+    .implied_opt_name = "file",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_dsa_opts.head),
+    .desc = {
+        {
+            .name = "file",
+            .type = QEMU_OPT_STRING,
+            .help = "choose the dsa lib file to load",
+        },
+        { /* end of list */ }
+    },
+};
+
+static void handle_arg_dsa(const char *arg)
+{
+    QemuOpts *opts;
+    opts = qemu_opts_parse_noisily(qemu_find_opts("dsa"),
+                                   arg, true);
+    if (!opts) {
+        exit(1);
+    }
+}
+
 #if defined(TARGET_XTENSA)
 static void handle_arg_abi_call0(const char *arg)
 {
@@ -597,6 +622,8 @@ static const struct qemu_argument arg_table[] = {
      "",           ""},
     {"csky-trace", "CSKY_TRACE",       true,  handle_arg_csky_trace,
      "",           "[port=<port>][,tb_trace=<on|off>][,mem_trace=<on|off>][,auto_trace=<on|off>][,start=addr][,exit=addr]"},
+    {"dsa",        "QEMU_DSA",         true,  handle_arg_dsa,
+     "",           "[file=]<file>[,<argname>=<argvalue>]"},
 #ifdef CONFIG_PLUGIN
     {"plugin",     "QEMU_PLUGIN",      true,  handle_arg_plugin,
      "",           "[file=]<file>[,<argname>=<argvalue>]"},
@@ -814,6 +841,7 @@ int main(int argc, char **argv, char **envp)
     qemu_add_opts(&qemu_csky_trace_opts);
 #endif
     qemu_add_opts(&qemu_csky_extend_opts);
+    qemu_add_opts(&qemu_dsa_opts);
     qemu_plugin_add_opts();
 
     optind = parse_args(argc, argv);

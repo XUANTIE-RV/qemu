@@ -25,6 +25,7 @@
 #include "exec/cpu_ldst.h"
 #include "exec/helper-proto.h"
 #include "qemu/log.h"
+#include "qemu/plugin.h"
 
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/intc/xt_clic.h"
@@ -509,13 +510,6 @@ void helper_ctr_jalr(CPURISCVState *env, target_ulong src, target_ulong dest,
     target_ulong curr_priv = env->priv;
     bool curr_virt = env->virt_enabled;
 
-    if (riscv_cpu_get_xlpe(env) &&
-        rs1 != 1 && rs1 != 5 && rs1 != 7) {
-        env->elp = LP_EXPECTED;
-    } else {
-        env->elp = NO_LP_EXPECTED;
-    }
-
     if ((rd == 1 && rs1 != 5) || (rd == 5 && rs1 != 1)) {
         riscv_ctr_add_entry(env, src, dest, CTRDATA_TYPE_INDIRECT_CALL,
                             curr_priv, curr_virt);
@@ -608,6 +602,14 @@ void helper_wfi(CPURISCVState *env)
         cs->exception_index = EXCP_HLT;
         cpu_loop_exit(cs);
     }
+}
+
+void helper_wfe(CPURISCVState *env)
+{
+    CPUState *cs = env_cpu(env);
+    cs->halted = 1;
+    cs->exception_index = EXCP_HLT;
+    cpu_loop_exit(cs);
 }
 
 void helper_wrs_nto(CPURISCVState *env)

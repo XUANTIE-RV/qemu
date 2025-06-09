@@ -121,7 +121,9 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
             p->exp = fmt->frac_shift - fmt->exp_bias
                    - shift + !fmt->m68k_denormal;
         }
-    } else if (likely(p->exp < fmt->exp_max) || fmt->arm_althp) {
+    } else if (likely(p->exp < fmt->exp_max) || fmt->arm_althp ||
+               ((fmt->exp_size == 4) && (p->exp == fmt->exp_max) &&
+                (p->frac_lo != 0b111))) {
         p->cls = float_class_normal;
         p->exp -= fmt->exp_bias;
         frac_shl(p, fmt->frac_shift);
@@ -213,6 +215,13 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                 exp = exp_max;
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
+            }
+        } else if (unlikely(exp >= exp_max) && (fmt->exp_size == 4)) {
+            if ((exp > exp_max) || ((exp == exp_max) &&
+                                    ((p->frac_lo | round_mask) == UINT64_MAX))) {
+                flags |= float_flag_overflow | float_flag_inexact;
+                frac_allones(p);
+                exp = exp_max;
             }
         } else if (unlikely(exp >= exp_max)) {
             flags |= float_flag_overflow;

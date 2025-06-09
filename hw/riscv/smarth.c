@@ -113,9 +113,7 @@ static void smarth_init(MachineState *machine)
     csky_uart_create(0x10015000, irqs[0x20], NULL, serial_hd(0));
 
     csky_timer_set_freq(50000000ll);
-    sysbus_create_varargs("csky_timer", 0x10011000, irqs[0x22], irqs[0x23],
-                            irqs[0x24], irqs[0x25], NULL);
-
+    csky_timer_create(0x10011000, &irqs[0x22], NULL, smp_cpus, 0);
     sysbus_create_simple("csky_exit", 0x10002000, NULL);
 
     g_free(plic_hart_config);

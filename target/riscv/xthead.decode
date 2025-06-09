@@ -26,10 +26,13 @@
 &r         rd rs1 rs2                               !extern
 &r2        rd rs1                                   !extern
 &shift     shamt rs1 rd                             !extern
+&rmr       vm rd rs2                                !extern
+&rmrr      vm rd rs1 rs2                            !extern
 &th_bfext  msb lsb rs1 rd
 &th_pair   rd1 rs rd2 sh2
 &th_memidx rd rs1 rs2 imm2
 &th_meminc rd rs1 imm5 imm2
+&th_rs2    rd rs2
 
 # Formats
 @sfence_vm  ....... ..... .....   ... ..... ....... %rs1
@@ -42,6 +45,11 @@
 @th_pair    ..... .. ..... ..... ... ..... .......  &th_pair %rd1 %rs %rd2 %sh2
 @th_memidx  ..... .. ..... ..... ... ..... .......  &th_memidx %rd %rs1 %rs2 %imm2
 @th_meminc  ..... .. ..... ..... ... ..... .......  &th_meminc %rd %rs1 %imm5 %imm2
+@r2_vm   ...... vm:1 ..... ..... ... ..... ....... &rmr %rs2 %rd
+@r_vm    ...... vm:1 ..... ..... ... ..... ....... &rmrr %rs2 %rs1 %rd
+@r_vm_1  ...... . ..... ..... ... ..... .......    &rmrr vm=1 %rs2 %rs1 %rd
+@th_rs2    ....... ..... .....   ... ..... ....... &th_rs2 %rs2 %rd
+@r2_vm_1 ...... . ..... ..... ... ..... ....... &rmr vm=1 %rs2 %rd
 
 # XTheadBa
 # Instead of defining a new encoding, we simply use the decoder to
@@ -189,34 +197,123 @@ ipush      0000000  00100 00000 000 00000 0001011
 ipop       0000000  00101 00000 000 00000 0001011
 
 # XTheadCp
-th_cpx0 index:2 00000     imm1:5    rs1:5    000 imm2:5    0101011 #th_cpx0
-th_cpx1 index:2 00001     00000     rs1:5    000 00000     0101011 #th_cpx1
-th_cpx2 index:2 00000     uimm5:5   rs1:5    001 rd:5      0101011 #th_cpx2
-th_cpx3 index:2 00001     00000     rs1:5    001 rd:5      0101011 #th_cpx3
-th_cpx4 index:2 00010     rs2:5     rs1:5    000 uimm5:5   0101011 #th_cpx4
-th_cpx5 index:2 00011     rs2:5     rs1:5    000 00000     0101011 #th_cpx5
-th_cpx6 index:2 00010     rs2:5     rs1:5    001 rd:5      0101011 #th_cpx6
-th_cpx7 index:2 00100     rs2:5     rs1:5    000 rd:5      0101011 #th_cpx7
-th_cpx8 index:2 00011     rs2:5     rs1:5    001 rd:5      0101011 #th_cpx8
-th_cpx9 index:2 imm:10              rs1:5    111 rd:5      0101011 #th_cpx9
-th_cpx10 index:2 00101     imm:10             001 rd:5      0101011 #th_cpx10
+th_cpx0 index:2 00000     imm1:5    rs1:5    000 imm2:5    1011011 #th_cpx0
+th_cpx1 index:2 00001     00000     rs1:5    000 00000     1011011 #th_cpx1
+th_cpx2 index:2 00000     uimm5:5   rs1:5    001 rd:5      1011011 #th_cpx2
+th_cpx3 index:2 00001     00000     rs1:5    001 rd:5      1011011 #th_cpx3
+th_cpx4 index:2 00010     rs2:5     rs1:5    000 uimm5:5   1011011 #th_cpx4
+th_cpx5 index:2 00011     rs2:5     rs1:5    000 00000     1011011 #th_cpx5
+th_cpx6 index:2 00010     rs2:5     rs1:5    001 rd:5      1011011 #th_cpx6
+th_cpx7 index:2 00100     rs2:5     rs1:5    000 rd:5      1011011 #th_cpx7
+th_cpx8 index:2 00011     rs2:5     rs1:5    001 rd:5      1011011 #th_cpx8
+th_cpx9 index:2 imm:10              rs1:5    111 rd:5      1011011 #th_cpx9
+th_cpx10 index:2 00101     imm:10             001 rd:5     1011011 #th_cpx10
 
-th_vcpx0 index:2 0000 vm:1 vs2:5 00000    010 00000     0101011 #th_vcpx0
-th_vcpx1 index:2 0000 vm:1 vs2:5 00000    011 vd:5      0101011 #th_vcpx1
-th_vcpx2 index:2 0001 vm:1 vs2:5 uimm5:5  010 00000     0101011 #th_vcpx2
-th_vcpx3 index:2 0001 vm:1 vs2:5 uimm5:5  011 vd:5      0101011 #th_vcpx3
-th_vcpx4 index:2 0010 vm:1 vs2:5 vs1:5    010 vd:5      0101011 #th_vcpx4
-th_vcpx5 index:2 0010 vm:1 vs2:5 vs1:5    011 vd:5      0101011 #th_vcpx5
-th_vcpx6 index:2 0011 vm:1 vs2:5 rs1:5    010 vd:5      0101011 #th_vcpx6
-th_vcpx7 index:2 0011 vm:1 vs2:5 rs1:5    011 vd:5      0101011 #th_vcpx7
-th_vcpx8 index:2 0100 vm:1 vs2:5 uimm5:5  010 vd:5      0101011 #th_vcpx8
-th_vcpx9 index:2 0101 vm:1 vs2:5 fs1:5    010 vd:5      0101011 #th_vcpx9
-th_vcpx10 index:2 0101 vm:1 vs2:5 fs1:5    011 vd:5      0101011 #th_vcpx10
+th_vcpx0 index:2 0000 vm:1 vs2:5 00000    010 00000     1011011 #th_vcpx0
+th_vcpx1 index:2 0000 vm:1 vs2:5 00000    011 vd:5      1011011 #th_vcpx1
+th_vcpx2 index:2 0001 vm:1 vs2:5 uimm5:5  010 00000     1011011 #th_vcpx2
+th_vcpx3 index:2 0001 vm:1 vs2:5 uimm5:5  011 vd:5      1011011 #th_vcpx3
+th_vcpx4 index:2 0010 vm:1 vs2:5 vs1:5    010 vd:5      1011011 #th_vcpx4
+th_vcpx5 index:2 0010 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vcpx5
+th_vcpx6 index:2 0011 vm:1 vs2:5 rs1:5    010 vd:5      1011011 #th_vcpx6
+th_vcpx7 index:2 0011 vm:1 vs2:5 rs1:5    011 vd:5      1011011 #th_vcpx7
+th_vcpx8 index:2 0100 vm:1 vs2:5 uimm5:5  010 vd:5      1011011 #th_vcpx8
+th_vcpx9 index:2 0101 vm:1 vs2:5 fs1:5    010 vd:5      1011011 #th_vcpx9
+th_vcpx10 index:2 0101 vm:1 vs2:5 fs1:5    011 vd:5     1011011 #th_vcpx10
 
-th_fcpx0 index:2 00000     00000 fs1:5    100 00000     0101011 #th_fcpx0
-th_fcpx1 index:2 00000     00000 fs1:5    101 fd:5      0101011 #th_fcpx1
-th_fcpx2 index:2 00001     fs2:5 fs1:5    100 00000     0101011 #th_fcpx2
-th_fcpx3 index:2 00001     fs2:5 fs1:5    101 fd:5      0101011 #th_fcpx3
-th_fcpx4 index:2 00010     fs2:5 fs1:5    100 fd:5      0101011 #th_fcpx4
-th_fcpx5 index:2 00010     fs2:5 fs1:5    101 fd:5      0101011 #th_fcpx5
-th_fcpx6 index:2 00011     fs2:5 imm:5    101 fd:5      0101011 #th_fcpx6
+th_fcpx0 index:2 00000     00000 fs1:5    100 00000     1011011 #th_fcpx0
+th_fcpx1 index:2 00000     00000 fs1:5    101 fd:5      1011011 #th_fcpx1
+th_fcpx2 index:2 00001     fs2:5 fs1:5    100 00000     1011011 #th_fcpx2
+th_fcpx3 index:2 00001     fs2:5 fs1:5    101 fd:5      1011011 #th_fcpx3
+th_fcpx4 index:2 00010     fs2:5 fs1:5    100 fd:5      1011011 #th_fcpx4
+th_fcpx5 index:2 00010     fs2:5 fs1:5    101 fd:5      1011011 #th_fcpx5
+th_fcpx6 index:2 00011     fs2:5 imm:5    101 fd:5      1011011 #th_fcpx6
+
+# XTheadvsfa
+th_vfexp2  110000 . ..... 00000 110 .....  0001011 @r2_vm
+th_vftanh  110000 . ..... 00001 110 .....  0001011 @r2_vm
+th_vfsig   110000 . ..... 00010 110 .....  0001011 @r2_vm
+th_vfrec   110000 . ..... 00011 110 .....  0001011 @r2_vm
+
+# XTheadlpw
+th_wfe     000000 0 11100 00000 000 00000 0001011
+
+# XTheadvfcvt
+th_vfncvt_e4_h          110010 . ..... 10000 110 ..... 0001011 @r2_vm
+th_vfncvt_e5_h          110010 . ..... 10001 110 ..... 0001011 @r2_vm
+th_vfncvt_e4_bf16       110010 . ..... 10010 110 ..... 0001011 @r2_vm
+th_vfncvt_e5_bf16       110010 . ..... 10011 110 ..... 0001011 @r2_vm
+th_vfncvt_rod_bf16_s    110010 . ..... 10111 110 ..... 0001011 @r2_vm
+th_vfwcvt_h_e4          110010 . ..... 11000 110 ..... 0001011 @r2_vm
+th_vfwcvt_h_e5          110010 . ..... 11001 110 ..... 0001011 @r2_vm
+th_vfwcvt_bf16_e4       110010 . ..... 11010 110 ..... 0001011 @r2_vm
+th_vfwcvt_bf16_e5       110010 . ..... 11011 110 ..... 0001011 @r2_vm
+
+# XTheadvfreduction
+th_vfredsum_dup_32      110100 0 ..... 00000 110 ..... 0001011 @th_rs2
+th_vbfredsum_dup_32     110100 1 ..... 00000 110 ..... 0001011 @th_rs2
+th_vfredsum_dup_64      110100 0 ..... 00001 110 ..... 0001011 @th_rs2
+th_vbfredsum_dup_64     110100 1 ..... 00001 110 ..... 0001011 @th_rs2
+th_vfredsum_c_32        110100 0 ..... 10000 110 ..... 0001011 @th_rs2
+th_vbfredsum_c_32       110100 1 ..... 10000 110 ..... 0001011 @th_rs2
+th_vfredsum_c_64        110100 0 ..... 10001 110 ..... 0001011 @th_rs2
+th_vbfredsum_c_64       110100 1 ..... 10001 110 ..... 0001011 @th_rs2
+th_vfredmax_dup_32      110100 0 ..... 00010 110 ..... 0001011 @th_rs2
+th_vbfredmax_dup_32     110100 1 ..... 00010 110 ..... 0001011 @th_rs2
+th_vfredmax_dup_64      110100 0 ..... 00011 110 ..... 0001011 @th_rs2
+th_vbfredmax_dup_64     110100 1 ..... 00011 110 ..... 0001011 @th_rs2
+th_vfredmax_c_32        110100 0 ..... 10010 110 ..... 0001011 @th_rs2
+th_vbfredmax_c_32       110100 1 ..... 10010 110 ..... 0001011 @th_rs2
+th_vfredmax_c_64        110100 0 ..... 10011 110 ..... 0001011 @th_rs2
+th_vbfredmax_c_64       110100 1 ..... 10011 110 ..... 0001011 @th_rs2
+th_vfredmin_dup_32      110100 0 ..... 00100 110 ..... 0001011 @th_rs2
+th_vbfredmin_dup_32     110100 1 ..... 00100 110 ..... 0001011 @th_rs2
+th_vfredmin_dup_64      110100 0 ..... 00101 110 ..... 0001011 @th_rs2
+th_vbfredmin_dup_64     110100 1 ..... 00101 110 ..... 0001011 @th_rs2
+th_vfredmin_c_32        110100 0 ..... 10100 110 ..... 0001011 @th_rs2
+th_vbfredmin_c_32       110100 1 ..... 10100 110 ..... 0001011 @th_rs2
+th_vfredmin_c_64        110100 0 ..... 10101 110 ..... 0001011 @th_rs2
+th_vbfredmin_c_64       110100 1 ..... 10101 110 ..... 0001011 @th_rs2
+th_vary_dup_32          110100 0 ..... 01000 110 ..... 0001011 @th_rs2
+th_vary_dup_64          110100 0 ..... 01001 110 ..... 0001011 @th_rs2
+
+# *** Xuantie Crypt ***
+th_vmacc54l_vv 111000 . ..... ..... 110 ..... 0001011  @r_vm
+th_vmacc54l_vs 111001 . ..... ..... 110 ..... 0001011  @r_vm
+th_vmacc54h_vv 111010 . ..... ..... 110 ..... 0001011  @r_vm
+th_vmacc54h_vs 111011 . ..... ..... 110 ..... 0001011  @r_vm
+
+# *** Xuantie Coder ***
+th_vabd_vv     110000 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabd_vx     110001 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabd_vi     110010 . ..... ..... 111 ..... 0001011  @r_vm
+th_vfabd_vv    110100 . ..... ..... 111 ..... 0001011  @r_vm
+th_vfabd_vf    110101 . ..... ..... 111 ..... 0001011  @r_vm
+th_vaba_vv     110110 . ..... ..... 111 ..... 0001011  @r_vm
+th_vaba_vx     110111 . ..... ..... 111 ..... 0001011  @r_vm
+th_vaba_vi     110011 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabd_vv    111000 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabd_vx    111001 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabdu_vv   111010 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabdu_vx   111011 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwaba_vv    111100 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwaba_vx    111101 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabau_vv   111110 . ..... ..... 111 ..... 0001011  @r_vm
+th_vwabau_vx   111111 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabdu_vv    101000 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabdu_vx    101001 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabdu_vi    101010 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabau_vv    101110 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabau_vx    101111 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabau_vi    101011 . ..... ..... 111 ..... 0001011  @r_vm
+
+# *** Xuantie Arith ***
+th_vile_vv      110110 1 ..... ..... 110 ..... 0001011  @r_vm_1
+th_vilo_vv      111100 1 ..... ..... 110 ..... 0001011  @r_vm_1
+th_vgmul_vv     101000 1 ..... 10001 010 ..... 1110111  @r2_vm_1
+th_vgmul_vs     101001 1 ..... 10001 010 ..... 1110111  @r2_vm_1
+th_vcrcfoldr_vv 111110 1 ..... ..... 110 ..... 0001011  @r_vm_1
+th_vcrcfoldn_vv 111111 1 ..... ..... 110 ..... 0001011  @r_vm_1
+
+# *** Xuantie Cbop ***
+th_cbo_cleanp   100000 0 00001 ..... 010 00000 0001111 @sfence_vm

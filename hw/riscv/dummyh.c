@@ -34,6 +34,7 @@
 #include "qemu/error-report.h"
 #include "hw/char/csky_uart.h"
 #include "hw/timer/csky_coret.h"
+#include "hw/timer/csky_timer.h"
 #include "hw/csky/dynsoc.h"
 #include "elf.h"
 #include "hw/intc/riscv_aclint.h"
@@ -225,23 +226,14 @@ static void dummyh_init(MachineState *machine)
                 continue;
             }
             if (plic_irqs[b_info->dev[i].irq]) {
-                sysbus_create_varargs(b_info->dev[i].name, b_info->dev[i].addr,
-                                      plic_irqs[b_info->dev[i].irq],
-                                      plic_irqs[b_info->dev[i].irq + 1],
-                                      plic_irqs[b_info->dev[i].irq + 2],
-                                      plic_irqs[b_info->dev[i].irq + 3],
-                                      clic_irqs[b_info->dev[i].irq],
-                                      clic_irqs[b_info->dev[i].irq + 1],
-                                      clic_irqs[b_info->dev[i].irq + 2],
-                                      clic_irqs[b_info->dev[i].irq + 3],
-                                      NULL);
+                csky_timer_create(b_info->dev[i].addr,
+                                  &plic_irqs[b_info->dev[i].irq],
+                                  &clic_irqs[b_info->dev[i].irq],
+                                  smp_cpus, 256);
             } else {
-                sysbus_create_varargs(b_info->dev[i].name, b_info->dev[i].addr,
-                                      clic_irqs[b_info->dev[i].irq],
-                                      clic_irqs[b_info->dev[i].irq + 1],
-                                      clic_irqs[b_info->dev[i].irq + 2],
-                                      clic_irqs[b_info->dev[i].irq + 3],
-                                      NULL);
+                csky_timer_create(b_info->dev[i].addr,
+                                  &clic_irqs[b_info->dev[i].irq],
+                                  NULL, smp_cpus, 0);
             }
             break;
         case DYNSOC_LCDC:

@@ -75,8 +75,7 @@ static void smarth_init(MachineState *machine)
     csky_uart_create(0x10015000, intc[0], NULL, serial_hd(0));
 
     csky_timer_set_freq(smarth_binfo.freq);
-    sysbus_create_varargs("csky_timer", 0x10011000, intc[2], intc[3],
-                            intc[4], intc[5], NULL);
+    csky_timer_create(0x10011000, &intc[2], NULL, 1, 0);
 
     sysbus_create_simple("csky_exit", 0x10002000, NULL);
 

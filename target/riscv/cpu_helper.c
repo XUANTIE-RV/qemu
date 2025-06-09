@@ -251,6 +251,7 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
     DP_TBFLAGS_ANY(flags, PM_PMM, riscv_pm_get_pmm(env));
     DP_TBFLAGS_ANY(flags, PM_SIGNEXTEND, pm_signext);
     DP_TBFLAGS_ANY(flags, XSSE, riscv_cpu_get_xsse(env));
+    DP_TBFLAGS_ANY(flags, ELP, riscv_cpu_get_xlpe(env) && env->elp);
 
     *pflags = flags.flags;
     *cs_base = flags.flags2;
@@ -686,11 +687,19 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env)
 {
     uint64_t mstatus_mask = MSTATUS_MXR | MSTATUS_SUM |
                             MSTATUS_SPP | MSTATUS_SPIE | MSTATUS_SIE |
-                            MSTATUS64_UXL | MSTATUS_VS | MSTATUS_SPELP;
+                            MSTATUS64_UXL | MSTATUS_VS;
 
     if (riscv_has_ext(env, RVF)) {
         mstatus_mask |= MSTATUS_FS;
     }
+     /*
+      * If zicfilp extension available and henvcfg.LPE = 1,
+      * then apply SPELP mask on mstatus
+      */
+     if (env_archcpu(env)->cfg.ext_zicfilp &&
+         get_field(env->henvcfg, HENVCFG_LPE)) {
+        mstatus_mask |= MSTATUS_SPELP;
+     }
     bool current_virt = env->virt_enabled;
     uint64_t dte = current_virt ? env->menvcfg & MENVCFG_DTE :
                                   env->henvcfg & HENVCFG_DTE;
@@ -810,6 +819,9 @@ uint64_t riscv_cpu_update_mip(CPURISCVState *env, uint64_t mask, uint64_t value)
 {
     uint64_t old = env->mip;
 
+    if (xt_clic_is_clic_mode(env)) {
+        return old;
+    }
     /* No need to update mip for VSTIP */
     mask = ((mask == MIP_VSTIP) && env->vstime_irq) ? 0 : mask;
 
@@ -1408,6 +1420,9 @@ restart:
         }
 
         if (riscv_cpu_sxl(env) == MXL_RV32) {
+            if (pbmte && riscv_cpu_cfg(env)->ext_xtheadpbmt) {
+                pte &= ~0xC0000000;
+            }
             ppn = pte >> PTE_PPN_SHIFT;
         } else {
             if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
@@ -2157,6 +2172,11 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     bool vsmode_exception;
     uint64_t s;
     int mode, level;
+#ifndef _WIN32
+    if (env->priv == PRV_U && is_bbv_tb_trans_registered()) {
+        qemu_plugin_other_process_cb();
+    }
+#endif
 
     /*
      * cs->exception is 32-bits wide unlike mcause which is XLEN-bits wide
@@ -2472,16 +2492,14 @@ void riscv_cpu_do_interrupt(CPUState *cs)
 
 bool riscv_cpu_get_xsse(CPURISCVState *env)
 {
-#ifdef CONFIG_USER_ONLY
-    return false;
-#else
-     if (riscv_cpu_cfg(env)->ext_zicfiss) {
+    if (!riscv_cpu_cfg(env)->ext_zicfiss) {
         return false;
-     }
+    }
 
     switch (env->priv) {
     case PRV_U:
         return (env->senvcfg & SENVCFG_SSE) ? true : false;
+#ifndef CONFIG_USER_ONLY
     case PRV_S:
         if (env->virt_enabled) {
             return (env->henvcfg & HENVCFG_SSE) ? true : false;
@@ -2489,36 +2507,35 @@ bool riscv_cpu_get_xsse(CPURISCVState *env)
         return (env->menvcfg & MENVCFG_SSE) ? true : false;
     case PRV_M:
         return false;
+#endif
     default:
         g_assert_not_reached();
     }
-#endif
 }
 
 bool riscv_cpu_get_xlpe(CPURISCVState *env)
 {
-#ifdef CONFIG_USER_ONLY
-    return false;
-#else
-     if (riscv_cpu_cfg(env)->ext_zicfilp) {
+    /* no cfi extension, return false */
+    if (!env_archcpu(env)->cfg.ext_zicfilp) {
         return false;
-     }
+    }
 
     switch (env->priv) {
-    case PRV_U:
-        if (riscv_has_ext(env, RVS)) {
-            return (env->menvcfg & MENVCFG_LPE) ? true : false;
-        }
-        return (env->senvcfg & SENVCFG_LPE) ? true : false;
-    case PRV_S:
-        if (env->virt_enabled) {
-            return (env->henvcfg & HENVCFG_LPE) ? true : false;
-        }
-        return (env->menvcfg & MENVCFG_SSE) ? true : false;
-    case PRV_M:
-        return (env->mseccfg & MSECCFG_MLPE) ? true : false;
-    default:
-        g_assert_not_reached();
-    }
+        case PRV_U:
+            if (riscv_has_ext(env, RVS)) {
+                return env->senvcfg & SENVCFG_LPE;
+            }
+            return env->menvcfg & MENVCFG_LPE;
+#ifndef CONFIG_USER_ONLY
+        case PRV_S:
+            if (env->virt_enabled) {
+                return env->henvcfg & HENVCFG_LPE;
+            }
+            return env->menvcfg & MENVCFG_LPE;
+        case PRV_M:
+            return env->mseccfg & MSECCFG_MLPE;
 #endif
+        default:
+            g_assert_not_reached();
+    }
 }

@@ -684,12 +684,10 @@ emulator_link_args = []
 midl = not_found
 widl = not_found
 pathcch = not_found
-asp_win = not_found
 host_dsosuf = '.so'
 if host_os == 'windows'
   midl = find_program('midl', required: false)
   widl = find_program('widl', required: false)
-  asp_win = cc.find_library('Theadasp_win', dirs:join_paths(meson.project_source_root() + '/hw/misc/'), required: true)
   pathcch = cc.find_library('pathcch')
   socket = cc.find_library('ws2_32')
   winmm = cc.find_library('winmm')
@@ -884,11 +882,9 @@ glib_cflags = []
 if enable_modules
   gmodule = dependency('gmodule-export-2.0', version: glib_req_ver, required: true,
                        method: 'pkg-config')
-elif get_option('plugins')
+else
   gmodule = dependency('gmodule-no-export-2.0', version: glib_req_ver, required: true,
                        method: 'pkg-config')
-else
-  gmodule = not_found
 endif
 
 # This workaround is required due to a bug in pkg-config file for glib as it
@@ -3974,7 +3970,7 @@ foreach target : target_dirs
     emulator = executable(exe_name, exe['sources'],
                install: true,
                c_args: c_args,
-               dependencies: arch_deps + deps + exe['dependencies'] + asp_win,
+               dependencies: arch_deps + deps + exe['dependencies'] + libsfu_dep,
                objects: lib.extract_all_objects(recursive: true),
                link_depends: [block_syms, qemu_syms],
                link_args: link_args,

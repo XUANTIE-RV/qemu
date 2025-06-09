@@ -29,7 +29,6 @@
                 smart_data_mem, Start: 0x20000000, Length: 0x40000
                 smart_outchip_mem, Start: 0x50000000, Length: 0x800000
                 smart_sys_mem, Start: 0x60000000, Length: 0x1000000
-                smart_sysmemmap, Start: 0xEFFFF000, Length: 0x0000040
         </AutoDescription>
     </Description>
 </Board>

@@ -10,8 +10,8 @@ endif
 SYS := $(shell $(CC) -dumpmachine)
 
 ifneq (, $(findstring mingw, $(SYS)))
-XML_LIBS=$(shell mingw32-pkg-config --libs libxml-2.0)
-XML_CFLAGS=$(shell mingw32-pkg-config --cflags libxml-2.0)
+XML_LIBS=$(shell mingw64-pkg-config --libs libxml-2.0)
+XML_CFLAGS=$(shell mingw64-pkg-config --cflags libxml-2.0)
 else
 XML_CFLAGS=$(shell xml2-config --cflags)
 XML_LIBS=$(shell xml2-config --libs)
@@ -24,10 +24,6 @@ all: compile_date
 
 compile_date:
 	@echo "#define COMPILE_DATE "$(COMPILE_DATE) > compile_gen.h
-
-.PHONY: win32
-win32: compile_date
-	$(CC) cskysim.c $(XML_CFLAGS) $(XML_LIBS) -o cskysim_w32.exe -g
 
 .PHONY: win64
 win64: compile_date

@@ -30,6 +30,7 @@
 #include "vector_internals.h"
 #include "exec/tracestub.h"
 #include <math.h>
+#include "sfu.h"
 
 target_ulong HELPER(vsetvl)(CPURISCVState *env, target_ulong s1,
                             target_ulong s2)
@@ -5833,3 +5834,3431 @@ GEN_VEXT_VX(vpwadd_vx, 2)
 
 RVVCALL(OPIVX2, vpwaddu_vx, WOP_UUU_B, H2, H1, vpwaddu8)
 GEN_VEXT_VX(vpwaddu_vx, 2)
+
+static float32 sfu_to_f32(sfu_output *a)
+{
+    return *(float32 *)(&a->sfu_data_output);
+}
+
+static void sfu_set_flags(float_status *s, sfu_output *a)
+{
+    if (a->sfu_exception_output & SFU_NV) {
+        s->float_exception_flags |= float_flag_invalid;
+    }
+    if (a->sfu_exception_output & SFU_DZ) {
+        s->float_exception_flags |= float_flag_divbyzero;
+    }
+    if (a->sfu_exception_output & SFU_OF) {
+        s->float_exception_flags |= float_flag_overflow;
+    }
+    if (a->sfu_exception_output & SFU_UF) {
+        s->float_exception_flags |= float_flag_underflow;
+    }
+    if (a->sfu_exception_output & SFU_NX) {
+        s->float_exception_flags |= float_flag_inexact;
+    }
+}
+
+static void do_exp2_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f = *((float32 *)vs2 + i), tmp = 0;
+    bool sign = float32_is_neg(f);
+    if (float32_is_infinity(f)) {
+        if (sign) {
+            tmp = float32_zero;
+        } else {
+            tmp = float32_infinity;
+        }
+    } else if (float32_is_zero(f)) {
+        tmp = float32_one;
+    } else if (float32_is_quiet_nan(f, s)) {
+        tmp = float32_default_nan(s);
+    } else if (float32_is_signaling_nan(f, s)) {
+        s->float_exception_flags |= float_flag_invalid;
+        tmp = float32_default_nan(s);
+    } else {
+        sfu_output a = sfu_exp2(f);
+        sfu_set_flags(s, &a);
+        tmp = sfu_to_f32(&a);
+    }
+    *((float32 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfexp2_w)(void *vd, void *v0, void *vs2,
+                      CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_exp2_w(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+static void do_tanh_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f = *((float32 *)vs2 + i), tmp = 0;
+    bool sign = float32_is_neg(f);
+    if (float32_is_infinity(f)) {
+        tmp = float32_set_sign(float32_one, sign);
+    } else if (float32_is_zero(f)) {
+        tmp = float32_set_sign(float32_zero, sign);
+    } else if (float32_is_quiet_nan(f, s)) {
+        tmp = float32_default_nan(s);
+    } else if (float32_is_signaling_nan(f, s)) {
+        s->float_exception_flags |= float_flag_invalid;
+        tmp = float32_default_nan(s);
+    } else {
+        sfu_output a = sfu_tanh(f);
+        sfu_set_flags(s, &a);
+        tmp = sfu_to_f32(&a);
+    }
+    *((float32 *)vd + i) = tmp;
+}
+
+void HELPER(th_vftanh_w)(void *vd, void *v0, void *vs2,
+                      CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_tanh_w(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+static void do_sig_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f = *((float32 *)vs2 + i), tmp = 0;
+    bool sign = float32_is_neg(f);
+    if (float32_is_infinity(f)) {
+        tmp = float32_set_sign(float32_one, sign);
+    } else if (float32_is_zero(f)) {
+        tmp = float32_half;
+    } else if (float32_is_quiet_nan(f, s)) {
+        tmp = float32_default_nan(s);
+    } else if (float32_is_signaling_nan(f, s)) {
+        s->float_exception_flags |= float_flag_invalid;
+        tmp = float32_default_nan(s);
+    } else {
+        sfu_output a = sfu_sigmoid(f);
+        sfu_set_flags(s, &a);
+        tmp = sfu_to_f32(&a);
+    }
+    *((float32 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfsig_w)(void *vd, void *v0, void *vs2,
+                      CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_sig_w(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+static void do_rec_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f = *((float32 *)vs2 + i), tmp = 0;
+    bool sign = float32_is_neg(f);
+    if (float32_is_infinity(f)) {
+        tmp = float32_set_sign(float32_zero, sign);
+    } else if (float32_is_zero(f)) {
+        tmp = float32_set_sign(float32_infinity, sign);
+        s->float_exception_flags |= float_flag_divbyzero;
+    } else if (float32_is_quiet_nan(f, s)) {
+        tmp = float32_default_nan(s);
+    } else if (float32_is_signaling_nan(f, s)) {
+        s->float_exception_flags |= float_flag_invalid;
+        tmp = float32_default_nan(s);
+    } else {
+        sfu_output a = sfu_rcp(f);
+        sfu_set_flags(s, &a);
+        tmp = sfu_to_f32(&a);
+    }
+    *((float32 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfrec_w)(void *vd, void *v0, void *vs2,
+                     CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_rec_w(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+
+#define E4M3_MAX    0x7e  /* MAX normal number, 0x7e(S.1111.110) */
+#define E4M3_NAN    0x7f  /* NAN(S.1111.111) */
+#define E4M3_ZERO   0x0  /* Zeros(S.0000.000) */
+#define E4M3_EXP_MAX 0xf
+#define E4M3_EXP_BIAS 0x7
+#define E4M3_FRAC_MAX 0x6
+#define E4M3_FRAC_F16_SHIFT 0x7
+#define E4M3_EXP_MIN 0x0
+#define E4M3_FRAC_MIN 0x1
+
+#define FP16_EXP_SHIFT 10
+#define FP16_EXP_MASK 0x1f
+#define FP16_EXP_BIAS 0xf
+#define FP16_FRAC_MASK 0x3ff
+
+static void do_fncvt_e4_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f = *((float16 *)vs2 + i);
+    float8e4 tmp = 0;
+    bool sign = float16_is_neg(f);
+
+    if (float16_is_signaling_nan(f, s)) {
+        tmp = float8e4_set_sign(E4M3_NAN, sign);
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (float16_is_quiet_nan(f, s)) {
+        tmp = float8e4_set_sign(E4M3_NAN, sign);
+    } else {
+        s->sat = env->utn_sat;
+        tmp = float16_to_float8e4(f, s);
+    }
+    *((float8e4 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfncvt_e4_h)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fncvt_e4_h(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define E5M2_MAX    0x7b  /* MAX normal number, 0x7b(S.11110.11) */
+#define E5M2_NAN    0x7e  /* NAN, 0x7e(S.11111.{01, 10, 11)) */
+#define E5M2_INF    0x7c  /* NAN, 0x7c(S.11111.{00)) */
+#define E5M2_ZERO   0x0  /* Zeros, 0x0(S.00000.00) */
+#define E5M2_EXP_MAX  0x1e
+#define E5M2_EXP_BIAS 0xf
+#define E5M2_FRAC_MAX 0x3
+#define E5M2_FRAC_F16_SHIFT 0x8
+#define E5M2_EXP_MIN 0x0
+#define E5M2_FRAC_MIN 0x1
+
+/*
+ * float16 is greater than max float8e5 normal when:
+ * 1) float16 is infinity or
+ * 2) float16 exp number is greater than max float8e5 exp number or
+ * 3) float16 frac is greater than max float8e5 frac
+ *
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool float16_gt_float8e5_max(float16 f)
+{
+    int f16_exp = ((f >> FP16_EXP_SHIFT) & FP16_EXP_MASK) - FP16_EXP_BIAS;
+    int f16_frac = f & FP16_FRAC_MASK;
+    int float8e5_exp_max = E5M2_EXP_MAX - E5M2_EXP_BIAS;
+    int float8e5_frac_max = E5M2_FRAC_MAX;
+    /* shift by number_of(f16_frac) - number_of(f8_frac) */
+    float8e5_frac_max = float8e5_frac_max << E5M2_FRAC_F16_SHIFT;
+
+    return ((f16_exp > float8e5_exp_max) ||
+            ((f16_exp == float8e5_exp_max) && (f16_frac > float8e5_frac_max)));
+}
+
+/*
+ * float16 is less than min float8e5 subnormal when:
+ * 1) float16 is zero or
+ * 2) float16 exp number is less than min float8e5 exp number or
+ * 3) float16 frac is less than float8e5 frac
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool float16_lt_float8e5_min(float16 f)
+{
+    int f16_exp = ((f >> FP16_EXP_SHIFT) & FP16_EXP_MASK) - FP16_EXP_BIAS;
+    int f16_frac = f & FP16_FRAC_MASK;
+    int float8e5_exp_min = E5M2_EXP_MIN - E5M2_EXP_BIAS;
+    int float8e5_frac_min = E5M2_EXP_MIN;
+    /* shift by number_of(f16_frac) - number_of(f8_frac) */
+    float8e5_frac_min = float8e5_frac_min << E5M2_FRAC_F16_SHIFT;
+
+    return (f16_exp < float8e5_exp_min) ||
+           ((f16_exp == float8e5_exp_min) && (f16_frac < float8e5_frac_min));
+}
+
+static void do_fncvt_e5_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f = *((float16 *)vs2 + i);
+    float8e5 tmp = 0;
+    bool sign = float16_is_neg(f);
+
+    if (float16_is_signaling_nan(f, s)) {
+        tmp = float8e5_set_sign(E5M2_NAN, sign);
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (float16_is_quiet_nan(f, s)) {
+        tmp = float8e5_set_sign(E5M2_NAN, sign);
+    } else if (float16_gt_float8e5_max(f)) {
+        if (env->utn_sat) {
+            tmp = float8e5_set_sign(E5M2_MAX, sign);
+        } else {
+            tmp = float8e5_set_sign(E5M2_INF, sign);
+        }
+    } else if (float16_lt_float8e5_min(f)) {
+        tmp = float8e5_set_sign(E5M2_NAN, sign);
+    } else {
+        tmp = float16_to_float8e5(f, s);
+    }
+    *((float8e5 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfncvt_e5_h)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fncvt_e5_h(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define BF16_EXP_SHIFT 7
+#define BF16_EXP_MASK  0xff
+#define BF16_EXP_BIAS  0x7f
+#define BF16_FRAC_MASK 0x7f
+#define E4M3_FRAC_BF16_SHIFT 0x4
+
+/*
+ * bf16 is greater than max float8e4 normal when:
+ * 1) bf16 is infinity or
+ * 2) bf16 exp number is greater than max float8e4 exp number or
+ * 3) bf16 frac is greater than max float8e4 frac
+ *
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool bf16_gt_float8e4_max(bfloat16 f)
+{
+    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
+    int bf16_frac = f & BF16_FRAC_MASK;
+    int float8e4_exp_max = E4M3_EXP_MAX - E4M3_EXP_BIAS;
+    int float8e4_frac_max = E4M3_FRAC_MAX;
+    /* shift by number_of(bf16frac) - number_of(f8_frac) */
+    float8e4_frac_max = float8e4_frac_max << E4M3_FRAC_BF16_SHIFT;
+
+    return ((bf16_exp > float8e4_exp_max) ||
+            ((bf16_exp == float8e4_exp_max) && (bf16_frac > float8e4_frac_max)));
+}
+
+/*
+ * bf16 is less than min float8e4 subnormal when:
+ * 1) bf16 is zero or
+ * 2) bf16 exp number is less than min float8e4 exp number or
+ * 3) bf16 frac is less than float8e4 frac
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool bf16_lt_float8e4_min(bfloat16 f)
+{
+    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
+    int bf16_frac = f & BF16_FRAC_MASK;
+    int float8e4_exp_min = E4M3_EXP_MIN - E4M3_EXP_BIAS;
+    int float8e4_frac_min = E4M3_EXP_MIN;
+    /* shift by number_of(bf16frac) - number_of(f8_frac) */
+    float8e4_frac_min = float8e4_frac_min << E4M3_FRAC_BF16_SHIFT;
+
+    return (bf16_exp < float8e4_exp_min) ||
+           ((bf16_exp == float8e4_exp_min) && (bf16_frac < float8e4_frac_min));
+}
+
+static void do_fncvt_e4_bf16(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f = *((float16 *)vs2 + i);
+    float8e4 tmp = 0;
+    bool sign = bfloat16_is_neg(f);
+
+    if (bfloat16_is_signaling_nan(f, s)) {
+        tmp = float8e4_set_sign(E4M3_NAN, sign);
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (bfloat16_is_quiet_nan(f, s)) {
+        tmp = float8e4_set_sign(E4M3_NAN, sign);
+    } else if (bf16_gt_float8e4_max(f)) {
+        if (env->utn_sat) {
+            tmp = float8e4_set_sign(E4M3_MAX, sign);
+        } else {
+            tmp = float8e4_set_sign(E4M3_NAN, sign);
+        }
+    } else if (bf16_lt_float8e4_min(f)) {
+        tmp = float8e4_set_sign(E4M3_ZERO, sign);
+    } else {
+        /* Fixme:
+         * [F8_E4_NAN(S 1111 001), E4M3_MAX - 1(S 1111 110)) will be
+         * recgnoized as NaN for bfloat16_to_float8e4.
+         */
+        tmp = bfloat16_to_float8e4(f, s);
+    }
+    *((float8e4 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfncvt_e4_bf16)(void *vd, void *v0, void *vs2,
+                               CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fncvt_e4_bf16(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define E5M2_FRAC_BF16_SHIFT 5
+/*
+ * bf16 is greater than max float8e5 normal when:
+ * 1) bf16 is infinity or
+ * 2) bf16 exp number is greater than max float8e5 exp number or
+ * 3) bf16 frac is greater than max float8e5 frac
+ *
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool bf16_gt_float8e5_max(bfloat16 f)
+{
+    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
+    int bf16_frac = f & BF16_FRAC_MASK;
+    int float8e5_exp_max = E5M2_EXP_MAX - E5M2_EXP_BIAS;
+    int float8e5_frac_max = E5M2_FRAC_MAX;
+    /* shift by number_of(bf16_frac) - number_of(f8_frac) */
+    float8e5_frac_max = float8e5_frac_max << E5M2_FRAC_BF16_SHIFT;
+
+    return ((bf16_exp > float8e5_exp_max) ||
+            ((bf16_exp == float8e5_exp_max) && (bf16_frac > float8e5_frac_max)));
+}
+
+/*
+ * bf16 is less than min float8e5 subnormal when:
+ * 1) bf16 is zero or
+ * 2) bf16 exp number is less than min float8e5 exp number or
+ * 3) bf16 frac is less than float8e5 frac
+ * As 1) can be merged into 2), we only implement 2) and 3).
+ */
+static bool bf16_lt_float8e5_min(bfloat16 f)
+{
+    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
+    int bf16_frac = f & BF16_FRAC_MASK;
+    int float8e5_exp_min = E5M2_EXP_MIN - E5M2_EXP_BIAS;
+    int float8e5_frac_min = E5M2_EXP_MIN;
+    /* shift by number_of(bf16_frac) - number_of(f8_frac) */
+    float8e5_frac_min = float8e5_frac_min << E5M2_FRAC_BF16_SHIFT;
+
+    return (bf16_exp < float8e5_exp_min) ||
+           ((bf16_exp == float8e5_exp_min) && (bf16_frac < float8e5_frac_min));
+}
+
+static void do_fncvt_e5_bf16(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f = *((bfloat16 *)vs2 + i);
+    float8e5 tmp = 0;
+    bool sign = bfloat16_is_neg(f);
+
+    if (bfloat16_is_signaling_nan(f, s)) {
+        tmp = float8e5_set_sign(E5M2_NAN, sign);
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (bfloat16_is_quiet_nan(f, s)) {
+        tmp = float8e5_set_sign(E5M2_NAN, sign);
+    } else if (bf16_gt_float8e5_max(f)) {
+        if (env->utn_sat) {
+            tmp = float8e5_set_sign(E5M2_MAX, sign);
+        } else {
+            tmp = float8e5_set_sign(E5M2_INF, sign);
+        }
+    } else if (bf16_lt_float8e5_min(f)) {
+        tmp = float8e5_set_sign(E5M2_ZERO, sign);
+    } else {
+        tmp = bfloat16_to_float8e5(f, s);
+    }
+    *((float8e5 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfncvt_e5_bf16)(void *vd, void *v0, void *vs2,
+                               CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fncvt_e5_bf16(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+
+void HELPER(th_vfncvt_rod_bf16_s)(void *vd, void *v0, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        *((bfloat16 *)vd + i) = float32_to_bfloat16(*((float32 *)vs2 + i),
+                                                    &env->fp_status);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define FLOAT16_CNAN 0x7e00
+
+static void do_fwcvt_h_e4(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float8e4 f = *((float8e4 *)vs2 + i);
+    float16 tmp = 0;
+    bool sign = float8e4_is_neg(f);
+
+    if (f == E4M3_NAN) {
+        tmp = FLOAT16_CNAN;
+    } else if (float8e4_is_zero(f)) {
+        tmp = float16_set_sign(float16_zero, sign);
+    } else {
+        tmp = float8e4_to_float16(f, s);
+    }
+    *((float16 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfwcvt_h_e4)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fwcvt_h_e4(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define E5M2_SNAN 0x7d
+static void do_fwcvt_h_e5(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float8e5 f = *((float8e5 *)vs2 + i);
+    float16 tmp = 0;
+    bool sign = float8e5_is_neg(f);
+
+    if ((f & 0x7f) == E5M2_SNAN) { /* Fixme: SNaN(S.11111.01) QNaN(S.11111.10/11 */
+        tmp = FLOAT16_CNAN;
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (float8e5_is_any_nan(f)) {
+        tmp = FLOAT16_CNAN;
+    } else if (float8e5_is_zero(f)) {
+        tmp = float16_set_sign(float16_zero, sign);
+    } else {
+        tmp = float8e5_to_float16(f, s);
+    }
+    *((float16 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfwcvt_h_e5)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fwcvt_h_e5(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define BFLOAT16_CNAN 0x7fc0
+
+static void do_fwcvt_bf16_e4(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float8e4 f = *((float8e4 *)vs2 + i);
+    bfloat16 tmp = 0;
+    bool sign = float8e4_is_neg(f);
+
+    if (f == E4M3_NAN) {
+        tmp = BFLOAT16_CNAN;
+    } else if (float8e4_is_zero(f)) {
+        tmp = bfloat16_set_sign(bfloat16_zero, sign);
+    } else {
+        tmp = float8e4_to_bfloat16(f, s);
+    }
+    *((bfloat16 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfwcvt_bf16_e4)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fwcvt_bf16_e4(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+static void do_fwcvt_bf16_e5(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float8e5 f = *((float8e5 *)vs2 + i);
+    bfloat16 tmp = 0;
+    bool sign = float8e5_is_neg(f);
+
+    if ((f & 0x7f) == E5M2_SNAN) { /* Fixme: SNaN(S.11111.01) QNaN(S.11111.10/11 */
+        tmp = BFLOAT16_CNAN;
+        s->float_exception_flags |= float_flag_invalid;
+    } else if (float8e5_is_any_nan(f)) {
+        tmp = BFLOAT16_CNAN;
+    } else if (float8e5_is_zero(f)) {
+        tmp = bfloat16_set_sign(bfloat16_zero, sign);
+    } else {
+        tmp = float8e5_to_bfloat16(f, s);
+    }
+    *((float16 *)vd + i) = tmp;
+}
+
+void HELPER(th_vfwcvt_bf16_e5)(void *vd, void *v0, void *vs2,
+                            CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vm = vext_vm(desc);
+    uint32_t vl = env->vl;
+    uint32_t total_elems =
+        vext_get_total_elems(env, desc, 4);
+    uint32_t vta = vext_vta(desc);
+    uint32_t vma = vext_vma(desc);
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+    for (i = env->vstart; i < vl; i++) {
+        if (!vm && !vext_elem_mask(v0, i)) {
+            /* set masked-off elements to 1s */
+            vext_set_elems_1s(vd, vma, i * 4,
+                              (i + 1) * 4);
+            continue;
+        }
+        do_fwcvt_bf16_e5(vd, vs2, i, env);
+    }
+    env->vstart = 0;
+    vext_set_elems_1s(vd, vta, vl * 4,
+                      total_elems * 4);
+}
+
+#define FP16_EXP_SIZE  5
+#define FP16_FRAC_SIZE 10
+#define FP16_EXP_MAX   0xf
+#define FP16_EXP_MIN   -0xf
+#define FP16_MAX       0x7bff
+#define FP16_CNAN      0x7e00
+
+typedef struct unpacked_float {
+    uint64_t frac;
+    int64_t  frac_signed;
+    uint16_t exp;
+    int16_t  exp_signed;
+    bool     sign;
+    bool     iszero;
+    bool     isdenormal;
+} unpacked_float;
+
+/* Extend frac to 38 bit */
+static inline uint64_t xt_extend_frac_38_f16(uint64_t frac, bool denormal,
+                                             uint8_t *denormal_shift)
+{
+    if (denormal) {
+        uint8_t shift = clz64(frac);
+        /* 64 - shift is no zero frac value */
+        *denormal_shift = 11 - (64 - shift);
+        return frac << (38 - (64 - shift));
+    } else {
+        return frac << (37 - 10) | (1ULL << 37);
+    }
+}
+
+static inline uint64_t xt_extend_frac_38_f32(uint64_t frac, bool denormal,
+                                             uint8_t *denormal_shift)
+{
+    if (denormal) {
+        uint8_t shift = clz64(frac);
+        /* 64 - shift is no zero frac value */
+        *denormal_shift = 24 - (64 - shift);
+        return frac << (38 - (64 - shift));
+    } else {
+        return frac << (37 - 23) | (1ULL << 37);
+    }
+}
+
+static inline uint64_t xt_extend_frac_38_bf16(uint64_t frac, bool denormal,
+                                             uint8_t *denormal_shift)
+{
+    if (denormal) {
+        uint8_t shift = clz64(frac);
+        /* 64 - shift is no zero frac value */
+        *denormal_shift = 8 - (64 - shift);
+        return frac << (38 - (64 - shift));
+    } else {
+        return frac << (37 - 7) | (1ULL << 37);
+    }
+}
+
+/* Get signed fraction */
+static inline int64_t xt_get_frac_signed(unpacked_float *f)
+{
+    return f->sign ? -f->frac : f->frac;
+}
+
+/* Align frac to exp max */
+static void
+xt_align_frac_expmax(unpacked_float *f, uint16_t exp_max,
+                     bool stick, uint8_t denormal_shift, float_status *s)
+{
+    unsigned short shift = exp_max - f->exp;
+    uint64_t tmp;
+    if (shift == 0) {
+        return;
+    } else { /* process denormal */
+        if ((shift > 0) && !f->exp) {
+            /* Denormal exponent is 0 - EXPBIAS + 1 */
+            shift = exp_max + denormal_shift - 1;
+        }
+    }
+    if (shift >= 64) {
+        if (f->frac) {
+            s->float_exception_flags |= float_flag_inexact;
+            f->frac = stick;
+        }
+        return;
+    }
+    tmp = f->frac >> shift;
+    if (f->frac != (tmp << shift)) {
+        s->float_exception_flags |= float_flag_inexact;
+        f->frac = tmp | stick;
+    } else {
+        f->frac = tmp;
+    }
+}
+
+/* Shift to canonical */
+static void xt_canon_fp16(unpacked_float *f, float_status *s)
+{
+    /* MSB from 1 */
+    uint8_t msb = 64 - clz64(f->frac);
+
+    /* Keep 1 + 10 + 3 bits for fp16 fraction before round */
+    uint8_t shift;
+
+    /* Move the fraction msb to 38 bit from 1*/
+    if (msb > 38) {
+        f->exp_signed = f->exp_signed + msb - 38;
+    } else {
+        f->exp_signed = f->exp_signed - (38 - msb);
+    }
+    /* We don't really shift fraction to 39 bit, so just keep 14 bits here */
+    if (msb > 14) {
+        uint64_t jam;
+        shift = msb - 14;
+        jam = f->frac >> shift;
+        if (jam << shift != f->frac) {
+            f->frac = jam | 0x1;
+            s->float_exception_flags |= float_flag_inexact;
+        } else {
+            f->frac = jam;
+        }
+    } else if (msb < 14) {
+        shift = 14 - msb;
+        f->frac = f->frac << shift;
+    }
+}
+
+/* Shift to canonical */
+static void xt_canon_bf16(unpacked_float *f, float_status *s)
+{
+    /* MSB from 1 */
+    uint8_t msb = 64 - clz64(f->frac);
+
+    /* Keep 1 + 7 + 3 bits for bf16 fraction before round */
+    uint8_t shift;
+
+    /* Move the fraction msb to 38 bit from 1*/
+    if (msb > 38) {
+        f->exp_signed = f->exp_signed + msb - 38;
+    } else {
+        f->exp_signed = f->exp_signed - (38 - msb);
+    }
+    /* We don't really shift fraction to 39 bit, so just keep 11 bits here */
+    if (msb > 11) {
+        uint64_t jam;
+        shift = msb - 11;
+        jam = f->frac >> shift;
+        if (jam << shift != f->frac) {
+            f->frac = jam | 0x1;
+            s->float_exception_flags |= float_flag_inexact;
+        } else {
+            f->frac = jam;
+        }
+    } else if (msb < 11) {
+        shift = 11 - msb;
+        f->frac = f->frac << shift;
+    }
+}
+
+/* Pack a float from parts, but do not canonicalize.  */
+static uint64_t xt_pack_raw64(const unpacked_float *p, int f_size, int e_size)
+{
+    uint64_t ret;
+
+    ret = (uint64_t)p->sign << (f_size + e_size);
+    ret = deposit64(ret, f_size, e_size, p->exp);
+    ret = deposit64(ret, 0, f_size, p->frac);
+    return ret;
+}
+
+static float16 xt_round_fp16(unpacked_float *f, int frm, bool sat, float_status *s)
+{
+    uint64_t round;
+    float16 result;
+    round = get_round(frm, f->frac, 3);
+    f->frac = (f->frac >> 3) + round;
+    /* Round move the msb bit */
+    if (f->frac & (1 << (FP16_FRAC_SIZE + 1))) {
+        f->frac = f->frac >> 1;
+        f->exp_signed++;
+    }
+    f->frac = f->frac & FP16_FRAC_MASK;
+    if (round != 0) {
+        s->float_exception_flags |= float_flag_inexact;
+    }
+    if (f->exp_signed > FP16_EXP_MAX) {
+        if (sat) {
+            result = float16_set_sign(FP16_MAX, f->sign);
+        } else {
+            result = float16_set_sign(float16_infinity, f->sign);
+            s->float_exception_flags |= (float_flag_inexact |
+                                         float_flag_overflow);
+        }
+        return result;
+    } else if (f->exp_signed < FP16_EXP_MIN) {
+        f->exp = 0;
+        if (s->float_exception_flags & float_flag_inexact) {
+            s->float_exception_flags |= float_flag_underflow;
+        }
+    } else {
+        f->exp = f->exp_signed + FP16_EXP_BIAS;
+    }
+    result = xt_pack_raw64(f, FP16_FRAC_SIZE, FP16_EXP_SIZE);
+    return result;
+}
+
+
+
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from float16 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to float16 format.
+ */
+
+static float16
+do_fredsum_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[32] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 32; j++) {
+        f = *((float16 *)vs2 + 32 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float16_is_infinity(f)) {
+            if (float16_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = float16_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & FP16_FRAC_MASK;
+        unpack[j].iszero = float16_is_zero(f);
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FLOAT16_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return float16_set_sign(float16_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 32; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_f16(unpack[j].frac,
+                                               unpack[j].isdenormal,
+                                               &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return float16_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - FP16_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_fp16(&result, s);
+
+    /* Round */
+    return xt_round_fp16(&result, env->frm, env->utn_sat, s);
+}
+
+static void do_fredsum_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = do_fredsum_32_h_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((float16 *)vd + 32 * i + j) = f;
+    }
+}
+
+/* XTHEADVFREDUCTION */
+void HELPER(th_vfredsum_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredsum_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+#define FP32_EXP_SIZE  8
+#define FP32_FRAC_SIZE 23
+#define FP32_FRAC_MASK 0x7fffff
+#define FP32_EXP_SHIFT 23
+#define FP32_EXP_MASK  0xff
+#define FP32_EXP_BIAS  0x7f
+#define FP32_EXP_MAX   0x7f
+#define FP32_EXP_MIN   -0x7f
+#define FP32_MAX       0x7f7fffff
+#define FP32_CNAN      0x7fc00000
+
+/* Shift to canonical */
+static void xt_canon_fp32(unpacked_float *f, float_status *s)
+{
+    /* MSB from 1 */
+    uint8_t msb = 64 - clz64(f->frac);
+
+    /* Keep 1 + 23 + 3 bits for fp32 fraction before round */
+    uint8_t shift;
+
+    /* Move the fraction msb to 38 bit from 1 */
+    if (msb > 38) {
+        f->exp_signed = f->exp_signed + msb - 38;
+    } else {
+        f->exp_signed = f->exp_signed - (38 - msb);
+    }
+    /* We don't really shift fraction to 39 bit, so just keep 27 bits here */
+    if (msb > 27) {
+        uint64_t jam;
+        shift = msb  - 27;
+        jam = f->frac >> shift;
+        if (jam << shift != f->frac) {
+            f->frac = jam | 0x1;
+            s->float_exception_flags |= float_flag_inexact;
+        } else {
+            f->frac = jam;
+        }
+    } else if (msb < 27) {
+        shift = 27 - msb;
+        f->frac = f->frac << shift;
+    }
+}
+
+static float32 xt_round_fp32(unpacked_float *f, int frm, bool sat, float_status *s)
+{
+    uint64_t round;
+    float32 result;
+    round = get_round(frm, f->frac, 3);
+    f->frac = (f->frac >> 3) + round;
+
+    /* Round move the msb bit */
+    if (f->frac & (1 << (FP32_FRAC_SIZE + 1))) {
+        f->frac = f->frac >> 1;
+        f->exp_signed++;
+    }
+    f->frac = f->frac & FP32_FRAC_MASK;
+    if (round != 0) {
+        s->float_exception_flags |= float_flag_inexact;
+    }
+    if (f->exp_signed > FP32_EXP_MAX) {
+        if (sat) {
+            result = float32_set_sign(FP32_MAX, f->sign);
+        } else {
+            result = float32_set_sign(float32_infinity, f->sign);
+            s->float_exception_flags |= (float_flag_inexact |
+                                         float_flag_overflow);
+        }
+        return result;
+    } else if (f->exp_signed < FP32_EXP_MIN) {
+        f->exp = 0;
+        if (s->float_exception_flags & float_flag_inexact) {
+            s->float_exception_flags |= float_flag_underflow;
+        }
+    } else {
+        f->exp = f->exp_signed + FP32_EXP_BIAS;
+    }
+    result = xt_pack_raw64(f, FP32_FRAC_SIZE, FP32_EXP_SIZE);
+    return result;
+}
+
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from float32 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to float32 format.
+ */
+
+static float32
+do_fredsum_32_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[32] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 32; j++) {
+        f = *((float32 *)vs2 + 32 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float32_is_infinity(f)) {
+            if (float32_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = float32_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & FP32_FRAC_MASK;
+        unpack[j].iszero = float32_is_zero(f);
+        if (float32_is_zero_or_denormal(f) && !unpack[j].iszero) {
+            unpack[j].isdenormal = true;
+        }
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return float32_set_sign(float32_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 32; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_f32(unpack[j].frac,
+                                               unpack[j].isdenormal,
+                                               &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return float32_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - FP32_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_fp32(&result, s);
+
+    /* Round */
+    return xt_round_fp32(&result, env->frm, env->utn_sat, s);
+
+}
+static void do_fredsum_dup_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = do_fredsum_32_w_internal(vs2, i, env);
+    for (j = 0; j < 32; j++) {
+        *((float32 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredsum_dup_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredsum_dup_32_w(vd, vs2, i, env);
+    }
+}
+
+#define BF16_EXP_SIZE  8
+#define BF16_FRAC_SIZE 7
+#define BF16_EXP_MAX   0x7f
+#define BF16_EXP_MIN  -0x7f
+#define BF16_MAX       0x7f7f
+#define BF16_CNAN       0x7fc0
+
+static bfloat16 xt_round_bf16(unpacked_float *f, int frm, bool sat, float_status *s)
+{
+    uint64_t round;
+    bfloat16 result;
+    round = get_round(frm, f->frac, 3);
+    f->frac = (f->frac >> 3) + round;
+
+    /* Round move the msb bit */
+    if (f->frac & (1 << (BF16_FRAC_SIZE + 1))) {
+        f->frac = f->frac >> 1;
+        f->exp_signed++;
+    }
+    f->frac = f->frac & BF16_FRAC_MASK;
+    if (round != 0) {
+        s->float_exception_flags |= float_flag_inexact;
+    }
+    if (f->exp_signed > BF16_EXP_MAX) {
+        if (sat) {
+            result = bfloat16_set_sign(BF16_MAX, f->sign);
+        } else {
+            result = bfloat16_set_sign(bfloat16_infinity, f->sign);
+            s->float_exception_flags |= (float_flag_inexact |
+                                         float_flag_overflow);
+        }
+        return result;
+    } else if (f->exp_signed < BF16_EXP_MIN) {
+        f->exp = 0;
+        if (s->float_exception_flags & float_flag_inexact) {
+            s->float_exception_flags |= float_flag_underflow;
+        }
+    } else {
+        f->exp = f->exp_signed + BF16_EXP_BIAS;
+    }
+    result = xt_pack_raw64(f, BF16_FRAC_SIZE, BF16_EXP_SIZE);
+    return result;
+}
+
+#if 0
+static void print_bf16(bfloat16 bf16, float_status *s)
+{
+    static int i = 0;
+    static float result = 0;
+    i++;
+    float32 a = bfloat16_to_float32(bf16, s);
+    printf("source %f, %x\n", *((float*)&a), bf16);
+    result += *((float*)&a);
+    if ((i % 32) == 0) {
+        printf("result %f\n", result);
+        result = 0.0;
+    }
+}
+#endif
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from bfloat16 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to bfloat16 format.
+ */
+
+static bfloat16
+do_bfredsum_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[32] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 32; j++) {
+        f = *((bfloat16 *)vs2 + 32 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (bfloat16_is_infinity(f)) {
+            if (bfloat16_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = bfloat16_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & BF16_FRAC_MASK;
+        unpack[j].iszero = bfloat16_is_zero(f);
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return bfloat16_set_sign(bfloat16_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 32; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_bf16(unpack[j].frac,
+                                                unpack[j].isdenormal,
+                                                &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return bfloat16_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - BF16_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_bf16(&result, s);
+
+    /* Round */
+    return xt_round_bf16(&result, env->frm, env->utn_sat, s);
+}
+
+static void do_bfredsum_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    bfloat16 f = do_bfredsum_32_h_internal(vs2, i, env);
+    for (j = 0; j < 32; j++) {
+        *((bfloat16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredsum_dup_32_h)(void *vd, void *vs2,
+                                   CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredsum_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from float16 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to float16 format.
+ */
+static float16
+do_fredsum_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[64] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 64; j++) {
+        f = *((float16 *)vs2 + 64 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float16_is_infinity(f)) {
+            if (float16_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = float16_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & FP16_FRAC_MASK;
+        unpack[j].iszero = float16_is_zero(f);
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP16_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return float16_set_sign(float16_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 64; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_f16(unpack[j].frac,
+                                               unpack[j].isdenormal,
+                                               &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return float16_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - FP16_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_fp16(&result, s);
+
+    /* Round */
+    return xt_round_fp16(&result, env->frm, env->utn_sat, s);
+}
+
+static void do_fredsum_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float16 f = do_fredsum_64_h_internal(vs2, i, env);
+    int j;
+    for (j = 0; j < 64; j++) {
+        *((float16 *)vd + 64 * i + j) = f;
+    }
+}
+
+/* XTHEADVFREDUCTION */
+void HELPER(th_vfredsum_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredsum_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from float32 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to float32 format.
+ */
+static float32
+do_fredsum_64_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[64] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 64; j++) {
+        f = *((float32 *)vs2 + 64 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float32_is_infinity(f)) {
+            if (float32_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = float32_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & FP32_FRAC_MASK;
+        unpack[j].iszero = float32_is_zero(f);
+        if (float32_is_zero_or_denormal(f) && !unpack[j].iszero) {
+            unpack[j].isdenormal = true;
+        }
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return float32_set_sign(float32_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 64; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_f32(unpack[j].frac,
+                                               unpack[j].isdenormal,
+                                               &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return float32_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - FP32_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_fp32(&result, s);
+
+    /* Round */
+    return xt_round_fp32(&result, env->frm, env->utn_sat, s);
+}
+
+static void do_fredsum_dup_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    float32 f = do_fredsum_64_w_internal(vs2, i, env);
+    int j;
+    for (j = 0; j < 64; j++) {
+        *((float32 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredsum_dup_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredsum_dup_64_w(vd, vs2, i, env);
+    }
+}
+
+/*
+ * First process special cases for NaN and Inf, then the "normal" cases:
+ * 1) Unpack all sources from bfloat16 format.
+ * 2) Extend the fraction to 39 bits.
+ * 3) Find the max exp and align to it. Notice this may cause inexact.
+ * 4) Add all sources to get the signed fraction and the fraction.
+ * 5) Canonicalize the fraction (only keep the 1 + 10 + 3 bits) and get the
+ *    signed exp. Notice this may cause inexact.
+ * 6) Round. Notice this may cause MSB bit change and inexact.
+ * 7) Set overflow or underflow exception or nothing.
+ * 8) Pack to bfloat16 format.
+ */
+static bfloat16
+do_bfredsum_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+    bool inf_n = false;
+    unpacked_float unpack[64] = {0};
+    unpacked_float result = {0};
+
+    for (j = 0; j < 64; j++) {
+        f = *((bfloat16 *)vs2 + 64 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (bfloat16_is_infinity(f)) {
+            if (bfloat16_is_neg(f)) {
+                inf_n = true;;
+            } else {
+                inf_p = true;
+            }
+        }
+        unpack[j].sign = bfloat16_is_neg(f);
+        unpack[j].exp = exp;
+        unpack[j].frac = f & BF16_FRAC_MASK;
+        unpack[j].iszero = bfloat16_is_zero(f);
+    }
+
+    if (any_nan || (inf_n && inf_p)) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+    if (inf_n || inf_p) {
+        return bfloat16_set_sign(bfloat16_infinity, inf_n);
+    }
+
+    /* Align to exp_max */
+    for (j = 0; j < 64; j++) {
+        uint8_t denormal_shift = 0;
+        if (unpack[j].iszero) {
+            continue;
+        }
+        unpack[j].frac = xt_extend_frac_38_bf16(unpack[j].frac,
+                                               unpack[j].isdenormal,
+                                               &denormal_shift);
+        xt_align_frac_expmax(&unpack[j], exp_max, true, denormal_shift, s);
+        unpack[j].exp = exp_max;
+        /* Add signed frac */
+        unpack[j].frac_signed = xt_get_frac_signed(&unpack[j]);
+        result.frac_signed += unpack[j].frac_signed;
+    }
+
+    if (result.frac_signed == 0) {
+        return bfloat16_zero;
+    }
+    /* Init the result */
+    result.frac = llabs(result.frac_signed);
+    result.sign = result.frac_signed < 0;
+    result.exp = exp_max;
+    result.exp_signed = exp_max - BF16_EXP_BIAS;
+
+    /* Get the canonical format */
+    xt_canon_bf16(&result, s);
+
+    /* Round */
+    return xt_round_bf16(&result, env->frm, env->utn_sat, s);
+}
+
+static void do_bfredsum_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    bfloat16 f = do_bfredsum_64_h_internal(vs2, i, env);
+    int j;
+    for (j = 0; j < 64; j++) {
+        *((bfloat16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredsum_dup_64_h)(void *vd, void *vs2,
+                                   CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredsum_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredsum_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredsum_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredsum_c_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredsum_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredsum_c_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredsum_32_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredsum_c_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredsum_c_32_w(vd, vs2, i, env);
+    }
+}
+
+static void do_fredsum_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredsum_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredsum_c_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredsum_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredsum_c_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredsum_64_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredsum_c_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredsum_c_64_w(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredsum_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredsum_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredsum_c_32_h)(void *vd, void *vs2,
+                                   CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredsum_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredsum_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredsum_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredsum_c_64_h)(void *vd, void *vs2,
+                                   CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredsum_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static float16
+do_fredmax_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((float16 *)vs2 + 32 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float16_is_infinity(f)) {
+            if (!float16_is_neg(f)) {
+                inf_p = true;
+            }
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP16_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return FP16_MAX;
+        } else {
+            return float16_infinity;
+        }
+    }
+
+    f_max = *((float16 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((float16 *)vs2 + 32 * i + j);
+        f_max = float16_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_fredmax_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = do_fredmax_32_h_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((float16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmax_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmax_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+static float32
+do_fredmax_32_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((float32 *)vs2 + 32 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float32_is_infinity(f) && !float32_is_neg(f)) {
+            inf_p = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return FP32_MAX;
+        } else {
+            return float32_infinity;
+        }
+    }
+
+    f_max = *((float32 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((float32 *)vs2 + 32 * i + j);
+        f_max = float32_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_fredmax_dup_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = do_fredmax_32_w_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((float32 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmax_dup_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmax_dup_32_w(vd, vs2, i, env);
+    }
+}
+
+static bfloat16
+do_bfredmax_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((bfloat16 *)vs2 + 32 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (bfloat16_is_infinity(f)) {
+            if (!bfloat16_is_neg(f)) {
+                inf_p = true;
+            }
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return BF16_MAX;
+        } else {
+            return bfloat16_infinity;
+        }
+    }
+
+    f_max = *((bfloat16 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((bfloat16 *)vs2 + 32 * i + j);
+        f_max = bfloat16_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_bfredmax_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    bfloat16 f = do_bfredmax_32_h_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((bfloat16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredmax_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredmax_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+static float16
+do_fredmax_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((float16 *)vs2 + 64 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (float16_is_infinity(f)) {
+            if (!float16_is_neg(f)) {
+                inf_p = true;
+            }
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP16_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return FP16_MAX;
+        } else {
+            return float16_infinity;
+        }
+    }
+
+    f_max = *((float16 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((float16 *)vs2 + 64 * i + j);
+        f_max = float16_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_fredmax_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = do_fredmax_64_h_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((float16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmax_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmax_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static float32
+do_fredmax_64_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((float32 *)vs2 + 64 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float32_is_infinity(f) && !float32_is_neg(f)) {
+            inf_p = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return FP32_MAX;
+        } else {
+            return float32_infinity;
+        }
+    }
+
+    f_max = *((float32 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((float32 *)vs2 + 64 * i + j);
+        f_max = float32_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_fredmax_dup_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = do_fredmax_64_w_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((float32 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmax_dup_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmax_dup_64_w(vd, vs2, i, env);
+    }
+}
+
+static bfloat16
+do_bfredmax_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f, f_max;
+    int j;
+
+    uint32_t exp_max = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_p = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((bfloat16 *)vs2 + 64 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_max = MAX(exp, exp_max);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        }
+        if (bfloat16_is_infinity(f)) {
+            if (!bfloat16_is_neg(f)) {
+                inf_p = true;
+            }
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+
+    if (inf_p) {
+        if (env->utn_sat) {
+           return BF16_MAX;
+        } else {
+            return bfloat16_infinity;
+        }
+    }
+
+    f_max = *((bfloat16 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((bfloat16 *)vs2 + 64 * i + j);
+        f_max = bfloat16_max(f_max, f, s);
+    }
+
+    return f_max;
+}
+
+static void do_bfredmax_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    bfloat16 f = do_bfredmax_64_h_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((bfloat16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredmax_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredmax_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmax_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredmax_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmax_c_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmax_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmax_c_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredmax_32_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmax_c_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmax_c_32_w(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredmax_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredmax_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredmax_c_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredmax_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmax_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredmax_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmax_c_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmax_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmax_c_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredmax_64_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmax_c_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmax_c_64_w(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredmax_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredmax_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredmax_c_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredmax_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static float16
+do_fredmin_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((float16 *)vs2 + 32 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float16_is_infinity(f) && float16_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP16_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+           return float16_set_sign(FP16_MAX, 1);
+        } else {
+            return float16_set_sign(float16_infinity, 1);
+        }
+    }
+
+    f_min = *((float16 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((float16 *)vs2 + 32 * i + j);
+        f_min = float16_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_fredmin_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = do_fredmin_32_h_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((float16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmin_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmin_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+static float32
+do_fredmin_32_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((float32 *)vs2 + 32 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float32_is_infinity(f) && float32_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+            return float32_set_sign(FP32_MAX, 1);
+        } else {
+            return float32_set_sign(float32_infinity, 1);
+        }
+    }
+
+    f_min = *((float32 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((float32 *)vs2 + 32 * i + j);
+        f_min = float32_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_fredmin_dup_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = do_fredmin_32_w_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((float32 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmin_dup_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmin_dup_32_w(vd, vs2, i, env);
+    }
+}
+
+static bfloat16
+do_bfredmin_32_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 32; j++) {
+        f = *((bfloat16 *)vs2 + 32 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (bfloat16_is_infinity(f) && bfloat16_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+            return bfloat16_set_sign(BF16_MAX, 1);
+        } else {
+            return bfloat16_set_sign(bfloat16_infinity, 1);
+        }
+    }
+
+    f_min = *((bfloat16 *)vs2 + 32 * i);
+    for (j = 1; j < 32; j++) {
+        f = *((bfloat16 *)vs2 + 32 * i + j);
+        f_min = bfloat16_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_bfredmin_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    bfloat16 f = do_bfredmin_32_h_internal(vs2, i, env);
+
+    for (j = 0; j < 32; j++) {
+        *((bfloat16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredmin_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredmin_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+static float16
+do_fredmin_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float16 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((float16 *)vs2 + 64 * i + j);
+        exp = (f >> FP16_EXP_SHIFT) & FP16_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (float16_is_any_nan(f)) {
+            any_nan = true;
+            if (float16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float16_is_infinity(f) && float16_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP16_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+            return float16_set_sign(FP16_MAX, 1);
+        } else {
+            return float16_set_sign(float16_infinity, 1);
+        }
+    }
+
+    f_min = *((float16 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((float16 *)vs2 + 64 * i + j);
+        f_min = float16_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_fredmin_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = do_fredmin_64_h_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((float16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmin_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmin_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static float32
+do_fredmin_64_w_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    float32 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((float32 *)vs2 + 64 * i + j);
+        exp = (f >> FP32_EXP_SHIFT) & FP32_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (float32_is_any_nan(f)) {
+            any_nan = true;
+            if (float32_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (float32_is_infinity(f) && float32_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return FP32_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+            return float32_set_sign(FP32_MAX, 1);
+        } else {
+            return float32_set_sign(float32_infinity, 1);
+        }
+    }
+
+    f_min = *((float32 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((float32 *)vs2 + 64 * i + j);
+        f_min = float32_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_fredmin_dup_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = do_fredmin_64_w_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((float32 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vfredmin_dup_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmin_dup_64_w(vd, vs2, i, env);
+    }
+}
+
+static bfloat16
+do_bfredmin_64_h_internal(void* vs2, int i, CPURISCVState *env)
+{
+    float_status *s = &env->fp_status;
+    bfloat16 f, f_min;
+    int j;
+
+    uint32_t exp_min = 0, exp;
+    bool snan = false;
+    bool any_nan = false;
+    bool inf_n = false;
+
+    for (j = 0; j < 64; j++) {
+        f = *((bfloat16 *)vs2 + 64 * i + j);
+        exp = (f >> BF16_EXP_SHIFT) & BF16_EXP_MASK;
+        exp_min = MAX(exp, exp_min);
+        if (bfloat16_is_any_nan(f)) {
+            any_nan = true;
+            if (bfloat16_is_signaling_nan(f, s)) {
+                snan = true;
+                break;
+            }
+        } else if (bfloat16_is_infinity(f) && bfloat16_is_neg(f)) {
+            inf_n = true;
+        }
+    }
+
+    if (any_nan) {
+        if (snan) {
+            s->float_exception_flags |= float_flag_invalid;
+        }
+        return BF16_CNAN;
+    }
+
+    if (inf_n) {
+        if (env->utn_sat) {
+            return bfloat16_set_sign(BF16_MAX, 1);
+        } else {
+            return bfloat16_set_sign(bfloat16_infinity, 1);
+        }
+    }
+
+    f_min = *((bfloat16 *)vs2 + 64 * i);
+    for (j = 1; j < 64; j++) {
+        f = *((bfloat16 *)vs2 + 64 * i + j);
+        f_min = bfloat16_min(f_min, f, s);
+    }
+
+    return f_min;
+}
+
+static void do_bfredmin_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    bfloat16 f = do_bfredmin_64_h_internal(vs2, i, env);
+
+    for (j = 0; j < 64; j++) {
+        *((bfloat16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vbfredmin_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredmin_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmin_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredmin_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmin_c_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmin_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmin_c_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredmin_32_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmin_c_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_fredmin_c_32_w(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredmin_c_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredmin_32_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredmin_c_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_bfredmin_c_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmin_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float16 *)vd + i) = do_fredmin_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmin_c_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmin_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_fredmin_c_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((float32 *)vd + i) = do_fredmin_64_w_internal(vs2, i, env);
+}
+
+void HELPER(th_vfredmin_c_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_fredmin_c_64_w(vd, vs2, i, env);
+    }
+}
+
+static void do_bfredmin_c_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    *((bfloat16 *)vd + i) = do_bfredmin_64_h_internal(vs2, i, env);
+}
+
+void HELPER(th_vbfredmin_c_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_bfredmin_c_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_ary_dup_32_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = *((float16 *)vs2 + i);
+
+    for (j = 0; j < 32; j++) {
+        *((float16 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vary_dup_32_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_ary_dup_32_h(vd, vs2, i, env);
+    }
+}
+
+static void do_ary_dup_32_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = *((float32 *)vs2 + i);
+
+    for (j = 0; j < 32; j++) {
+        *((float32 *)vd + 32 * i + j) = f;
+    }
+}
+
+void HELPER(th_vary_dup_32_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 32; i++) {
+        do_ary_dup_32_w(vd, vs2, i, env);
+    }
+}
+
+static void do_ary_dup_64_h(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float16 f = *((float16 *)vs2 + i);
+
+    for (j = 0; j < 64; j++) {
+        *((float16 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vary_dup_64_h)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_16, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_ary_dup_64_h(vd, vs2, i, env);
+    }
+}
+
+static void do_ary_dup_64_w(void *vd, void* vs2, int i, CPURISCVState *env)
+{
+    int j;
+    float32 f = *((float32 *)vs2 + i);
+
+    for (j = 0; j < 64; j++) {
+        *((float32 *)vd + 64 * i + j) = f;
+    }
+}
+
+void HELPER(th_vary_dup_64_w)(void *vd, void *vs2,
+                                  CPURISCVState *env, uint32_t desc)
+{
+    int32_t lmul = vext_lmul(desc);
+    uint32_t i;
+    RISCVCPU *cpu = env_archcpu(env);
+    uint32_t vlmax = vext_get_vlmax(cpu->cfg.vlenb, MO_32, lmul);
+
+    for (i = 0; i < vlmax / 64; i++) {
+        do_ary_dup_64_w(vd, vs2, i, env);
+    }
+}
+
+static uint64_t th_macc54l(uint64_t a, uint64_t b, uint64_t d)
+{
+    return extract64(a * b, 0, 54) + d;
+}
+
+static uint64_t th_macc54h(uint64_t a, uint64_t b, uint64_t d)
+{
+    uint64_t hi_64, lo_64;
+
+    mulu64(&lo_64, &hi_64, a, b);
+    return deposit64(extract64(hi_64 << 10, 0, 54), 0, 10,
+                     extract64(lo_64, 54, 10)) + d;
+}
+
+RVVCALL(OPIVV3, th_vmacc54l_vv_d, OP_SSS_D, H8, H8, H8, th_macc54l)
+RVVCALL(OPIVV3, th_vmacc54h_vv_d, OP_SSS_D, H8, H8, H8, th_macc54h)
+GEN_VEXT_VV(th_vmacc54l_vv_d, 8)
+GEN_VEXT_VV(th_vmacc54h_vv_d, 8)
+
+#define GEN_TH_CRYPT_VS(NAME, TD, HD, OP)                 \
+void HELPER(NAME)(void *vd, void *v0, void *vs1,          \
+                  void *vs2, CPURISCVState *env,          \
+                  uint32_t desc)                          \
+{                                                         \
+    uint32_t vm = vext_vm(desc);                          \
+    uint32_t vl = env->vl;                                \
+    uint32_t esz = sizeof(TD);                            \
+    uint32_t vlenb = simd_maxsz(desc);                    \
+    uint32_t vta = vext_vta(desc);                        \
+    uint32_t vma = vext_vma(desc);                        \
+    uint32_t i;                                           \
+    TD s1 =  *((TD *)vs1 + HD(0));                        \
+                                                          \
+    VSTART_CHECK_EARLY_EXIT(env);                         \
+    for (i = env->vstart; i < vl; i++) {                  \
+        TD s2 = *((TD *)vs2 + HD(i));                     \
+        TD d =   *((TD *)vd + HD(i));                     \
+        if (!vm && !vext_elem_mask(v0, i)) {              \
+            /* set masked-off elements to 1s */           \
+            vext_set_elems_1s(vd, vma, i * esz, (i + 1) * esz); \
+        }                                                 \
+        *((TD *)vd + HD(i)) = OP(s1, s2, d);              \
+    }                                                     \
+    env->vstart = 0;                                      \
+    /* set tail elements to 1s */                         \
+    vext_set_elems_1s(vd, vta, esz, vlenb);               \
+}
+
+GEN_TH_CRYPT_VS(th_vmacc54l_vs_d, uint64_t, H8, th_macc54l)
+GEN_TH_CRYPT_VS(th_vmacc54h_vs_d, uint64_t, H8, th_macc54h)
+
+#define DO_ABD(N, M) llabs(M - N)
+RVVCALL(OPIVV2, th_vabd_vv_b, OP_SSS_B, H1, H1, H1, DO_ABD)
+RVVCALL(OPIVV2, th_vabd_vv_h, OP_SSS_H, H2, H2, H2, DO_ABD)
+RVVCALL(OPIVV2, th_vabd_vv_w, OP_SSS_W, H4, H4, H4, DO_ABD)
+RVVCALL(OPIVV2, th_vabd_vv_d, OP_SSS_D, H8, H8, H8, DO_ABD)
+GEN_VEXT_VV(th_vabd_vv_b, 1)
+GEN_VEXT_VV(th_vabd_vv_h, 2)
+GEN_VEXT_VV(th_vabd_vv_w, 4)
+GEN_VEXT_VV(th_vabd_vv_d, 8)
+
+RVVCALL(OPIVX2, th_vabd_vx_b, OP_SSS_B, H1, H1, DO_ABD)
+RVVCALL(OPIVX2, th_vabd_vx_h, OP_SSS_H, H2, H2, DO_ABD)
+RVVCALL(OPIVX2, th_vabd_vx_w, OP_SSS_W, H4, H4, DO_ABD)
+RVVCALL(OPIVX2, th_vabd_vx_d, OP_SSS_D, H8, H8, DO_ABD)
+GEN_VEXT_VX(th_vabd_vx_b, 1)
+GEN_VEXT_VX(th_vabd_vx_h, 2)
+GEN_VEXT_VX(th_vabd_vx_w, 4)
+GEN_VEXT_VX(th_vabd_vx_d, 8)
+
+#define DO_ABA(N, M, D) (llabs(M - N) + D)
+RVVCALL(OPIVV3, th_vaba_vv_b, OP_SSS_B, H1, H1, H1, DO_ABA)
+RVVCALL(OPIVV3, th_vaba_vv_h, OP_SSS_H, H2, H2, H2, DO_ABA)
+RVVCALL(OPIVV3, th_vaba_vv_w, OP_SSS_W, H4, H4, H4, DO_ABA)
+RVVCALL(OPIVV3, th_vaba_vv_d, OP_SSS_D, H8, H8, H8, DO_ABA)
+GEN_VEXT_VV(th_vaba_vv_b, 1)
+GEN_VEXT_VV(th_vaba_vv_h, 2)
+GEN_VEXT_VV(th_vaba_vv_w, 4)
+GEN_VEXT_VV(th_vaba_vv_d, 8)
+RVVCALL(OPIVX3, th_vaba_vx_b, OP_SSS_B, H1, H1, DO_ABA)
+RVVCALL(OPIVX3, th_vaba_vx_h, OP_SSS_H, H2, H2, DO_ABA)
+RVVCALL(OPIVX3, th_vaba_vx_w, OP_SSS_W, H4, H4, DO_ABA)
+RVVCALL(OPIVX3, th_vaba_vx_d, OP_SSS_D, H8, H8, DO_ABA)
+GEN_VEXT_VX(th_vaba_vx_b, 1)
+GEN_VEXT_VX(th_vaba_vx_h, 2)
+GEN_VEXT_VX(th_vaba_vx_w, 4)
+GEN_VEXT_VX(th_vaba_vx_d, 8)
+
+static float16 float16_abd(float16 a, float16 b, float_status *status)
+{
+    return float16_abs(float16_sub(a, b, status));
+}
+
+static float32 float32_abd(float32 a, float32 b, float_status *status)
+{
+    return float32_abs(float32_sub(a, b, status));
+}
+
+static float64 float64_abd(float64 a, float64 b, float_status *status)
+{
+    return float64_abs(float64_sub(a, b, status));
+}
+
+RVVCALL(OPFVV2, th_vfabd_vv_h, OP_UUU_H, H2, H2, H2, float16_abd)
+RVVCALL(OPFVV2, th_vfabd_vv_w, OP_UUU_W, H4, H4, H4, float32_abd)
+RVVCALL(OPFVV2, th_vfabd_vv_d, OP_UUU_D, H8, H8, H8, float64_abd)
+GEN_VEXT_VV_ENV(th_vfabd_vv_h, 2)
+GEN_VEXT_VV_ENV(th_vfabd_vv_w, 4)
+GEN_VEXT_VV_ENV(th_vfabd_vv_d, 8)
+
+RVVCALL(OPFVF2, th_vfabd_vf_h, OP_UUU_H, H2, H2, float16_abd)
+RVVCALL(OPFVF2, th_vfabd_vf_w, OP_UUU_W, H4, H4, float32_abd)
+RVVCALL(OPFVF2, th_vfabd_vf_d, OP_UUU_D, H8, H8, float64_abd)
+GEN_VEXT_VF(th_vfabd_vf_h, 2)
+GEN_VEXT_VF(th_vfabd_vf_w, 4)
+GEN_VEXT_VF(th_vfabd_vf_d, 8)
+
+RVVCALL(OPIVV2, th_vwabd_vv_b, WOP_SSS_B, H2, H1, H1, DO_ABD)
+RVVCALL(OPIVV2, th_vwabd_vv_h, WOP_SSS_H, H4, H2, H2, DO_ABD)
+RVVCALL(OPIVV2, th_vwabd_vv_w, WOP_SSS_W, H8, H4, H4, DO_ABD)
+GEN_VEXT_VV(th_vwabd_vv_b, 2)
+GEN_VEXT_VV(th_vwabd_vv_h, 4)
+GEN_VEXT_VV(th_vwabd_vv_w, 8)
+
+RVVCALL(OPIVX2, th_vwabd_vx_b, WOP_SSS_B, H2, H1, DO_ABD)
+RVVCALL(OPIVX2, th_vwabd_vx_h, WOP_SSS_H, H4, H2, DO_ABD)
+RVVCALL(OPIVX2, th_vwabd_vx_w, WOP_SSS_W, H8, H4, DO_ABD)
+GEN_VEXT_VX(th_vwabd_vx_b, 2)
+GEN_VEXT_VX(th_vwabd_vx_h, 4)
+GEN_VEXT_VX(th_vwabd_vx_w, 8)
+
+#define DO_ABDU(M, N) ((M > N) ? M - N : N - M)
+RVVCALL(OPIVV2, th_vwabdu_vv_b, WOP_UUU_B, H2, H1, H1, DO_ABDU)
+RVVCALL(OPIVV2, th_vwabdu_vv_h, WOP_UUU_H, H4, H2, H2, DO_ABDU)
+RVVCALL(OPIVV2, th_vwabdu_vv_w, WOP_UUU_W, H8, H4, H4, DO_ABDU)
+GEN_VEXT_VV(th_vwabdu_vv_b, 2)
+GEN_VEXT_VV(th_vwabdu_vv_h, 4)
+GEN_VEXT_VV(th_vwabdu_vv_w, 8)
+RVVCALL(OPIVX2, th_vwabdu_vx_b, WOP_UUU_B, H2, H1, DO_ABDU)
+RVVCALL(OPIVX2, th_vwabdu_vx_h, WOP_UUU_H, H4, H2, DO_ABDU)
+RVVCALL(OPIVX2, th_vwabdu_vx_w, WOP_UUU_W, H8, H4, DO_ABDU)
+GEN_VEXT_VX(th_vwabdu_vx_b, 2)
+GEN_VEXT_VX(th_vwabdu_vx_h, 4)
+GEN_VEXT_VX(th_vwabdu_vx_w, 8)
+
+#define DO_ABAU(M, N, D) (((M > N) ? M - N : N - M) + D)
+RVVCALL(OPIVV3, th_vwabau_vv_b, WOP_UUU_B, H2, H1, H1, DO_ABAU)
+RVVCALL(OPIVV3, th_vwabau_vv_h, WOP_UUU_H, H4, H2, H2, DO_ABAU)
+RVVCALL(OPIVV3, th_vwabau_vv_w, WOP_UUU_W, H8, H4, H4, DO_ABAU)
+GEN_VEXT_VV(th_vwabau_vv_b, 2)
+GEN_VEXT_VV(th_vwabau_vv_h, 4)
+GEN_VEXT_VV(th_vwabau_vv_w, 8)
+RVVCALL(OPIVX3, th_vwabau_vx_b, WOP_UUU_B, H2, H1, DO_ABAU)
+RVVCALL(OPIVX3, th_vwabau_vx_h, WOP_UUU_H, H4, H2, DO_ABAU)
+RVVCALL(OPIVX3, th_vwabau_vx_w, WOP_UUU_W, H8, H4, DO_ABAU)
+GEN_VEXT_VX(th_vwabau_vx_b, 2)
+GEN_VEXT_VX(th_vwabau_vx_h, 4)
+GEN_VEXT_VX(th_vwabau_vx_w, 8)
+
+RVVCALL(OPIVV3, th_vwaba_vv_b, WOP_SSS_B, H2, H1, H1, DO_ABA)
+RVVCALL(OPIVV3, th_vwaba_vv_h, WOP_SSS_H, H4, H2, H2, DO_ABA)
+RVVCALL(OPIVV3, th_vwaba_vv_w, WOP_SSS_W, H8, H4, H4, DO_ABA)
+GEN_VEXT_VV(th_vwaba_vv_b, 2)
+GEN_VEXT_VV(th_vwaba_vv_h, 4)
+GEN_VEXT_VV(th_vwaba_vv_w, 8)
+RVVCALL(OPIVX3, th_vwaba_vx_b, WOP_SSS_B, H2, H1, DO_ABA)
+RVVCALL(OPIVX3, th_vwaba_vx_h, WOP_SSS_H, H4, H2, DO_ABA)
+RVVCALL(OPIVX3, th_vwaba_vx_w, WOP_SSS_W, H8, H4, DO_ABA)
+GEN_VEXT_VX(th_vwaba_vx_b, 2)
+GEN_VEXT_VX(th_vwaba_vx_h, 4)
+GEN_VEXT_VX(th_vwaba_vx_w, 8)
+
+/* Xuantie Arith */
+#define GEN_TH_VILE_VV(NAME, TD, HD)                      \
+void HELPER(NAME)(void *vd, void *v0, void *vs1,          \
+                  void *vs2, CPURISCVState *env,          \
+                  uint32_t desc)                          \
+{                                                         \
+    uint32_t vl = env->vl;                                \
+    uint32_t i;                                           \
+    uint32_t esz = sizeof(TD);                            \
+    uint32_t vta = vext_vta(desc);                        \
+    uint32_t total_elems =                                \
+        vext_get_total_elems(env, desc, esz);             \
+                                                          \
+    VSTART_CHECK_EARLY_EXIT(env);                         \
+    for (i = env->vstart; i < vl; i++) {                  \
+        TD s2 = *((TD *)vs2 + HD(i));                     \
+        TD s1 = *((TD *)vs1 + HD(i));                     \
+        if (i % 2 == 0) {                                 \
+            *((TD *)vd + HD(i)) = s2;                     \
+            *((TD *)vd + HD(i + 1)) = s1;                 \
+        }                                                 \
+    }                                                     \
+    env->vstart = 0;                                      \
+    /* set tail elements to 1s */                             \
+    vext_set_elems_1s(vd, vta, vl * esz, total_elems * esz);  \
+}
+
+GEN_TH_VILE_VV(th_vile_vv_b, uint8_t, H1)
+GEN_TH_VILE_VV(th_vile_vv_h, uint16_t, H2)
+GEN_TH_VILE_VV(th_vile_vv_w, uint32_t, H4)
+GEN_TH_VILE_VV(th_vile_vv_d, uint64_t, H8)
+
+#define GEN_TH_VILO_VV(NAME, TD, HD)                      \
+void HELPER(NAME)(void *vd, void *v0, void *vs1,          \
+                  void *vs2, CPURISCVState *env,          \
+                  uint32_t desc)                          \
+{                                                         \
+    uint32_t vl = env->vl;                                \
+    uint32_t i;                                           \
+    uint32_t esz = sizeof(TD);                            \
+    uint32_t vta = vext_vta(desc);                        \
+    uint32_t total_elems =                                \
+        vext_get_total_elems(env, desc, esz);             \
+                                                          \
+    VSTART_CHECK_EARLY_EXIT(env);                         \
+    for (i = env->vstart; i < vl; i++) {                  \
+        TD s2 = *((TD *)vs2 + HD(i));                     \
+        TD s1 = *((TD *)vs1 + HD(i));                     \
+        if (i % 2) {                                      \
+            *((TD *)vd + HD(i - 1)) = s2;                 \
+            *((TD *)vd + HD(i)) = s1;                     \
+        }                                                 \
+    }                                                     \
+    env->vstart = 0;                                      \
+    /* set tail elements to 1s */                             \
+    vext_set_elems_1s(vd, vta, vl * esz, total_elems * esz);  \
+}
+
+GEN_TH_VILO_VV(th_vilo_vv_b, uint8_t, H1)
+GEN_TH_VILO_VV(th_vilo_vv_h, uint16_t, H2)
+GEN_TH_VILO_VV(th_vilo_vv_w, uint32_t, H4)
+GEN_TH_VILO_VV(th_vilo_vv_d, uint64_t, H8)
+
+RVVCALL(OPIVV3, th_vabau_vv_b, OP_UUU_B, H1, H1, H1, DO_ABAU)
+RVVCALL(OPIVV3, th_vabau_vv_h, OP_UUU_H, H2, H2, H2, DO_ABAU)
+RVVCALL(OPIVV3, th_vabau_vv_w, OP_UUU_W, H4, H4, H4, DO_ABAU)
+RVVCALL(OPIVV3, th_vabau_vv_d, OP_UUU_D, H8, H8, H8, DO_ABAU)
+GEN_VEXT_VV(th_vabau_vv_b, 1)
+GEN_VEXT_VV(th_vabau_vv_h, 2)
+GEN_VEXT_VV(th_vabau_vv_w, 4)
+GEN_VEXT_VV(th_vabau_vv_d, 8)
+RVVCALL(OPIVX3, th_vabau_vx_b, OP_UUU_B, H1, H1, DO_ABAU)
+RVVCALL(OPIVX3, th_vabau_vx_h, OP_UUU_H, H2, H2, DO_ABAU)
+RVVCALL(OPIVX3, th_vabau_vx_w, OP_UUU_W, H4, H4, DO_ABAU)
+RVVCALL(OPIVX3, th_vabau_vx_d, OP_UUU_D, H8, H8, DO_ABAU)
+GEN_VEXT_VX(th_vabau_vx_b, 1)
+GEN_VEXT_VX(th_vabau_vx_h, 2)
+GEN_VEXT_VX(th_vabau_vx_w, 4)
+GEN_VEXT_VX(th_vabau_vx_d, 8)
+
+RVVCALL(OPIVV2, th_vabdu_vv_b, OP_UUU_B, H1, H1, H1, DO_ABDU)
+RVVCALL(OPIVV2, th_vabdu_vv_h, OP_UUU_H, H2, H2, H2, DO_ABDU)
+RVVCALL(OPIVV2, th_vabdu_vv_w, OP_UUU_W, H4, H4, H4, DO_ABDU)
+RVVCALL(OPIVV2, th_vabdu_vv_d, OP_UUU_D, H8, H8, H8, DO_ABDU)
+GEN_VEXT_VV(th_vabdu_vv_b, 1)
+GEN_VEXT_VV(th_vabdu_vv_h, 2)
+GEN_VEXT_VV(th_vabdu_vv_w, 4)
+GEN_VEXT_VV(th_vabdu_vv_d, 8)
+
+RVVCALL(OPIVX2, th_vabdu_vx_b, OP_UUU_B, H1, H1, DO_ABDU)
+RVVCALL(OPIVX2, th_vabdu_vx_h, OP_UUU_H, H2, H2, DO_ABDU)
+RVVCALL(OPIVX2, th_vabdu_vx_w, OP_UUU_W, H4, H4, DO_ABDU)
+RVVCALL(OPIVX2, th_vabdu_vx_d, OP_UUU_D, H8, H8, DO_ABDU)
+GEN_VEXT_VX(th_vabdu_vx_b, 1)
+GEN_VEXT_VX(th_vabdu_vx_h, 2)
+GEN_VEXT_VX(th_vabdu_vx_w, 4)
+GEN_VEXT_VX(th_vabdu_vx_d, 8)

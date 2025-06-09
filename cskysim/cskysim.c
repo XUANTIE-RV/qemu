@@ -38,8 +38,7 @@
 #include "../include/hw/csky/dynsoc.h"
 #include "compile_gen.h"
 
-
-#define CSKYSIM_VERSION "cskysim v5.0.4 (QEMU V9.0.0)"
+#define CSKYSIM_VERSION "cskysim v5.2.6 (QEMU V9.0.0)"
 #define XML_MINVER      0.0
 #define XML_MAXVER      2.0
 
@@ -60,7 +59,7 @@ struct cpu_info {
     const char *arch;
     const char *abi;
 };
-
+int xt_vlen = 0;
 static const struct cpu_info cpu_arr[] = {
     { .name = "ck510",       .arch = "csky",    .abi = "abiv1" },
     { .name = "ck520",       .arch = "csky",    .abi = "abiv1" },
@@ -254,6 +253,15 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "c908",        .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908i",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908v",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908_v2",        .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908i_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908v_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908-cp_v2",        .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908i-cp_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908v-cp_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908-cp-xt_v2",        .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908i-cp-xt_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908v-cp-xt_v2",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906",        .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906fd",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906fdv",     .arch = "riscv64", .abi = "riscv64" },
@@ -284,16 +292,40 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "r908-cp",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fd-cp",     .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fdv-cp",    .arch = "riscv64", .abi = "riscv64" },
+    { .name = "r908-cp-xt",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "r908fd-cp-xt",     .arch = "riscv64", .abi = "riscv64" },
+    { .name = "r908fdv-cp-xt",    .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908-rv32",          .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fd-rv32",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fdv-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908-cp-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fd-cp-rv32",     .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fdv-cp-rv32",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "r908-cp-xt-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "r908fd-cp-xt-rv32",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "r908fdv-cp-xt-rv32",    .arch = "riscv32", .abi = "riscv32" },
     { .name = "c910v3",         .arch = "riscv64", .abi = "riscv64" },
     { .name = "c910v3-cp",      .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c910v3-cp-xt",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c920v3",         .arch = "riscv64", .abi = "riscv64" },
     { .name = "c920v3-cp",      .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c920v3-cp-xt",      .arch = "riscv64", .abi = "riscv64" },
+    { .name = "zhijiang",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908x",          .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908x-cp",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908x-cp-xt",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908x-rv32",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908x-cp-rv32",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908x-cp-xt-rv32",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908_v2-rv32",        .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908i_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908v_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908-cp_v2-rv32",        .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908i-cp_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908v-cp_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908-cp-xt_v2-rv32",        .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908i-cp-xt_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908v-cp-xt_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = NULL }
 };
 
@@ -1438,7 +1470,16 @@ static int postfix_args(struct dynsoc_board_info *b_info, char *cmd)
     space_strcat(cmd, "-machine");
     space_strcat(cmd, b_info->name);
     space_strcat(cmd, "-cpu");
-    space_strcat(cmd, b_info->cpu.cpu_name);
+    strcat(cmd, b_info->cpu.cpu_name);
+    if (xt_vlen) {
+        char xt_vlen_str[32];
+        int len = snprintf(xt_vlen_str, sizeof(xt_vlen_str), ",vlen=%d", xt_vlen);
+        if (len < 0) {
+            return -1;
+        }
+        strcat(cmd, xt_vlen_str);
+    }
+    strcat(cmd, " ");
     if ((cskysim_user_options & USER_DEFINE_CPU_PROP) == 0) {
         space_strcat(cmd, "-cpu-prop");
         strcat(cmd, "pctrace=");
@@ -1512,6 +1553,15 @@ int main(int argc, char *argv[])
         if (strcmp(argv[i], "--full-help") == 0) {
             /* replace as QEMU's --help */
             strcpy(argv[i], "--help");
+        }
+        if (strcmp(argv[i], "-vlen") == 0) {
+            strcpy(argv[i], "");
+            xt_vlen = atoi(argv[i + 1]);
+            strcpy(argv[i + 1], "");
+            if ((xt_vlen < 128) || (xt_vlen % 128)) {
+                printf("set an error vlen %d\n", xt_vlen);
+                goto cskysim_fail;
+            }
         }
     }
 

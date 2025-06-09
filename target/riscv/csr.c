@@ -81,7 +81,20 @@ RISCVException smstateen_acc_ok(CPURISCVState *env, int index, uint64_t bit)
 
     return RISCV_EXCP_NONE;
 }
+
+static RISCVException xt_fastm(CPURISCVState *env, int csrno)
+{
+    if (!riscv_cpu_cfg(env)->ext_xtheadfastm) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return RISCV_EXCP_NONE;
+}
 #endif
+
+RISCVException any(CPURISCVState *env, int csrno)
+{
+    return RISCV_EXCP_NONE;
+}
 
 RISCVException fs(CPURISCVState *env, int csrno)
 {
@@ -251,11 +264,6 @@ static RISCVException sscofpmf(CPURISCVState *env, int csrno)
         return RISCV_EXCP_ILLEGAL_INST;
     }
 
-    return RISCV_EXCP_NONE;
-}
-
-RISCVException any(CPURISCVState *env, int csrno)
-{
     return RISCV_EXCP_NONE;
 }
 
@@ -792,6 +800,15 @@ static RISCVException debug(CPURISCVState *env, int csrno)
     }
 
     return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException sctx(CPURISCVState *env, int csrno)
+{
+    RISCVException ret = smstateen_acc_ok(env, 0, SMSTATEEN0_HSCONTXT);
+    if (ret != RISCV_EXCP_NONE) {
+        return ret;
+    }
+    return debug(env, csrno);
 }
 #endif
 
@@ -1789,6 +1806,7 @@ static const uint64_t all_ints = M_MODE_INTERRUPTS | S_MODE_INTERRUPTS |
                          (1ULL << (RISCV_EXCP_INST_PAGE_FAULT)) | \
                          (1ULL << (RISCV_EXCP_LOAD_PAGE_FAULT)) | \
                          (1ULL << (RISCV_EXCP_STORE_PAGE_FAULT)) | \
+                         (1ULL << (RISCV_EXCP_SW_CHECK)) | \
                          (1ULL << (RISCV_EXCP_INST_GUEST_PAGE_FAULT)) | \
                          (1ULL << (RISCV_EXCP_LOAD_GUEST_ACCESS_FAULT)) | \
                          (1ULL << (RISCV_EXCP_VIRT_INSTRUCTION_FAULT)) | \
@@ -3288,16 +3306,6 @@ static RISCVException read_senvcfg(CPURISCVState *env, int csrno,
         return ret;
     }
 
-    /*
-     * senvcfg.sse is read_only 0 when menvcfg.sse = 0 ||
-     * ((V = 1) && henvcfg.sse = 0)
-     */
-    if (riscv_has_ext(env, RVS) && riscv_cpu_cfg(env)->ext_zicfiss &&
-        get_field(env->menvcfg, MENVCFG_SSE) &&
-        env->virt_enabled ? get_field(env->henvcfg, HENVCFG_SSE) : true) {
-        mask |= SENVCFG_SSE;
-    }
-
     *val = env->senvcfg & ~mask;
     return RISCV_EXCP_NONE;
 }
@@ -4512,6 +4520,35 @@ static RISCVException rmw_vsctrctl(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException check_sqoscfg(CPURISCVState *env, int csrno)
+{
+    RISCVCPU *cpu = env_archcpu(env);
+
+    if (!cpu->cfg.ext_ssqosid) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    /*
+     * Even though this is an S-mode CSR the spec says that we need to throw
+     * and virt instruction fault if a guest tries to access it.
+     */
+    return hmode(env, csrno);
+}
+
+static RISCVException read_sqoscfg(CPURISCVState *env, int csrno,
+                                target_ulong *val)
+{
+    *val = env->sqoscfg;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_sqoscfg(CPURISCVState *env, int csrno,
+                                 target_ulong val)
+{
+    env->sqoscfg = val & (SQOSCFG_RCID | SQOSCFG_MCID);
+    return RISCV_EXCP_NONE;
+}
+
 static RISCVException read_vstopi(CPURISCVState *env, int csrno,
                                   target_ulong *val)
 {
@@ -5004,6 +5041,9 @@ static RISCVException read_htinst(CPURISCVState *env, int csrno,
 static RISCVException write_htinst(CPURISCVState *env, int csrno,
                                    target_ulong val)
 {
+    if (env->priv == PRV_M) {
+        env->htinst = val;
+    }
     return RISCV_EXCP_NONE;
 }
 
@@ -5441,7 +5481,7 @@ static RISCVException write_mttp(CPURISCVState *env, int csrno,
     if (riscv_cpu_xlen(env) == 32) {
         /* Only write the legal value */
         uint32_t mode_value = (val & MTTP_MODE_MASK_32) >> MTTP_MODE_SHIFT_32;
-        if (mode_value <= SMMTT34RW) {
+        if (mode_value <= SMMTT34) {
             env->mttmode = mode_value;
         }
         env->sdid = (val & MTTP_SDID_MASK_32) >> MTTP_SDID_SHIFT_32;
@@ -5449,7 +5489,7 @@ static RISCVException write_mttp(CPURISCVState *env, int csrno,
     } else if (riscv_cpu_xlen(env) == 64) {
         uint32_t mode_value = (val & MTTP_MODE_MASK_64) >> MTTP_MODE_SHIFT_64;
         /* check legal value */
-        if (mode_value <= 4) {
+        if (mode_value < SMMTTMAX) {
             /* convert to mtt_mode_t */
             if (mode_value) {
                 mode_value += SMMTT46 - SMMTT34;
@@ -5534,6 +5574,13 @@ static RISCVException read_mcontext(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException read_scontext(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->scontext;
+    return RISCV_EXCP_NONE;
+}
+
 static RISCVException write_mcontext(CPURISCVState *env, int csrno,
                                      target_ulong val)
 {
@@ -5549,6 +5596,19 @@ static RISCVException write_mcontext(CPURISCVState *env, int csrno,
     }
 
     env->mcontext = val & mask;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_scontext(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+    bool rv32 = riscv_cpu_sxl(env) == MXL_RV32;
+    int32_t mask;
+
+    /* Spec suggest 16-bit for RV32 and 32-bit for RV64 */
+    mask = rv32 ? SCONTEXT32 : SCONTEXT64;
+
+    env->scontext = val & mask;
     return RISCV_EXCP_NONE;
 }
 
@@ -5719,7 +5779,7 @@ static RISCVException riscv_csrrw_do64(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static bool c910_csr_ignore(int csrno)
+static bool xt_csr_ignore(int csrno)
 {
     switch (csrno) {
     case CSR_MHCR:
@@ -5740,8 +5800,6 @@ static bool c910_csr_ignore(int csrno)
     case CSR_MEICR:
     case CSR_MEICR2:
     case CSR_MRADDR:
-    case CSR_MNMICAUSE:
-    case CSR_MNMIPC:
     case CSR_MSMPR:
     case CSR_MIESR:
     case CSR_MSBEPA:
@@ -5790,6 +5848,13 @@ static bool c910_csr_ignore(int csrno)
     case CSR_SCER2H:
     case CSR_SCYCLEH:
     case CSR_SINSTRETH ... CSR_SHPMCOUNTER31H:
+    case CSR_MTNADDR2:
+    case CSR_MTNCR:
+    case CSR_MTNSR:
+    case CSR_MTNER:
+    case CSR_MTNADDR:
+    case CSR_MDEBUG_TN_PC:
+    case CSR_TNLOWPOWER:
         return true;
         break;
     default:
@@ -5801,7 +5866,7 @@ static bool c910_csr_ignore(int csrno)
 RISCVException riscv_csrr(CPURISCVState *env, int csrno,
                            target_ulong *ret_value)
 {
-    if (c910_csr_ignore(csrno)) {
+    if (xt_csr_ignore(csrno)) {
         return RISCV_EXCP_NONE;
     }
     RISCVException ret = riscv_csrrw_check(env, csrno, false);
@@ -5816,7 +5881,7 @@ RISCVException riscv_csrrw(CPURISCVState *env, int csrno,
                            target_ulong *ret_value,
                            target_ulong new_value, target_ulong write_mask)
 {
-    if (c910_csr_ignore(csrno)) {
+    if (xt_csr_ignore(csrno)) {
         return RISCV_EXCP_NONE;
     }
 
@@ -6034,6 +6099,101 @@ static uint32_t get_tcm_size(CPURISCVState *env, target_ulong size_field)
    return 0;
 }
 
+static uint64_t xt_get_fastm_base(uint64_t fastm)
+{
+    uint64_t ones = cto64(fastm);
+    /* For PA56, [43: 0] is valid */
+    return extract64(fastm, ones + 1, 44 - ones) << (ones + 12) ;
+}
+
+static uint64_t xt_get_fastm_size(uint64_t fastm)
+{
+    uint64_t ones = cto64(fastm);
+    return 1ULL << (12 + ones);
+}
+
+static MemoryRegion *xtfastm;
+
+static RISCVException
+xt_update_fastm(uint64_t new_fastm, uint64_t old_fastm, CPURISCVState *env)
+{
+    uint64_t old_base, old_size, new_base, new_size;
+    bool old_enable, new_enable;
+
+    old_base = xt_get_fastm_base(old_fastm);
+    old_size = xt_get_fastm_size(old_fastm);
+    old_enable = !!get_field(old_fastm, MFASTM_ENABLE);
+    new_base = xt_get_fastm_base(new_fastm);
+    new_size = xt_get_fastm_size(new_fastm);
+    new_enable = !!get_field(new_fastm, MFASTM_ENABLE);
+
+    if ((old_size != new_size) && old_size && old_enable) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (new_size == 0) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (!bql_locked()) {
+        bql_lock();
+    }
+    /* When configuration change, delete old tcm */
+    if (xtfastm) {
+        if (new_enable != old_enable) {
+            /* Reenable Old memory region */
+            memory_region_set_enabled(xtfastm, new_enable);
+        }
+        if (old_base != new_base) {
+            /* Rebase memory region */
+            memory_region_set_address(xtfastm, new_base);
+        }
+    }
+    /* Old fastm has been removed or never exist, and new configuration request */
+    if ((xtfastm == NULL) && new_enable) {
+        xtfastm = g_new(MemoryRegion, 1);
+        memory_region_init_ram(xtfastm, NULL, "riscv_fastm",
+                               new_size, &error_fatal);
+        /* Add new memory region */
+        memory_region_add_subregion_overlap(get_system_memory(), new_base,
+                                            xtfastm, 1);
+    }
+    bql_unlock();
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mfastm(CPURISCVState *env, int csrno,
+                                  target_ulong *val)
+{
+    if (!riscv_cpu_cfg(env)->ext_xtheadfastm) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (riscv_cpu_mxl(env) == MXL_RV64) {
+        *val = env->fastmcr;
+    } else {
+        g_assert_not_reached();
+    }
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mfastm(CPURISCVState *env, int csrno, target_ulong val)
+{
+    RISCVException ret = RISCV_EXCP_NONE;
+    if (!riscv_cpu_cfg(env)->ext_xtheadfastm) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    uint64_t old_fastm = env->fastmcr_old, new_fastm;
+    if (riscv_cpu_mxl(env) == MXL_RV64) {
+        new_fastm = val;
+        ret = xt_update_fastm(new_fastm, old_fastm, env);
+        if (ret == RISCV_EXCP_NONE) {
+            env->fastmcr = new_fastm;
+            env->fastmcr_old = new_fastm;
+        }
+    } else {
+        g_assert_not_reached();
+    }
+    return ret;
+}
+
 static int write_mdtcmcr(CPURISCVState *env, int csrno, target_ulong val)
 {
     target_ulong base_mask = (riscv_cpu_mxl(env) == MXL_RV32) ?
@@ -6186,15 +6346,15 @@ static int write_sxstatus(CPURISCVState *env, int csrno, target_ulong val)
     return RISCV_EXCP_NONE;
 }
 
-static int read_mrvbr(CPURISCVState *env, int csrno, target_ulong *val)
+static RISCVException read_mrvbr(CPURISCVState *env, int csrno, target_ulong *val)
 {
     RISCVCPU *cpu = env_archcpu(env);
     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cpu);
     *val = mcc->mrvbr;
-    return RISCV_EXCP_ILLEGAL_INST;
+    return RISCV_EXCP_NONE;
 }
 
-static int write_mrvbr(CPURISCVState *env, int csrno, target_ulong val)
+static RISCVException write_mrvbr(CPURISCVState *env, int csrno, target_ulong val)
 {
     RISCVCPU *cpu = env_archcpu(env);
     RISCVCPUClass *mcc = RISCV_CPU_GET_CLASS(cpu);
@@ -6441,7 +6601,7 @@ static RISCVException rmw_mscratchcsw(CPURISCVState *env, int csrno,
         *ret_value = rs1;
     }
 
-    return 0;
+    return RISCV_EXCP_NONE;
 }
 
 static RISCVException rmw_mscratchcsl(CPURISCVState *env, int csrno,
@@ -6462,7 +6622,7 @@ static RISCVException rmw_mscratchcsl(CPURISCVState *env, int csrno,
         *ret_value = rs1;
     }
 
-    return 0;
+    return RISCV_EXCP_NONE;
 }
 
 static bool get_xnxti_status(CPURISCVState *env)
@@ -6553,11 +6713,14 @@ static int rmw_snxti(CPURISCVState *env, int csrno, target_ulong *ret_value,
     return RISCV_EXCP_NONE;
 }
 
+#endif
+
 static RISCVException zicfiss_ssp(CPURISCVState *env, int csrno)
 {
-    if (riscv_cpu_cfg(env)->ext_zicfiss) {
-        return RISCV_EXCP_NONE;
+    if (!riscv_cpu_cfg(env)->ext_zicfiss) {
+        return RISCV_EXCP_ILLEGAL_INST;
     }
+#if !defined(CONFIG_USER_ONLY)
     bool virt = env->virt_enabled;
 
     if (env->priv < PRV_M && (env->menvcfg & MENVCFG_SSE) == 0) {
@@ -6577,7 +6740,8 @@ static RISCVException zicfiss_ssp(CPURISCVState *env, int csrno)
     if (env->priv == PRV_U && (env->senvcfg & SENVCFG_SSE) == 0) {
         return RISCV_EXCP_ILLEGAL_INST;
     }
-    return RISCV_EXCP_ILLEGAL_INST;
+#endif
+    return RISCV_EXCP_NONE;
 }
 
 static RISCVException
@@ -6593,8 +6757,6 @@ write_ssp(CPURISCVState *env, int csrno, target_ulong val)
     env->ssp = val & (~0x11ULL);
     return RISCV_EXCP_NONE;
 }
-
-#endif
 
 /*
  * Control and Status Register function table
@@ -6642,6 +6804,8 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
 
     /* Xuantie CSRs */
     [CSR_FXCR] =     { "fxcr",     fs,     read_fxcr,    write_fxcr   },
+    /* Shadow Stack Pointer */
+    [CSR_SSP]  = { "ssp",  zicfiss_ssp, read_ssp,  write_ssp },
 #if !defined(CONFIG_USER_ONLY)
     /* Machine Timers and Counters */
     [CSR_MCYCLE]    = { "mcycle",    any,   read_hpmcounter,
@@ -6826,6 +6990,9 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     /* Supervisor Protection and Translation */
     [CSR_SATP]     = { "satp",     satp, read_satp,     write_satp     },
 
+    /* Supervisor-Level Quality of Service Identifier */
+    [CSR_SQOSCFG]  = { "sqoscfg",  check_sqoscfg, read_sqoscfg, write_sqoscfg },
+
     /* Supervisor-Level Window to Indirectly Accessed Registers (AIA) */
     [CSR_SISELECT]   = { "siselect",   sxcsrind_or_aia_smode, NULL, NULL,
                          rmw_xiselect                                       },
@@ -6987,6 +7154,7 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_TDATA3]    =  { "tdata3",   debug, read_tdata,    write_tdata    },
     [CSR_TINFO]     =  { "tinfo",    debug, read_tinfo,    write_ignore   },
     [CSR_MCONTEXT]  =  { "mcontext", debug, read_mcontext, write_mcontext },
+    [CSR_SCONTEXT]  =  { "scontext", sctx, read_scontext, write_scontext },
 
     [CSR_MCTRCTL]       = { "mctrctl",       ctr_mmode, NULL, NULL,
                                 rmw_mctrctl },
@@ -7356,6 +7524,7 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_SMIR] =       {"smir", any, read_smir, write_smir                },
     [CSR_SMEH] =       {"smeh", any, read_smeh, write_smeh                },
     [CSR_SMLO0] =      {"smlo0", any, read_smlo0, write_smlo0             },
+    [CSR_MFASTM] =     {"mtnfastmba", xt_fastm, read_mfastm, write_mfastm   },
 
     /* CLIC CSR */
     /* Machine Mode Core Level Interrupt Controller */
@@ -7378,8 +7547,6 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_MTTP] =    { "mttp",   smsdid,  read_mttp,   write_mttp   },
     [CSR_MSDCFG] =  { "msdcfg", smsdid,  read_msdcfg, write_msdcfg },
 
-    /* Shadow Stack Pointer */
-    [CSR_SSP]  = { "ssp",  zicfiss_ssp, read_ssp,  write_ssp },
 
 #endif /* !CONFIG_USER_ONLY */
 };

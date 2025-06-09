@@ -900,6 +900,38 @@ void HELPER(vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     env->vstart = 0;
 }
 
+void HELPER(th_vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
+                         uint32_t desc)
+{
+    uint8_t *vd = vd_vptr;
+    uint8_t *vs2 = vs2_vptr;
+    uint32_t vta = vext_vta(desc);
+    uint32_t total_elems = vext_get_total_elems(env, desc, 1);
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    for (uint32_t i = env->vstart; i < env->vl; i++) {
+        uint8_t Y = brev8(vd[i]);
+        uint8_t H = brev8(vs2[i]);
+        uint8_t Z = 0;
+
+        for (int j = 0; j < 8; j++) {
+            if ((Y >> j) & 1) {
+                Z ^= H;
+            }
+            bool reduce = (H >> 7) & 1;
+            H = H << 1;
+            if (reduce) {
+                H ^= 0x1d;
+            }
+        }
+        vd[i] = brev8(Z);
+    }
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vta, env->vl, total_elems);
+    env->vstart = 0;
+}
+
 void HELPER(vghsh_vs)(void *vd_vptr, void *vs1_vptr, void *vs2_vptr,
                       CPURISCVState *env, uint32_t desc)
 {
@@ -975,6 +1007,38 @@ void HELPER(vgmul_vs)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     }
     /* set tail elements to 1s */
     vext_set_elems_1s(vd, vta, env->vl * 4, total_elems * 4);
+    env->vstart = 0;
+}
+
+void HELPER(th_vgmul_vs)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
+                         uint32_t desc)
+{
+    uint8_t *vd = vd_vptr;
+    uint8_t *vs2 = vs2_vptr;
+    uint32_t vta = vext_vta(desc);
+    uint32_t total_elems = vext_get_total_elems(env, desc, 1);
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    for (uint32_t i = env->vstart; i < env->vl; i++) {
+        uint8_t Y = brev8(vd[i]);
+        uint8_t H = brev8(vs2[0]);
+        uint8_t Z = 0;
+
+        for (int j = 0; j < 8; j++) {
+            if ((Y >> j) & 1) {
+                Z ^= H;
+            }
+            bool reduce = (H >> 7) & 1;
+            H = H << 1;
+            if (reduce) {
+                H ^= 0x1d;
+            }
+        }
+        vd[i] = brev8(Z);
+    }
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vta, env->vl, total_elems);
     env->vstart = 0;
 }
 
@@ -1105,6 +1169,87 @@ void HELPER(vsm4r_vs)(void *vd, void *vs2, CPURISCVState *env, uint32_t desc)
         }
     }
 
+    env->vstart = 0;
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vext_vta(desc), env->vl * esz, total_elems * esz);
+}
+
+void HELPER(th_vcrcfoldn_vv)(void *vd, void *vs1, void *vs2, CPURISCVState *env,
+                             uint32_t desc)
+{
+    uint32_t esz = sizeof(uint64_t);
+    uint32_t total_elems = vext_get_total_elems(env, desc, esz);
+    uint64_t s2, d;
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    uint64_t *clmul_o = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+    uint64_t *clmul_e = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+    uint64_t *rev8_s1 = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+
+    for (i = env->vstart; i < env->vl; ++i) {
+        s2 = *((uint64_t *)vs2 + i);
+        d = *((uint64_t *)vd + i);
+
+        if (i % 2) {
+            clmul_o[i - 1] = clmul64(d, s2);
+            clmul_o[i] = clmulh64(d, s2);
+        } else {
+            clmul_e[i] = clmul64(d, s2);
+            clmul_e[i + 1] = clmulh64(d, s2);
+        }
+    }
+
+    for (i = env->vstart; i < env->vl - 1; i += 2) {
+        *(rev8_s1 + i + 1) = bswap64(*((uint64_t *)vs1 + i));
+        *(rev8_s1 + i) = bswap64(*((uint64_t *)vs1 + i + 1));
+    }
+    for (i = env->vstart; i < env->vl; ++i) {
+        *((uint64_t *)vd + i) =  (clmul_o[i] ^ clmul_e[i]) ^ rev8_s1[i];
+    }
+    free(clmul_o);
+    free(clmul_e);
+    free(rev8_s1);
+    env->vstart = 0;
+    /* set tail elements to 1s */
+    vext_set_elems_1s(vd, vext_vta(desc), env->vl * esz, total_elems * esz);
+}
+
+void HELPER(th_vcrcfoldr_vv)(void *vd, void *vs1, void *vs2, CPURISCVState *env,
+                             uint32_t desc)
+{
+    uint32_t esz = sizeof(uint64_t);
+    uint32_t total_elems = vext_get_total_elems(env, desc, esz);
+    uint64_t s1, s2, d;
+    uint32_t i;
+
+    VSTART_CHECK_EARLY_EXIT(env);
+
+    uint64_t *clmul_o = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+    uint64_t *clmul_e = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+    uint64_t *rev8_s1 = (uint64_t *)malloc(sizeof(uint64_t) * env->vl);
+
+    for (i = env->vstart; i < env->vl; ++i) {
+        s2 = *((uint64_t *)vs2 + i);
+        d = *((uint64_t *)vd + i);
+
+        if (i % 2) {
+            clmul_o[i - 1] = clmul64(d, s2);
+            clmul_o[i] = clmulh64(d, s2);
+        } else {
+            clmul_e[i] = clmul64(d, s2);
+            clmul_e[i + 1] = clmulh64(d, s2);
+        }
+    }
+
+    for (i = env->vstart; i < env->vl; ++i) {
+        s1 = *((uint64_t *)vs1 + i);
+        *((uint64_t *)vd + i) =  (clmul_o[i] ^ clmul_e[i]) ^ s1;
+    }
+    free(clmul_o);
+    free(clmul_e);
+    free(rev8_s1);
     env->vstart = 0;
     /* set tail elements to 1s */
     vext_set_elems_1s(vd, vext_vta(desc), env->vl * esz, total_elems * esz);

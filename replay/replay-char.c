@@ -19,6 +19,7 @@
    that should be saved into the log. */
 static Chardev **char_drivers;
 static int drivers_count;
+extern FILE *finst;
 
 /* Char event attributes. */
 typedef struct CharEvent {
@@ -58,6 +59,7 @@ void replay_chr_be_write(Chardev *s, const uint8_t *buf, int len)
         exit(1);
     }
     event->buf = g_malloc(len);
+    fprintf(finst, "write_char %s\n", buf);
     memcpy(event->buf, buf, len);
     event->len = len;
 

@@ -29,6 +29,8 @@ static unsigned long mutex_head, mutex_tail;
 /* File for replay writing */
 static bool write_error;
 FILE *replay_file;
+FILE *finst;
+static int finstcnt;
 
 static void replay_write_error(void)
 {
@@ -178,6 +180,8 @@ void replay_fetch_data_kind(void)
             replay_state.current_event++;
             if (replay_state.data_kind == EVENT_INSTRUCTION) {
                 replay_state.instruction_count = replay_get_dword();
+                fprintf(finst, "%d : %d\n", finstcnt++,
+                        replay_state.instruction_count);
             }
             replay_check_error();
             replay_state.has_unread_data = true;
@@ -253,6 +257,7 @@ void replay_advance_current_icount(uint64_t current_icount)
             replay_put_event(EVENT_INSTRUCTION);
             replay_put_dword(diff);
             replay_state.current_icount += diff;
+            fprintf(finst, "%d : %d\n", finstcnt++, diff);
         }
     } else if (replay_mode == REPLAY_MODE_PLAY) {
         if (diff > 0) {
@@ -282,5 +287,14 @@ void replay_save_instructions(void)
     if (replay_file && replay_mode == REPLAY_MODE_RECORD) {
         g_assert(replay_mutex_locked());
         replay_advance_current_icount(replay_get_current_icount());
+    }
+}
+
+/*! Saves cached instructions except tb insns. */
+void replay_save_instructions_tb(uint64_t insns)
+{
+    if (replay_file && replay_mode == REPLAY_MODE_RECORD) {
+        g_assert(replay_mutex_locked());
+        replay_advance_current_icount(replay_get_current_icount() - insns);
     }
 }

@@ -33,12 +33,17 @@ typedef struct csky_timer_state {
     uint32_t limit[4];
     int freq[4];
     int int_level[4];
-    qemu_irq irq[4];
-    qemu_irq clic_irq[4];
+    qemu_irq *irqs;
+    qemu_irq *clic_irqs;
+    uint32_t num_harts;
+    uint32_t num_clic_irqs;
 } csky_timer_state;
 
 
 /* csky_timer.c */
 void csky_timer_set_freq(uint32_t freq);
-
+DeviceState *
+csky_timer_create(hwaddr addr, qemu_irq *irq,
+                  qemu_irq *clic_irq, uint32_t num_harts,
+                  uint32_t clic_irq_num);
 #endif

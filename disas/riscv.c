@@ -21,6 +21,7 @@
 #include "qemu/bitops.h"
 #include "disas/dis-asm.h"
 #include "target/riscv/cpu_cfg.h"
+#include "target/riscv/dsa.h"
 #include "disas/riscv.h"
 
 /* Vendor extensions */
@@ -2266,6 +2267,7 @@ static const char *csr_name(int csrno)
     case 0x0143: return "stval";
     case 0x0144: return "sip";
     case 0x0180: return "satp";
+    case 0x0181: return "sqoscfg";
     case 0x0200: return "hstatus";
     case 0x0202: return "hedeleg";
     case 0x0203: return "hideleg";
@@ -5355,6 +5357,7 @@ print_insn_riscv(bfd_vma memaddr, struct disassemble_info *info, rv_isa isa)
     size_t len = 2;
     bfd_vma n;
     int status;
+    RISCVCPUConfig *cfg = (RISCVCPUConfig *)info->target_info;
 
     /* Instructions are made of 2-byte packets in little-endian order */
     for (n = 0; n < len; n += 2) {
@@ -5387,6 +5390,28 @@ print_insn_riscv(bfd_vma memaddr, struct disassemble_info *info, rv_isa isa)
         default:
             (*info->fprintf_func)(info->stream, INST_FMT_8, inst);
             break;
+        }
+    }
+
+    if (cfg->dsa_disasm) {
+        dsa_disasm_info dsa_info;
+        dsa_info.isa = isa;
+        dsa_info.pc = memaddr;
+        char buf_name[128] = { 0 };
+        char buf_operand[128] = { 0 };
+        dsa_info.buf_name = buf_name;
+        dsa_info.buf_operand = buf_operand;
+        dsa_info.nbuflen = sizeof(buf_name);
+        dsa_info.obuflen = sizeof(buf_operand);
+
+        if (cfg->dsa_disasm(inst, len, &dsa_info, NULL)) {
+            sprintf(buf, "%s", buf_name);
+            while (strlen(buf) < 24) {
+                append(buf, " ", 128);
+            }
+            append(buf, buf_operand, 128);
+            (*info->fprintf_func)(info->stream, "%s", buf);
+            return len;
         }
     }
 

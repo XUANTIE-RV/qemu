@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Board name="xiaohui" arch="riscv64" cskysimv="2.0">
-    <cpu_info cpu="r908fdv" endian="little" abi="riscv64"></cpu_info>
+    <cpu_info cpu="r908fdv-cp-xt" endian="little" abi="riscv64"></cpu_info>
     <dyndev shm="on">
         <dev name="csky_clic"  filename="builtin" addr="0xc010000" type="INTC" extra="" irq=""></dev>
         <dev name="csky_plic" filename="builtin" addr="0x8000000" type="INTC" extra="" irq=""></dev>

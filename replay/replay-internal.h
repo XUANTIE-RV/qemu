@@ -63,6 +63,8 @@ enum ReplayEvents {
     /* some of greater codes are reserved for checkpoints */
     EVENT_CHECKPOINT,
     EVENT_CHECKPOINT_LAST = EVENT_CHECKPOINT + CHECKPOINT_COUNT - 1,
+    /* for simpoint event */
+    EVENT_SIMPOINT,
     /* end of log event */
     EVENT_END,
     EVENT_COUNT
@@ -101,6 +103,8 @@ extern ReplayState replay_state;
 
 /* File for replay writing */
 extern FILE *replay_file;
+extern GQueue *qsim;
+
 /* Instruction count of the replay breakpoint */
 extern uint64_t replay_break_icount;
 /* Timer for the replay breakpoint callback */
@@ -140,6 +144,9 @@ void replay_fetch_data_kind(void);
 void replay_advance_current_icount(uint64_t current_icount);
 /*! Saves queued events (like instructions and sound). */
 void replay_save_instructions(void);
+
+/*! Saves queued events (like instructions and sound). */
+void replay_save_instructions_tb(uint64_t);
 
 /*! Skips async events until some sync event will be found.
     \return true, if event was found */
@@ -211,5 +218,8 @@ G_NORETURN void replay_sync_error(const char *error);
    Should be called before virtual devices initialization
    to make cached timers available for post_load functions. */
 void replay_vmstate_register(void);
+
+void save_context(uint32_t _seq);
+void save_next_pc(uint32_t _seq);
 
 #endif

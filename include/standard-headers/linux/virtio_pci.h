@@ -98,6 +98,8 @@
 #define VIRTIO_PCI_ISR_CONFIG		0x2
 /* Vector value used to disable MSI for queue */
 #define VIRTIO_MSI_NO_VECTOR            0xffff
+/* ID value used to disable PASID for queue */
+#define VIRTIO_PASID_NO_ID              0xffffffff
 
 #ifndef VIRTIO_PCI_NO_MODERN
 
@@ -115,6 +117,9 @@
 #define VIRTIO_PCI_CAP_PCI_CFG		5
 /* Additional shared memory capability */
 #define VIRTIO_PCI_CAP_SHARED_MEMORY_CFG 8
+
+/* PASID configuration */
+#define VIRTIO_PCI_ECAP_PASID_CFG        1
 
 /* This is the PCI capability header: */
 struct virtio_pci_cap {
@@ -186,6 +191,17 @@ struct virtio_pci_cfg_cap {
 	uint8_t pci_cfg_data[4]; /* Data for BAR access. */
 };
 
+struct virtio_pci_pasid_cfg {
+        /* About the whole device */
+        uint16_t groups;
+        /* About a specific virtqueue. */
+        uint16_t queue_select;
+        uint16_t group_id;
+        /* About a specific virtqueue group. */
+        uint16_t group_select;
+        uint32_t queue_pasid;
+};
+
 /* Macro versions of offsets for the Old Timers! */
 #define VIRTIO_PCI_CAP_VNDR		0
 #define VIRTIO_PCI_CAP_NEXT		1
@@ -220,6 +236,12 @@ struct virtio_pci_cfg_cap {
 #define VIRTIO_PCI_COMMON_Q_RESET	58
 #define VIRTIO_PCI_COMMON_ADM_Q_IDX	60
 #define VIRTIO_PCI_COMMON_ADM_Q_NUM	62
+
+#define VIRTIO_PCI_PASID_GROUPS 0
+#define VIRTIO_PCI_PASID_Q_SELECT    2
+#define VIRTIO_PCI_PASID_Q_GROUP_ID  4
+#define VIRTIO_PCI_PASID_G_SELECT    6
+#define VIRTIO_PCI_PASID_G_PASID     8
 
 #endif /* VIRTIO_PCI_NO_MODERN */
 

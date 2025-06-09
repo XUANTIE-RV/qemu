@@ -348,6 +348,20 @@ static QemuOptsList qemu_csky_extend_opts = {
     },
 };
 
+static QemuOptsList qemu_dsa_opts = {
+    .name = "dsa",
+    .implied_opt_name = "file",
+    .head = QTAILQ_HEAD_INITIALIZER(qemu_dsa_opts.head),
+    .desc = {
+        {
+            .name = "file",
+            .type = QEMU_OPT_STRING,
+            .help = "choose the dsa lib file to load",
+        },
+        { /* end of list */ }
+    },
+};
+
 static QemuOptsList qemu_soc_opts = {
     .name = "soc",
     .head = QTAILQ_HEAD_INITIALIZER(qemu_soc_opts.head),
@@ -2860,6 +2874,7 @@ void qemu_init(int argc, char **argv)
     qemu_add_opts(&qemu_option_rom_opts);
     qemu_add_opts(&qemu_cpu_prop_opts);
     qemu_add_opts(&qemu_csky_extend_opts);
+    qemu_add_opts(&qemu_dsa_opts);
     qemu_add_opts(&qemu_soc_opts);
     qemu_add_opts(&qemu_csky_trace_opts);
     qemu_add_opts(&qemu_accel_opts);
@@ -2943,6 +2958,13 @@ void qemu_init(int argc, char **argv)
             case QEMU_OPTION_csky_extend:
                 opts = qemu_opts_parse_noisily(qemu_find_opts("csky-extend"),
                                                optarg, false);
+                if (!opts) {
+                    exit(1);
+                }
+                break;
+            case QEMU_OPTION_dsa:
+                opts = qemu_opts_parse_noisily(qemu_find_opts("dsa"),
+                                               optarg, true);
                 if (!opts) {
                     exit(1);
                 }

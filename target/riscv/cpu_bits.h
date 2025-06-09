@@ -231,6 +231,7 @@
 /* Supervisor Protection and Translation */
 #define CSR_SPTBR           0x180
 #define CSR_SATP            0x180
+#define CSR_SQOSCFG         0x181
 
 /* Supervisor-Level Window to Indirectly Accessed Registers (AIA) */
 #define CSR_SISELECT        0x150
@@ -570,7 +571,7 @@
 #define MSTATUS_GVA         0x4000000000ULL
 #define MSTATUS_MPV         0x8000000000ULL
 #define MSTATUS_MPELP       0x20000000000ULL
-#define MSTATUS_MDT         0x200000000000ULL /* Smdbltrp extension */
+#define MSTATUS_MDT         0x40000000000ULL /* Smdbltrp extension */
 
 #define MSTATUS64_UXL       0x0000000300000000ULL
 #define MSTATUS64_SXL       0x0000000C00000000ULL
@@ -1129,7 +1130,23 @@ typedef enum RISCVException {
 #define MCSR_FRM           0x700
 
 /* Xuantie CSR */
+
+/* C908x CSR */
+#define CSR_MTNADDR2 0x7e5
+#define CSR_MTNCR 0x7e6
+#define CSR_MTNSR 0x7e7
+#define CSR_MTNER 0x7e8
+#define CSR_MTNADDR 0x7e9
+#define CSR_MDEBUG_TN_PC 0x7cf
+#define CSR_MFASTM          0x7eb
+#define CSR_TNLOWPOWER 0x7ea
+
 #define CSR_FXCR            0x800
+
+#define CSR_TH_UTNMODE      0x8da
+#define TH_UTNMODE_SAT      0x1
+#define MFASTM_ENABLE       0x8000000000000000
+ 
 #define CSR_MXSTATUS        0x7c0
 #define CSR_MHCR            0x7c1
 #define CSR_MCOR            0x7c2
@@ -1365,10 +1382,26 @@ typedef enum RISCVException {
 #define MTTP_SDID_MASK_64   0x0FC0000000000000ULL
 #define MTTP_PPN_MASK_64    0x00000FFFFFFFFFFFULL
 
+#define MPTE_L3_VALID       0x0000100000000000ULL
+#define MPTE_L3_RESERVED    0xFFFFE00000000000ULL
+
+#define MPTE_L2_RESERVED_64    0xFFFF800000000000ULL
+#define MPTE_L2_RESERVED_32    0xFE000000
+
+#define MPTE_L1_RESERVED_64    0xFFFFFFFF00000000ULL
+#define MPTE_L1_RESERVED_32    0xFFFF0000
+
 #define MTTP_MODE_SHIFT_64  60
 #define MTTP_SDID_SHIFT_64  54
 
 /* Zicfiss */
 #define CSR_SSP             0x011
+/* SQOSCFG BITS (QOSID) */
+#define SQOSCFG_RCID                      0x00000FFF
+#define SQOSCFG_MCID                      0x0FFF0000
 
+/* Debug trace */
+#define CSR_SCONTEXT  0x5a8
+#define SCONTEXT32    0xFFFF
+#define SCONTEXT64    0xFFFFFFFF
 #endif

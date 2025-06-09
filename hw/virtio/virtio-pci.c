@@ -2115,6 +2115,7 @@ static void virtio_pci_device_unplugged(DeviceState *d)
     VirtIOPCIProxy *proxy = VIRTIO_PCI(d);
     bool modern = virtio_pci_modern(proxy);
     bool modern_pio = proxy->flags & VIRTIO_PCI_FLAG_MODERN_PIO_NOTIFY;
+    bool has_pasid = proxy->flags & VIRTIO_PCI_FLAG_PASID;
 
     virtio_pci_stop_ioeventfd(proxy);
 
@@ -2123,6 +2124,11 @@ static void virtio_pci_device_unplugged(DeviceState *d)
         virtio_pci_modern_mem_region_unmap(proxy, &proxy->isr);
         virtio_pci_modern_mem_region_unmap(proxy, &proxy->device);
         virtio_pci_modern_mem_region_unmap(proxy, &proxy->notify);
+
+        if (has_pasid) {
+            virtio_pci_modern_io_region_unmap(proxy, &proxy->pasid);
+        }
+
         if (modern_pio) {
             virtio_pci_modern_io_region_unmap(proxy, &proxy->notify_pio);
         }
@@ -2135,6 +2141,8 @@ static void virtio_pci_realize(PCIDevice *pci_dev, Error **errp)
     VirtioPCIClass *k = VIRTIO_PCI_GET_CLASS(pci_dev);
     bool pcie_port = pci_bus_is_express(pci_get_bus(pci_dev)) &&
                      !pci_bus_is_root(pci_get_bus(pci_dev));
+    bool has_pasid = proxy->flags & VIRTIO_PCI_FLAG_PASID;
+    uint64_t bar_size;
 
     /* fd-based ioevents can't be synchronized in record/replay */
     if (replay_mode != REPLAY_MODE_NONE) {
@@ -2172,14 +2180,24 @@ static void virtio_pci_realize(PCIDevice *pci_dev, Error **errp)
     proxy->notify.size = virtio_pci_queue_mem_mult(proxy) * VIRTIO_QUEUE_MAX;
     proxy->notify.type = VIRTIO_PCI_CAP_NOTIFY_CFG;
 
+    bar_size = proxy->notify.offset + proxy->notify.size;
+
+    proxy->pasid.offset = bar_size;
+    proxy->pasid.size = 0x1000;
+    proxy->pasid.type = VIRTIO_PCI_ECAP_PASID_CFG;
+
     proxy->notify_pio.offset = 0x0;
     proxy->notify_pio.size = 0x4;
     proxy->notify_pio.type = VIRTIO_PCI_CAP_NOTIFY_CFG;
 
+    if (has_pasid) {
+        bar_size += proxy->pasid.size;
+    }
+
     /* subclasses can enforce modern, so do this unconditionally */
     memory_region_init(&proxy->modern_bar, OBJECT(proxy), "virtio-pci",
                        /* PCI BAR regions must be powers of 2 */
-                       pow2ceil(proxy->notify.offset + proxy->notify.size));
+                       pow2ceil(bar_size));
 
     if (proxy->disable_legacy == ON_OFF_AUTO_AUTO) {
         proxy->disable_legacy = pcie_port ? ON_OFF_AUTO_ON : ON_OFF_AUTO_OFF;
@@ -2242,10 +2260,23 @@ static void virtio_pci_realize(PCIDevice *pci_dev, Error **errp)
             last_pcie_cap_offset += PCI_EXT_CAP_ATS_SIZEOF;
         }
 
+        if (proxy->flags & VIRTIO_PCI_FLAG_PASID) {
+            pcie_pasid_init(pci_dev, last_pcie_cap_offset, 20,
+                            false, false);
+            last_pcie_cap_offset += PCI_EXT_CAP_PASID_SIZEOF;
+        }
+
+        if (proxy->flags & VIRTIO_PCI_FLAG_PRI) {
+            pcie_pri_init(pci_dev, last_pcie_cap_offset, false);
+            last_pcie_cap_offset += PCI_EXT_CAP_PRI_SIZEOF;
+        }
+
         if (proxy->flags & VIRTIO_PCI_FLAG_INIT_FLR) {
             /* Set Function Level Reset capability bit */
             pcie_cap_flr_init(pci_dev);
         }
+
+        proxy->last_pcie_cap_offset = last_pcie_cap_offset;
     } else {
         /*
          * make future invocations of pci_is_express() return false
@@ -2296,8 +2327,12 @@ static void virtio_pci_bus_reset_hold(Object *obj)
 {
     PCIDevice *dev = PCI_DEVICE(obj);
     DeviceState *qdev = DEVICE(obj);
+    VirtIOPCIProxy *proxy = VIRTIO_PCI(qdev);
 
     virtio_pci_reset(qdev);
+
+    proxy->pasid_q_select = 0;
+    proxy->pasid_g_select = 0;
 
     if (pci_is_express(dev)) {
         pcie_cap_deverr_reset(dev);
@@ -2334,6 +2369,10 @@ static Property virtio_pci_properties[] = {
                     VIRTIO_PCI_FLAG_INIT_FLR_BIT, true),
     DEFINE_PROP_BIT("aer", VirtIOPCIProxy, flags,
                     VIRTIO_PCI_FLAG_AER_BIT, false),
+    DEFINE_PROP_BIT("pasid", VirtIOPCIProxy, flags,
+                    VIRTIO_PCI_FLAG_PASID_BIT, false),
+    DEFINE_PROP_BIT("pri", VirtIOPCIProxy, flags,
+                    VIRTIO_PCI_FLAG_PRI_BIT, false),
     DEFINE_PROP_END_OF_LIST(),
 };
 

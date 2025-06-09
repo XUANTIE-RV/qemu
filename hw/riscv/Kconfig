@@ -1,6 +1,9 @@
 config RISCV_IOMMU
     bool
 
+config RISCV_CBQRI
+    bool
+
 config RISCV_NUMA
     bool
 
@@ -50,8 +53,23 @@ config RISCV_VIRT
     select FW_CFG_DMA
     select PLATFORM_BUS
     select ACPI
+    imply RISCV_CBQRI
+    imply CBQRI_EXAMPLE_SOC
     select ACPI_PCI
     select RISCV_IOPMP
+
+config SERVER_PLATFORM_REF
+    bool
+    select RISCV_NUMA
+    select GOLDFISH_RTC
+    select PCI
+    select PCI_EXPRESS_GENERIC_BRIDGE
+    select PFLASH_CFI01
+    select SERIAL
+    select RISCV_ACLINT
+    select RISCV_APLIC
+    select RISCV_IMSIC
+    select SIFIVE_TEST
 
 config SHAKTI_C
     bool
@@ -111,15 +129,6 @@ config RISCV_SMARTH
     select CSKY_UART
     select CSKY_EXIT
 
-config THEAD_ASP_V1
-    bool
-    select RISCV_CLIC
-    select THEAD_CLINT
-    select CSKY_UART
-    select CSKY_TIMER
-    select THEAD_ASP_NNE_V1
-    select CSKY_EXIT
-
 config RISCV_DUMMYH
     bool
     select XT_CLIC
@@ -139,3 +148,7 @@ config RISCV_XIAOHUI
     select CSKY_UART
     select CSKY_EXIT
     select XIAOHUI_CPR
+
+config CBQRI_EXAMPLE_SOC
+    bool
+    select RISCV_CBQRI

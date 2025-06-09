@@ -145,6 +145,7 @@ typedef struct DisasContext {
     const GPtrArray *decoders;
     /* If the back cfi check is enabled. */
     bool xsse;
+    bool elp;
 } DisasContext;
 
 static void csky_trace_tb_start(CPURISCVState *env, TranslationBlock *tb)
@@ -1292,7 +1293,8 @@ static bool gen_amo(DisasContext *ctx, arg_atomic *a,
 
 static bool gen_cmpxchg(DisasContext *ctx, arg_atomic *a, MemOp mop)
 {
-    TCGv dest = get_gpr(ctx, a->rd, EXT_NONE);
+    TCGv dest = dest_gpr(ctx, a->rd);
+    TCGv src3 = get_gpr(ctx, a->rd, EXT_NONE);
     TCGv src1 = get_address(ctx, a->rs1, 0);
     TCGv src2 = get_gpr(ctx, a->rs2, EXT_NONE);
 
@@ -1302,7 +1304,7 @@ static bool gen_cmpxchg(DisasContext *ctx, arg_atomic *a, MemOp mop)
         mop |= MO_ALIGN;
     }
     decode_save_opc(ctx);
-    tcg_gen_atomic_cmpxchg_tl(dest, src1, dest, src2, ctx->mem_idx, mop);
+    tcg_gen_atomic_cmpxchg_tl(dest, src1, src3, src2, ctx->mem_idx, mop);
 
     gen_set_gpr(ctx, a->rd, dest);
     return true;
@@ -1324,6 +1326,7 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 #include "insn_trans/trans_rvf.c.inc"
 #include "insn_trans/trans_rvd.c.inc"
 #include "insn_trans/trans_rvh.c.inc"
+#include "decode-xthead.c.inc"
 #include "insn_trans/trans_rvv.c.inc"
 #include "insn_trans/trans_rvb.c.inc"
 #include "insn_trans/trans_rvzicond.c.inc"
@@ -1340,7 +1343,6 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 #include "insn_trans/trans_privileged.c.inc"
 #include "insn_trans/trans_svinval.c.inc"
 #include "insn_trans/trans_rvbf16.c.inc"
-#include "decode-xthead.c.inc"
 #include "insn_trans/trans_xthead.c.inc"
 #include "decode-xtheadvector.c.inc"
 #include "insn_trans/trans_xtheadvector.c.inc"
@@ -1388,6 +1390,9 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
          * The Zca extension is added as way to refer to instructions in the C
          * extension that do not include the floating-point loads and stores
          */
+        if (env->dsa_en && decode_dsa(env, opcode, ctx->cur_insn_len)) {
+            return;
+        }
         if ((has_ext(ctx, RVC) || ctx->cfg_ptr->ext_zca) &&
             decode_insn16(ctx, opcode)) {
             return;
@@ -1398,6 +1403,9 @@ static void decode_opc(CPURISCVState *env, DisasContext *ctx, uint16_t opcode)
                              translator_lduw(env, &ctx->base,
                                              ctx->base.pc_next + 2));
         ctx->opcode = opcode32;
+        if (env->dsa_en && decode_dsa(env, opcode32, ctx->cur_insn_len)) {
+            return;
+        }
 
         if (has_ext(ctx, RVP) && decode_rvp094(ctx, opcode32)) {
             return;
@@ -1471,6 +1479,7 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
         ctx->mlen = 1 << (ctx->sew  + 3 - ctx->lmul);
     }
     ctx->xsse = EX_TBFLAGS_ANY(tb_flags, XSSE);
+    ctx->elp = EX_TBFLAGS_ANY(tb_flags, ELP);
     ctx->ext_psfoperand = cpu->cfg.ext_psfoperand;
     ctx->mcsr_ms = EX_TBFLAGS_THEAD(tb_flags, MS);
     ctx->msd = EX_TBFLAGS_THEAD(tb_flags, MSD);
@@ -1550,6 +1559,23 @@ static void riscv_tr_translate_insn(DisasContextBase *dcbase, CPUState *cpu)
     ctx->ol = ctx->xl;
     decode_opc(env, ctx, opcode16);
     ctx->base.pc_next += ctx->cur_insn_len;
+    /*
+     * If 'elp' is still true after processing the instruction,
+     * then we did not see an 'lpad' instruction, and must raise an exception.
+     * Insert code to raise the exception at the start of the insn; any other
+     * code the insn may have emitted will be deleted as dead code following
+     * the noreturn exception
+     */
+    if (ctx->elp) {
+        /* Emit after insn_start, i.e. before the op following insn_start. */
+        tcg_ctx->emit_before_op = QTAILQ_NEXT(ctx->base.insn_start, link);
+        tcg_gen_st_tl(tcg_constant_tl(RISCV_EXCP_SW_CHECK_FCFI_VIOLATION_CODE),
+                      tcg_env, offsetof(CPURISCVState, cfi_violation_code));
+        gen_helper_raise_exception(tcg_env,
+                      tcg_constant_i32(RISCV_EXCP_SW_CHECK));
+        tcg_ctx->emit_before_op = NULL;
+        ctx->base.is_jmp = DISAS_NORETURN;
+    }
 
     /* Only the first insn within a TB is allowed to cross a page boundary. */
     if (ctx->base.is_jmp == DISAS_NEXT) {

@@ -33,6 +33,8 @@
 #include "qapi/qapi-types-common.h"
 #include "cpu-qom.h"
 #include "exec/pctrace.h"
+#include "dsa.h"
+#include "dsa_float.h"
 
 typedef struct CPUArchState CPURISCVState;
 
@@ -149,7 +151,7 @@ typedef enum {
 #include "mtt.h"
 #endif
 
-#define RV_VLEN_MAX 1024
+#define RV_VLEN_MAX 4096
 #define RV_MAX_MHPMEVENTS 32
 #define RV_MAX_MHPMCOUNTERS 32
 
@@ -251,13 +253,20 @@ struct CPUArchState {
     target_ulong retxh;
 
     target_ulong jvt;
+    bool elp;
+    target_ulong ssp; /* Shadow Stack Pointer */
+    target_ulong cfi_violation_code;
+
+    target_ulong priv;
+    /* CSRs for execution environment configuration */
+    uint64_t menvcfg;
+    target_ulong senvcfg;
 
 #ifdef CONFIG_USER_ONLY
     uint32_t elf_flags;
 #endif
 
 #ifndef CONFIG_USER_ONLY
-    target_ulong priv;
     /* This contains QEMU specific information about the virt state. */
     bool virt_enabled;
     target_ulong geilen;
@@ -318,6 +327,7 @@ struct CPUArchState {
     uint64_t ctr_src[16 << SCTRDEPTH_MAX];
     uint64_t ctr_dst[16 << SCTRDEPTH_MAX];
     uint64_t ctr_data[16 << SCTRDEPTH_MAX];
+    target_ulong sqoscfg;
 
     /* Machine and Supervisor interrupt priorities */
     uint8_t miprio[64];
@@ -437,6 +447,7 @@ struct CPUArchState {
     target_ulong tdata2[RV_MAX_TRIGGERS];
     target_ulong tdata3[RV_MAX_TRIGGERS];
     target_ulong mcontext;
+    target_ulong scontext;
     struct CPUBreakpoint *cpu_breakpoint[RV_MAX_TRIGGERS];
     struct CPUWatchpoint *cpu_watchpoint[RV_MAX_TRIGGERS];
     QEMUTimer *itrigger_timer[RV_MAX_TRIGGERS];
@@ -467,11 +478,9 @@ struct CPUArchState {
     bool debugger;
 
     /* CSRs for execution environment configuration */
-    uint64_t menvcfg;
     uint64_t mstateen[SMSTATEEN_MAX_COUNT];
     uint64_t hstateen[SMSTATEEN_MAX_COUNT];
     uint64_t sstateen[SMSTATEEN_MAX_COUNT];
-    target_ulong senvcfg;
     uint64_t henvcfg;
 
     /* Xuantie system mode extends */
@@ -495,6 +504,8 @@ struct CPUArchState {
     MemoryRegion *itcm;
     target_ulong mdtcmcr;
     target_ulong mitcmcr;
+    uint64_t fastmcr;
+    uint64_t fastmcr_old;
 
     /* CLIC */
     uint32_t mintstatus;
@@ -510,14 +521,11 @@ struct CPUArchState {
     uint64_t mttppn;
     uint32_t msdcfg;
 
-    /* Zicfiss */
-    target_ulong ssp; /* Shadow Stack Pointer */
-    target_ulong cfi_violation_code;
-    bool elp;
 
 #endif
     /* Xuantie extends */
     bool bf16;
+    bool utn_sat; /* Titan 2D reduce/conversion to fp8 saturation mode */
     uint64_t elf_start;
     uint32_t pctrace;
     uint32_t tb_trace;
@@ -561,6 +569,11 @@ struct CPUArchState {
     /* CLIC */
     void *clic;
     uint32_t exccode; /* clic irq encode */
+
+    bool dsa_en;
+    riscv_dsa_ops *dsa_ops;
+    qemu_dsa_ops *qdsa_ops;
+    qemu_float_ops *qdsa_float_ops;
 #ifdef CONFIG_KVM
     /* kvm timer */
     bool kvm_timer_dirty;
@@ -575,6 +588,7 @@ typedef enum XTPowerState {
     XT_POWER_ON = 0,
     XT_POWER_OFF,
 } XTPowerState;
+
 /*
  * RISCVCPU:
  * @env: #CPURISCVState
@@ -734,6 +748,7 @@ FIELD(TB_FLAGS_ANY, AXL, 24, 2)
 FIELD(TB_FLAGS_ANY, PM_PMM, 26, 2)
 FIELD(TB_FLAGS_ANY, PM_SIGNEXTEND, 28, 1)
 FIELD(TB_FLAGS_ANY, XSSE, 29, 1)
+FIELD(TB_FLAGS_ANY, ELP, 30, 1)
 
 /* matrix flags*/
 FIELD(TB_FLAGS_THEAD, PWFP, 0, 1)
@@ -1070,4 +1085,7 @@ const char *satp_mode_str(uint8_t satp_mode, bool is_32_bit);
 void th_register_custom_csrs(RISCVCPU *cpu);
 
 const char *priv_spec_to_str(int priv_version);
+
+bool decode_dsa(CPURISCVState *env, uint32_t insn, uint32_t length);
+void dsa_finalize(RISCVCPU *cpu, Error **errp);
 #endif /* RISCV_CPU_H */

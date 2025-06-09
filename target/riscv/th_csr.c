@@ -86,6 +86,20 @@ th_write_fcsr(CPURISCVState *env, int csrno, target_ulong val)
     return write_fcsr(env, csrno, val);
 }
 
+static RISCVException
+th_read_utnmode(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    *val = env->utn_sat;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+th_write_utnmode(CPURISCVState *env, int csrno, target_ulong val)
+{
+    env->utn_sat = get_field(val, TH_UTNMODE_SAT);
+    return RISCV_EXCP_NONE;
+}
+
 /*
  * We use the RVV1.0 format for env->vtype
  * When reading vtype, we need to change the format.
@@ -242,6 +256,11 @@ static riscv_csr th_csr_list[] = {
         .csrno = CSR_VLENB,
         .insertion_test = test_thead_mvendorid,
         .csr_ops = { "vlenb", th_vs, read_vlenb}
+    },
+    {
+        .csrno = CSR_TH_UTNMODE,
+        .insertion_test = test_thead_mvendorid,
+        .csr_ops = { "utnmode", any, th_read_utnmode, th_write_utnmode}
     },
 #if !defined(CONFIG_USER_ONLY)
     {

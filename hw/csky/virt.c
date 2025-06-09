@@ -573,6 +573,7 @@ static void virt_init(MachineState *machine)
 {
         Object          *cpuobj;
         CSKYCPU         *cpu;
+        qemu_irq irqs[4] = {0};
 
         DeviceState     *intc;
         int i;
@@ -633,13 +634,11 @@ static void virt_init(MachineState *machine)
         /*
          * use dw-apb-timer
          */
+        irqs[0] =  qdev_get_gpio_in(intc, 1);
+        irqs[1] =  qdev_get_gpio_in(intc, 2);
+
         csky_timer_set_freq(virt_binfo.freq);
-        sysbus_create_varargs(
-                        "csky_timer",
-                        0xffffd000,
-                        qdev_get_gpio_in(intc, 1),
-                        qdev_get_gpio_in(intc, 2),
-                        NULL);
+        csky_timer_create(0xffffd000, &irqs[0], NULL, 1, 0);
 
         /*
          * use 16650a uart.

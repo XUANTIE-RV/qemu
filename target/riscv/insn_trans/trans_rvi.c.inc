@@ -46,12 +46,19 @@ static bool trans_lpad(DisasContext *ctx, arg_lpad *a)
     if (!ctx->cfg_ptr->ext_zicfilp) {
         return true;
     }
-#ifndef CONFIG_USER_ONLY
+
+    /*
+     * Set ctx->elp to false to indicate that we find an lpad insn
+     * in translate state. In helper_lpad, we will set env->elp
+     * according to pc and label.
+     */
+    ctx->elp = false;
+
     TCGv pc = tcg_constant_tl(ctx->base.pc_next);
     TCGv lpl = tcg_constant_tl(a->imm_u);
     TCGv x7 = get_gpr(ctx, 7, EXT_NONE);
     gen_helper_lpad(tcg_env, pc, lpl, x7);
-#endif
+
     return true;
 }
 
@@ -74,9 +81,9 @@ static bool trans_jalr(DisasContext *ctx, arg_jalr *a)
     TCGLabel *misaligned = NULL;
     TCGv target_pc = tcg_temp_new();
     TCGv succ_pc = dest_gpr(ctx, a->rd);
+    TCGv rs1 = tcg_constant_tl(a->rs1);
 #ifndef CONFIG_USER_ONLY
     TCGv rd = tcg_constant_tl(a->rd);
-    TCGv rs1 = tcg_constant_tl(a->rs1);
     TCGv src = tcg_constant_tl(ctx->base.pc_next);
 #endif
 
@@ -102,6 +109,7 @@ static bool trans_jalr(DisasContext *ctx, arg_jalr *a)
 #ifndef CONFIG_USER_ONLY
     gen_helper_ctr_jalr(tcg_env, src, cpu_pc, rd, rs1);
 #endif
+    gen_helper_cfi_jalr(tcg_env, rs1);
     lookup_and_goto_ptr(ctx);
 
     if (misaligned) {

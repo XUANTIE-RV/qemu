@@ -137,17 +137,12 @@ static void smartl_init(MachineState *machine)
 
     /* Create CSKY timer */
     csky_timer_set_freq(1000000000ll);
-    sysbus_create_varargs("csky_timer",
-                          smartl_memmap[SMARTL_TIMER].base, irqs[0x12], irqs[0x13],
-                          irqs[0x14], irqs[0x15], NULL);
+    csky_timer_create(smartl_memmap[SMARTL_TIMER].base, &irqs[0x12], NULL,
+                      machine->smp.cpus, 0);
     if (machine->smp.cpus > 1) {
-        sysbus_create_varargs("csky_timer",
-                              smartl_memmap[SMARTL_TIMER2].base,
-                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x12],
-                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x13],
-                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x14],
-                              irqs[SMARTL_CLIC_IRQ_NUMS + 0x15],
-                              NULL);
+        csky_timer_create(smartl_memmap[SMARTL_TIMER2].base,
+                          &irqs[SMARTL_CLIC_IRQ_NUMS + 0x12], NULL,
+                          machine->smp.cpus, 0);
         csky_uart_create(smartl_memmap[SMARTL_UART2].base,
                          irqs[SMARTL_CLIC_IRQ_NUMS + 0x10],
                          NULL,

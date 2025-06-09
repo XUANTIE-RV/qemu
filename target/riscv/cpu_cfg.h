@@ -20,7 +20,7 @@
 
 #ifndef RISCV_CPU_CFG_H
 #define RISCV_CPU_CFG_H
-
+#include "dsa.h"
 /*
  * map is a 16-bit bitmap: the most significant set bit in map is the maximum
  * satp mode that is supported. It may be chosen by the user and must respect
@@ -73,6 +73,7 @@ struct RISCVCPUConfig {
     bool ext_zicond;
     bool ext_zihintntl;
     bool ext_zihintpause;
+    bool ext_ssqosid;
     bool ext_zihpm;
     bool ext_zimop;
     bool ext_zcmop;
@@ -170,7 +171,9 @@ struct RISCVCPUConfig {
     bool ext_xtheadbs;
     bool ext_xtheadcmo;
     bool ext_xtheadcondmov;
-    bool ext_xtheadcp;
+    bool ext_xtheadcei;
+    bool ext_xtheadcef;
+    bool ext_xtheadcev;
     bool ext_xtheadfmemidx;
     bool ext_xtheadfmv;
     bool ext_xtheadmac;
@@ -180,9 +183,19 @@ struct RISCVCPUConfig {
     bool ext_xtheadvector;
     bool ext_xtheadisr;
     bool ext_xtheadmaee;
+    bool ext_xtheadpbmt;
     bool ext_xtheadvdot;
     bool ext_XVentanaCondOps;
     bool ext_matrix;
+    bool ext_xtheadvsfa;
+    bool ext_xtheadlpw;
+    bool ext_xtheadvfcvt;
+    bool ext_xtheadvfreduction;
+    bool ext_xtheadfastm;
+    bool ext_xtheadvcrypto;
+    bool ext_xtheadvcoder;
+    bool ext_xtheadvarith;
+    bool ext_xtheadcbop;
 
     uint32_t pmu_mask;
     uint16_t vlenb;
@@ -198,6 +211,7 @@ struct RISCVCPUConfig {
 
     bool short_isa_string;
     bool frac_elen_check;
+    dsa_disasm_fn dsa_disasm;
 
 #ifndef CONFIG_USER_ONLY
     RISCVSATPMap satp_mode;
@@ -222,7 +236,13 @@ static inline bool has_xthead_p(const RISCVCPUConfig *cfg)
            cfg->ext_xtheadmac || cfg->ext_xtheadmemidx ||
            cfg->ext_xtheadmempair || cfg->ext_xtheadsync ||
            cfg->ext_xtheadisr || cfg->ext_xtheadmaee ||
-           cfg->ext_xtheadvdot;
+           cfg->ext_xtheadvdot ||
+           cfg->ext_xtheadvsfa || cfg->ext_xtheadlpw ||
+           cfg->ext_xtheadvfcvt || cfg->ext_xtheadvfreduction ||
+           cfg->ext_xtheadfastm || cfg->ext_xtheadpbmt ||
+           cfg->ext_xtheadvcrypto || cfg->ext_xtheadvcoder ||
+           cfg->ext_xtheadvarith || cfg->ext_xtheadcbop;
+
 }
 
 #define MATERIALISE_EXT_PREDICATE(ext) \
@@ -245,5 +265,14 @@ MATERIALISE_EXT_PREDICATE(xtheadsync)
 MATERIALISE_EXT_PREDICATE(xtheadvector)
 MATERIALISE_EXT_PREDICATE(xtheadvdot)
 MATERIALISE_EXT_PREDICATE(XVentanaCondOps)
-
+MATERIALISE_EXT_PREDICATE(xtheadvsfa)
+MATERIALISE_EXT_PREDICATE(xtheadlpw)
+MATERIALISE_EXT_PREDICATE(xtheadvfcvt)
+MATERIALISE_EXT_PREDICATE(xtheadvfreduction)
+MATERIALISE_EXT_PREDICATE(xtheadfastm)
+MATERIALISE_EXT_PREDICATE(xtheadpbmt)
+MATERIALISE_EXT_PREDICATE(xtheadvcrypto)
+MATERIALISE_EXT_PREDICATE(xtheadvcoder)
+MATERIALISE_EXT_PREDICATE(xtheadvarith)
+MATERIALISE_EXT_PREDICATE(xtheadcbop)
 #endif

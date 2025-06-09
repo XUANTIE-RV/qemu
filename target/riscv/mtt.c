@@ -19,141 +19,30 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 
-#define PA_RW_L3_INDEX  0xFFC00000000000ULL
-#define PA_RW_L2_INDEX  0x3FFFFE000000ULL
-#define PA_RW_L1_INDEX  0x1FF0000ULL
-#define PA_RW_L2_OFFSET 0x1E00000ULL
-#define PA_RW_L1_OFFSET 0xF000ULL
-#define L2_RW_TYPE_MASK 0xF00000000000ULL
+#define PN_3_64  0xFFC00000000000ULL
+#define PN_2_64  0x3FFFFE000000ULL
+#define PN_1_64  0x1FF0000ULL
+#define PN_0_64  0xF000ULL
+#define PN_2_32  0x3FE000000ULL
+#define PN_1_32  0x1FF8000ULL
+#define PN_0_32  0x7000ULL
+#define PA_2M_L2_OFFSET 0x1E00000ULL
+#define PA_4M_L2_OFFSET 0x1C00000ULL
 
-static bool mtt_rw_lookup(CPURISCVState *env, hwaddr addr, mtt_mode_t mode,
-                          mtt_access_t *allowed_access,
-                          MMUAccessType access_type)
+typedef uint64_t load_entry_fn(AddressSpace *, hwaddr,
+                               MemTxAttrs, MemTxResult *);
+
+static uint64_t load_entry_32(AddressSpace *as, hwaddr addr,
+                              MemTxAttrs attrs, MemTxResult *result)
 {
-    MemTxResult res;
-    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
-    hwaddr base;
-    hwaddr L3_addr, L2_addr, L1_addr;
-    uint64_t L3_entry, L2_entry, L1_entry;
-    int access, index, pmp_prot, pmp_ret;
-
-    CPUState *cs = env_cpu(env);
-    base = (hwaddr)env->mttppn << PGSHIFT;
-
-    /* PAW = 56, lookup MTTL3 */
-    if (mode == SMMTT56RW) {
-        L3_addr = base + (((addr & PA_RW_L3_INDEX) >> 46) << 3);
-        /*
-         * MTT structure accesses are to be treated as implicit M-mode accesses
-         * and are subject to PMP/Smepmp and IOPMP checks.
-         */
-        pmp_ret = get_physical_address_pmp(env, &pmp_prot, L3_addr,
-                                           sizeof(uint64_t),
-                                           MMU_DATA_LOAD, PRV_M);
-        if (pmp_ret != TRANSLATE_SUCCESS) {
-            return false;
-        }
-        L3_entry = address_space_ldq(cs->as, L3_addr, attrs, &res);
-        base = (hwaddr)(L3_entry & MTTP_PPN_MASK_64) << PGSHIFT;
-    }
-    /* lookup MTTL2 */
-    L2_addr = base + (((addr & PA_RW_L2_INDEX) >> 25) << 3);
-    pmp_ret = get_physical_address_pmp(env, &pmp_prot, L2_addr,
-                                       sizeof(uint64_t),
-                                       MMU_DATA_LOAD, PRV_M);
-    if (pmp_ret != TRANSLATE_SUCCESS) {
-        return false;
-    }
-    L2_entry = address_space_ldq(cs->as, L2_addr, attrs, &res);
-
-    int L2_type = (L2_entry & L2_RW_TYPE_MASK) >> 44;
-    switch (L2_type) {
-    case 0b0000:
-        /* 1G_disallow */
-        *allowed_access = ACCESS_DISALLOW;
-        return false;
-        break;
-    case 0b0001:
-        /* 1G_allow_r */
-        *allowed_access = ACCESS_ALLOW_R;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_INST_FETCH);
-        break;
-    case 0b0011:
-        /* 1G_allow_rw */
-        *allowed_access = ACCESS_ALLOW_RW;
-        return true;
-        break;
-    case 0b0100:
-        /* MTT_L1_DIR */
-        break;
-    case 0b0111:
-        /* 2M_PAGES */
-        index = (addr & PA_RW_L2_OFFSET) >> 21;
-        access = (L2_entry & (0b11ULL << (index * 2))) >> (index * 2);
-        switch (access) {
-        case 0b00:
-            *allowed_access = ACCESS_DISALLOW;
-            return false;
-            break;
-        case 0b01:
-            *allowed_access = ACCESS_ALLOW_R;
-            return (access_type == MMU_DATA_LOAD ||
-                    access_type == MMU_INST_FETCH);
-            break;
-        case 0b11:
-            *allowed_access = ACCESS_ALLOW_RW;
-            return true;
-            break;
-        default:
-            g_assert_not_reached();
-            break;
-        }
-        break;
-    default:
-        g_assert_not_reached();
-        break;
-    }
-
-    /* Lookup MTTL1 */
-    base = (hwaddr)(L2_entry & MTTP_PPN_MASK_64) << PGSHIFT;
-    L1_addr = base + (((addr & PA_RW_L1_INDEX) >> 16) << 3);
-    pmp_ret = get_physical_address_pmp(env, &pmp_prot, L1_addr,
-                                       sizeof(uint64_t),
-                                       MMU_DATA_LOAD, PRV_M);
-    if (pmp_ret != TRANSLATE_SUCCESS) {
-        return false;
-    }
-    L1_entry = address_space_ldq(cs->as, L1_addr, attrs, &res);
-    index = (addr & PA_RW_L1_OFFSET) >> 12;
-    access = (L1_entry & (0b1111ULL << (index * 4))) >> (index * 4);
-    switch (access) {
-    case 0b0000:
-        *allowed_access = ACCESS_DISALLOW;
-        return false;
-        break;
-    case 0b0001:
-        *allowed_access = ACCESS_ALLOW_R;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_INST_FETCH);
-        break;
-    case 0b0011:
-        *allowed_access = ACCESS_ALLOW_RW;
-        return true;
-        break;
-    default:
-        g_assert_not_reached();
-        break;
-    }
-    return false;
+    return address_space_ldl(as, addr, attrs, result);
 }
 
-#define PA_L3_INDEX  0xFFC00000000000ULL
-#define PA_L2_INDEX  0x3FFFFC000000ULL
-#define PA_L1_INDEX  0x3FE0000ULL
-#define PA_L2_OFFSET 0x3E00000ULL
-#define PA_L1_OFFSET 0x1F000ULL
-#define L2_TYPE_MASK 0x300000000000ULL
+static uint64_t load_entry_64(AddressSpace *as, hwaddr addr,
+                              MemTxAttrs attrs, MemTxResult *result)
+{
+    return address_space_ldq(as, addr, attrs, result);
+}
 
 static bool mtt_lookup(CPURISCVState *env, hwaddr addr, mtt_mode_t mode,
                        mtt_access_t *allowed_access,
@@ -164,14 +53,63 @@ static bool mtt_lookup(CPURISCVState *env, hwaddr addr, mtt_mode_t mode,
     hwaddr base;
     hwaddr L3_addr, L2_addr, L1_addr;
     uint64_t L3_entry, L2_entry, L1_entry;
-    int access, index, pmp_ret, pmp_prot;
+    int access, index, pmp_prot, pmp_ret;
+    int pte_size, xlen;
+    uint64_t pn[4];
+    uint64_t l2_type_mask, l2_type_shift, l2_info_mask, l2_reserved_mask;
+    uint64_t l1_reserved_mask;
+    load_entry_fn *load_entry;
+    RISCVMXL mxl = riscv_cpu_mxl(env);
 
     CPUState *cs = env_cpu(env);
     base = (hwaddr)env->mttppn << PGSHIFT;
 
+    switch (mxl) {
+    case MXL_RV32:
+        l2_type_mask = 0x1C00000ULL;
+        l2_type_shift = 22;
+        l2_info_mask = 0x3FFFFFULL;
+        l2_reserved_mask = MPTE_L2_RESERVED_32;
+        l1_reserved_mask = MPTE_L1_RESERVED_32;
+        load_entry = &load_entry_32;
+        pte_size = 2;
+        xlen = 32;
+        break;
+    case MXL_RV64:
+        l2_type_mask = 0x700000000000ULL;
+        l2_type_shift = 44;
+        l2_info_mask = 0xFFFFFFFFFFFULL;
+        l2_reserved_mask = MPTE_L2_RESERVED_64;
+        l1_reserved_mask = MPTE_L1_RESERVED_64;
+        load_entry = &load_entry_64;
+        pte_size = 3;
+        xlen = 64;
+        break;
+    default:
+        g_assert_not_reached();
+        break;
+    }
+
+    switch (mode) {
+    case SMMTT34:
+    case SMMTT46:
+        pn[2] = (addr & PN_2_32) >> 25;
+        pn[1] = (addr & PN_1_32) >> 15;
+        pn[0] = (addr & PN_0_32) >> 12;
+        break;
+    case SMMTT56:
+        pn[3] = (addr & PN_3_64) >> 46;
+        pn[2] = (addr & PN_2_64) >> 25;
+        pn[1] = (addr & PN_1_64) >> 16;
+        pn[0] = (addr & PN_0_64) >> 12;
+        break;
+    default:
+        g_assert_not_reached();
+        break;
+    }
     /* PAW = 56, lookup MTTL3 */
     if (mode == SMMTT56) {
-        L3_addr = base + (((addr & PA_L3_INDEX) >> 46) << 3);
+        L3_addr = base + (pn[3] << pte_size);
         /*
          * MTT structure accesses are to be treated as implicit M-mode accesses
          * and are subject to PMP/Smepmp and IOPMP checks.
@@ -182,79 +120,110 @@ static bool mtt_lookup(CPURISCVState *env, hwaddr addr, mtt_mode_t mode,
         if (pmp_ret != TRANSLATE_SUCCESS) {
             return false;
         }
-        L3_entry = address_space_ldq(cs->as, L3_addr, attrs, &res);
+        L3_entry = load_entry(cs->as, L3_addr, attrs, &res);
         base = (hwaddr)(L3_entry & MTTP_PPN_MASK_64) << PGSHIFT;
+        if ((L3_entry & MPTE_L3_VALID) == 0) {
+            return false;
+        }
+        g_assert((L3_entry & MPTE_L3_RESERVED) == 0);
     }
 
     /* lookup MTTL2 */
-    L2_addr = base + (((addr & PA_L2_INDEX) >> 26) << 3);
+    L2_addr = base + (pn[2] << pte_size);
     pmp_ret = get_physical_address_pmp(env, &pmp_prot, L2_addr,
-                                       sizeof(uint64_t),
+                                       xlen / 8,
                                        MMU_DATA_LOAD, PRV_M);
     if (pmp_ret != TRANSLATE_SUCCESS) {
         return false;
     }
-    L2_entry = address_space_ldq(cs->as, L2_addr, attrs, &res);
+    L2_entry = load_entry(cs->as, L2_addr, attrs, &res);
+    g_assert((L2_entry & l2_reserved_mask) == 0);
 
-    int L2_type = (L2_entry & L2_TYPE_MASK) >> 44;
+    int L2_type = (L2_entry & l2_type_mask) >> l2_type_shift;
     switch (L2_type) {
-    case 0b00:
+    case 0b000:
         /* 1G_disallow */
         *allowed_access = ACCESS_DISALLOW;
         return false;
-        break;
-    case 0b01:
-        /* 1G_allow */
-        *allowed_access = ACCESS_ALLOW;
+    case 0b001:
+        /* 1G_allow_rx */
+        *allowed_access = ACCESS_ALLOW_RX;
+        return (access_type == MMU_DATA_LOAD ||
+                access_type == MMU_INST_FETCH);
+    case 0b010:
+        /* 1G_allow_rw */
+        *allowed_access = ACCESS_ALLOW_RW;
+        return (access_type == MMU_DATA_LOAD ||
+                access_type == MMU_DATA_STORE);
+    case 0b011:
+        /* 1G_allow_rwx */
+        *allowed_access = ACCESS_ALLOW_RWX;
         return true;
-        break;
-    case 0b10:
+    case 0b100:
         /* MTT_L1_DIR */
         break;
-    case 0b11:
-        /* 2M_PAGES */
-        index = (addr & PA_L2_OFFSET) >> 21;
-        access = ((L2_entry & (0b1ULL << index)) >> index);
+    case 0b0101:
+        if (mxl == MXL_RV32) {
+            /* 4M_PAGES */
+            index = (addr & PA_4M_L2_OFFSET) >> 22;
+         } else {
+            /* 2M_PAGES */
+            index = (addr & PA_2M_L2_OFFSET) >> 21;
+         }
+        access = (L2_entry & (0b11ULL << (index * 2))) >> (index * 2);
         switch (access) {
-        case 0b0:
+        case 0b00:
             *allowed_access = ACCESS_DISALLOW;
             return false;
-            break;
-        case 0b1:
-            *allowed_access = ACCESS_ALLOW;
+        case 0b01:
+            *allowed_access = ACCESS_ALLOW_RX;
+            return (access_type == MMU_DATA_LOAD ||
+                    access_type == MMU_INST_FETCH);
+        case 0b10:
+            *allowed_access = ACCESS_ALLOW_RW;
+            return (access_type == MMU_DATA_LOAD ||
+                    access_type == MMU_DATA_STORE);
+        case 0b11:
+            *allowed_access = ACCESS_ALLOW_RWX;
             return true;
-            break;
         default:
             g_assert_not_reached();
             break;
         }
         break;
     default:
-        g_assert_not_reached();
-        break;
+        /* Reserved for future use and causes an access violation if used. */
+        return false;
     }
 
     /* Lookup MTTL1 */
-    base = (hwaddr)(L2_entry & MTTP_PPN_MASK_64) << PGSHIFT;
-    L1_addr = base + (((addr & PA_L1_INDEX) >> 17) << 3);
+    base = (hwaddr)(L2_entry & l2_info_mask) << PGSHIFT;
+    L1_addr = base + (pn[1] << pte_size);
     pmp_ret = get_physical_address_pmp(env, &pmp_prot, L1_addr,
-                                       sizeof(uint64_t),
+                                       xlen / 8,
                                        MMU_DATA_LOAD, PRV_M);
     if (pmp_ret != TRANSLATE_SUCCESS) {
         return false;
     }
-    L1_entry = address_space_ldq(cs->as, L1_addr, attrs, &res);
-    index = (addr & PA_L1_OFFSET) >> 12;
+    L1_entry = load_entry(cs->as, L1_addr, attrs, &res);
+    g_assert((L1_entry & l1_reserved_mask) == 0);
+    index = pn[0];
     access = (L1_entry & (0b11ULL << (index * 2))) >> (index * 2);
-    switch (access) {
+    switch (access & 0b11ULL) {
     case 0b00:
         *allowed_access = ACCESS_DISALLOW;
         return false;
-        break;
     case 0b01:
-        *allowed_access = ACCESS_ALLOW;
+        *allowed_access = ACCESS_ALLOW_RX;
+        return (access_type == MMU_DATA_LOAD ||
+                access_type == MMU_INST_FETCH);
+    case 0b10:
+        *allowed_access = ACCESS_ALLOW_RW;
+        return (access_type == MMU_DATA_LOAD ||
+                access_type == MMU_DATA_STORE);
+    case 0b11:
+        *allowed_access = ACCESS_ALLOW_RWX;
         return true;
-        break;
     default:
         g_assert_not_reached();
         break;
@@ -268,14 +237,8 @@ bool mtt_check_access(CPURISCVState *env, hwaddr addr,
     bool mtt_has_access;
     mtt_mode_t mode = env->mttmode;
 
-    /* rw mode is always a multiple of 2.*/
-    if (mode % 1 == 0) {
-        mtt_has_access = mtt_rw_lookup(env, addr, mode,
-                                       allowed_access, access_type);
-    } else {
-        mtt_has_access = mtt_lookup(env, addr, mode,
-                                    allowed_access, access_type);
-    }
+    mtt_has_access = mtt_lookup(env, addr, mode,
+                                allowed_access, access_type);
     return mtt_has_access;
 }
 
@@ -286,13 +249,13 @@ int mtt_access_to_page_prot(mtt_access_t mtt_access)
 {
     int prot;
     switch (mtt_access) {
-    case ACCESS_ALLOW:
-        prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
-        break;
-    case ACCESS_ALLOW_R:
+    case ACCESS_ALLOW_RX:
         prot = PAGE_READ | PAGE_EXEC;
         break;
     case ACCESS_ALLOW_RW:
+        prot = PAGE_READ | PAGE_WRITE;
+        break;
+    case ACCESS_ALLOW_RWX:
         prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
         break;
     default:

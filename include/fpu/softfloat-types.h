@@ -201,6 +201,8 @@ typedef struct float_status {
     bool rebias_overflow;
     /* should underflowed results add re_bias to its exponent? */
     bool rebias_underflow;
+    /* special use for fp8 */
+    bool sat;
 } float_status;
 
 #endif /* SOFTFLOAT_TYPES_H */

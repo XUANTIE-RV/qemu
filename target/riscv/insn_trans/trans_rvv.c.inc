@@ -18,6 +18,8 @@
 #include "tcg/tcg-gvec-desc.h"
 #include "internals.h"
 
+#define QEMU_VECTOR_MAXSZ 2048
+
 static inline bool is_overlapped(const int8_t astart, int8_t asize,
                                  const int8_t bstart, int8_t bsize)
 {
@@ -1199,7 +1201,8 @@ static inline bool
 do_opivv_gvec(DisasContext *s, arg_rmrr *a, GVecGen3Fn *gvec_fn,
               gen_helper_gvec_4_ptr *fn)
 {
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         gvec_fn(s->sew, vreg_ofs(s, a->rd),
                 vreg_ofs(s, a->rs2), vreg_ofs(s, a->rs1),
                 MAXSZ(s), MAXSZ(s));
@@ -1284,7 +1287,8 @@ static inline bool
 do_opivx_gvec(DisasContext *s, arg_rmrr *a, GVecGen2sFn *gvec_fn,
               gen_helper_opivx *fn)
 {
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         TCGv_i64 src1 = tcg_temp_new_i64();
 
         tcg_gen_ext_tl_i64(src1, get_gpr(s, a->rs1, EXT_SIGN));
@@ -1435,7 +1439,8 @@ static inline bool
 do_opivi_gvec(DisasContext *s, arg_rmrr *a, GVecGen2iFn *gvec_fn,
               gen_helper_opivx *fn, imm_mode_t imm_mode)
 {
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         gvec_fn(s->sew, vreg_ofs(s, a->rd), vreg_ofs(s, a->rs2),
                 extract_imm(s, a->rs1, imm_mode), MAXSZ(s), MAXSZ(s));
         finalize_rvv_inst(s);
@@ -1762,7 +1767,8 @@ static inline bool
 do_opivx_gvec_shift(DisasContext *s, arg_rmrr *a, GVecGen2sFn32 *gvec_fn,
                     gen_helper_opivx *fn)
 {
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         TCGv_i32 src1 = tcg_temp_new_i32();
 
         tcg_gen_trunc_tl_i32(src1, get_gpr(s, a->rs1, EXT_NONE));
@@ -2013,7 +2019,8 @@ static bool trans_vmv_v_v(DisasContext *s, arg_vmv_v_v *a)
         vext_check_isa_ill(s) &&
         /* vmv.v.v has rs2 = 0 and vm = 1 */
         vext_check_sss(s, a->rd, a->rs1, 0, 1)) {
-        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+            (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
             tcg_gen_gvec_mov(s->sew, vreg_ofs(s, a->rd),
                              vreg_ofs(s, a->rs1),
                              MAXSZ(s), MAXSZ(s));
@@ -2047,7 +2054,8 @@ static bool trans_vmv_v_x(DisasContext *s, arg_vmv_v_x *a)
 
         s1 = get_gpr(s, a->rs1, EXT_SIGN);
 
-        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+            (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
             if (get_xl(s) == MXL_RV32 && s->sew == MO_64) {
                 TCGv_i64 s1_i64 = tcg_temp_new_i64();
                 tcg_gen_ext_tl_i64(s1_i64, s1);
@@ -2088,7 +2096,8 @@ static bool trans_vmv_v_i(DisasContext *s, arg_vmv_v_i *a)
         /* vmv.v.i has rs2 = 0 and vm = 1 */
         vext_check_ss(s, a->rd, 0, 1)) {
         int64_t simm = sextract64(a->rs1, 0, 5);
-        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+            (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
             tcg_gen_gvec_dup_imm(s->sew, vreg_ofs(s, a->rd),
                                  MAXSZ(s), MAXSZ(s), simm);
         } else {
@@ -2703,7 +2712,8 @@ static bool trans_vfmv_v_f(DisasContext *s, arg_vfmv_v_f *a)
 
         TCGv_i64 t1;
 
-        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+        if (s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+            (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
             t1 = tcg_temp_new_i64();
             /* NaN-box f[rs1] */
             do_nanbox(s, t1, cpu_fpr[a->rs1]);
@@ -3401,7 +3411,11 @@ static bool trans_vmv_s_x(DisasContext *s, arg_vmv_s_x *a)
         tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
 
         t1 = tcg_temp_new_i64();
-
+        if (s->vta) {
+            tcg_gen_gvec_dup_imm(s->sew, vreg_ofs(s, a->rd),
+                                 s->cfg_ptr->vlenb, s->cfg_ptr->vlenb,
+                                 UINT64_MAX);
+        }
         /*
          * load gpr and sign-extend to 64 bits,
          * then truncate to SEW bits when storing to vreg.
@@ -3562,7 +3576,8 @@ static bool trans_vrgather_vx(DisasContext *s, arg_rmrr *a)
         return false;
     }
 
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         int vlmax = vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul);
         TCGv_i64 dest = tcg_temp_new_i64();
 
@@ -3592,7 +3607,8 @@ static bool trans_vrgather_vi(DisasContext *s, arg_rmrr *a)
         return false;
     }
 
-    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0)) {
+    if (a->vm && s->vl_eq_vlmax && !(s->vta && s->lmul < 0) &&
+        (MAXSZ(s) <= QEMU_VECTOR_MAXSZ)) {
         int vlmax = vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul);
         if (a->rs1 >= vlmax) {
             tcg_gen_gvec_dup_imm(MO_64, vreg_ofs(s, a->rd),
@@ -3661,7 +3677,6 @@ static bool trans_vcompress_vm(DisasContext *s, arg_r *a)
 static bool trans_##NAME(DisasContext *s, arg_##NAME * a)               \
 {                                                                       \
     if (require_rvv(s) &&                                               \
-        vext_check_isa_ill(s) &&                                        \
         QEMU_IS_ALIGNED(a->rd, LEN) &&                                  \
         QEMU_IS_ALIGNED(a->rs2, LEN)) {                                 \
         uint32_t maxsz = s->cfg_ptr->vlenb * LEN;                       \
@@ -3886,3 +3901,306 @@ static bool opivx_widen_x_check(DisasContext *s, arg_rmrr *a)
 
 GEN_OPIVX_X_TRANS(vpwadd_vx, opivx_widen_x_check)
 GEN_OPIVX_X_TRANS(vpwaddu_vx, opivx_widen_x_check)
+
+static bool do_vsfa(DisasContext *s, arg_rmr *a,
+                    gen_helper_gvec_3_ptr *fn,
+                    bool (*checkfn)(DisasContext *, arg_rmr *),
+                    int rm)
+{
+    if (checkfn(s, a)) {
+        uint32_t data = 0;
+        TCGLabel *over = gen_new_label();
+        gen_set_rm_chkfrm(s, rm);
+        tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
+        tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
+
+        data = FIELD_DP32(data, VDATA, VM, a->vm);
+        data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+        data = FIELD_DP32(data, VDATA, VTA, s->vta);
+        data = FIELD_DP32(data, VDATA, VMA, s->vma);
+        tcg_gen_gvec_3_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),
+                           vreg_ofs(s, a->rs2), tcg_env,
+                           s->cfg_ptr->vlenb,
+                           s->cfg_ptr->vlenb, data, fn);
+        mark_vs_dirty(s);
+        gen_set_label(over);
+        return true;
+    }
+    return false;
+}
+
+#define GEN_VSFA_TRANS(NAME, CHECK, FRM)               \
+static bool trans_##NAME(DisasContext *s, arg_rmr *a)  \
+{                                                      \
+    return do_vsfa(s, a, gen_helper_##NAME##_w, CHECK, FRM);    \
+}
+
+static bool vsfa_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvsfa &&
+           (s->sew == 2) &&
+           (s->lmul >= -1) &&
+           require_rvv(s) &&
+           require_rvf(s) &&
+           vext_check_isa_ill(s) &&
+           vext_check_ss(s, a->rd, a->rs2, a->vm);
+}
+
+GEN_VSFA_TRANS(th_vfexp2, vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vftanh, vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfsig, vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfrec, vsfa_check,  RISCV_FRM_RUP)
+
+static bool vfncvt_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvfcvt &&
+           (s->sew == MO_8) &&
+           (s->lmul != 3) &&
+           opfv_narrow_check(s, a) &&
+           (s->mstatus_fs != EXT_STATUS_DISABLED);
+}
+
+static bool vfncvt_rod_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvfcvt &&
+           (s->sew == MO_16) &&
+           (s->lmul != 3) &&
+           (s->lmul != -3) &&
+           opffv_narrow_check(s, a);
+}
+
+#define GEN_VFCVT_TRANS(NAME, CHECK, FRM)              \
+static bool trans_##NAME(DisasContext *s, arg_rmr *a)     \
+{                                                         \
+    return do_vsfa(s, a, gen_helper_##NAME, CHECK, FRM);  \
+}
+
+
+GEN_VFCVT_TRANS(th_vfncvt_e4_h, vfncvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfncvt_e5_h, vfncvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfncvt_e4_bf16, vfncvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfncvt_e5_bf16, vfncvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfncvt_rod_bf16_s, vfncvt_rod_check, RISCV_FRM_ROD)
+
+static bool vfwcvt_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvfcvt &&
+           (s->sew == MO_8) &&
+           (s->lmul != 3) &&
+           opfv_widen_check(s, a) &&
+           (s->mstatus_fs != EXT_STATUS_DISABLED);
+}
+
+GEN_VFCVT_TRANS(th_vfwcvt_h_e4, vfwcvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfwcvt_h_e5, vfwcvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfwcvt_bf16_e4, vfwcvt_check, RISCV_FRM_DYN)
+GEN_VFCVT_TRANS(th_vfwcvt_bf16_e5, vfwcvt_check, RISCV_FRM_DYN)
+
+/* Reduction */
+static bool th_vfreduction_check_32(DisasContext *s, arg_th_rs2 *a)
+{
+    return require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           vext_check_reduction(s, a->rs2) &&
+           (vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul) % 32 == 0) &&
+           ((s->sew == MO_16) || (s->sew == MO_32)) &&
+           ((s->lmul != -3) && (s->lmul != -2) && (s->lmul != -1)) &&
+           s->cfg_ptr->ext_xtheadvfreduction;
+}
+
+static bool th_vfreduction_trans(uint32_t vd, uint32_t vs2,
+                                gen_helper_gvec_2_ptr *fn, DisasContext *s)
+{
+    uint32_t data = 0;
+
+    data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+    tcg_gen_gvec_2_ptr(vreg_ofs(s, vd), vreg_ofs(s, vs2),
+                       tcg_env, s->cfg_ptr->vlenb,
+                       s->cfg_ptr->vlenb, data, fn);
+    finalize_rvv_inst(s);
+    return true;
+}
+
+#define GEN_VREDUCTION_TRANS(NAME, CHECK)                                \
+static bool trans_##NAME(DisasContext *s, arg_th_rs2 *a)                 \
+{                                                                        \
+    if (CHECK(s, a)) {                                                   \
+        return th_vfreduction_trans(a->rd, a->rs2,                       \
+                           s->sew == MO_16 ? gen_helper_##NAME##_h :     \
+                                             gen_helper_##NAME##_w, s);  \
+    }                                                                    \
+    return false;                                                        \
+}
+
+GEN_VREDUCTION_TRANS(th_vfredsum_dup_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vfredsum_c_32, th_vfreduction_check_32)
+
+static bool th_vbfreduction_check_32(DisasContext *s, arg_th_rs2 *a)
+{
+    return require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           vext_check_reduction(s, a->rs2) &&
+           (vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul) % 32 == 0) &&
+           (s->sew == MO_16) &&
+           ((s->lmul != -3) && (s->lmul != -2) && (s->lmul != -1)) &&
+           s->cfg_ptr->ext_xtheadvfreduction;
+}
+
+static bool th_vbfreduction_check_64(DisasContext *s, arg_th_rs2 *a)
+{
+    return require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           vext_check_reduction(s, a->rs2) &&
+           (vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul) % 64 == 0) &&
+           (s->sew == MO_16) &&
+           ((s->lmul != -3) && (s->lmul != -2) && (s->lmul != -1)) &&
+           s->cfg_ptr->ext_xtheadvfreduction;
+}
+
+#define GEN_VBFREDUCTION_TRANS(NAME, CHECK)                              \
+static bool trans_##NAME(DisasContext *s, arg_th_rs2 *a)                 \
+{                                                                        \
+    if (CHECK(s, a)) {                                                   \
+        return th_vfreduction_trans(a->rd, a->rs2,                       \
+                                    gen_helper_##NAME##_h, s);           \
+    }                                                                    \
+    return false;                                                        \
+}
+
+GEN_VBFREDUCTION_TRANS(th_vbfredsum_dup_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredsum_dup_64, th_vbfreduction_check_64)
+GEN_VBFREDUCTION_TRANS(th_vbfredsum_c_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredsum_c_64, th_vbfreduction_check_64)
+
+static bool th_vfreduction_check_64(DisasContext *s, arg_th_rs2 *a)
+{
+    return require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           vext_check_reduction(s, a->rs2) &&
+           (vext_get_vlmax(s->cfg_ptr->vlenb, s->sew, s->lmul) % 64 == 0) &&
+           ((s->sew == MO_16) || (s->sew == MO_32)) &&
+           ((s->lmul != -3) && (s->lmul != -2) && (s->lmul != -1)) &&
+           s->cfg_ptr->ext_xtheadvfreduction;
+}
+
+GEN_VREDUCTION_TRANS(th_vfredsum_dup_64, th_vfreduction_check_64)
+GEN_VREDUCTION_TRANS(th_vfredsum_c_64, th_vfreduction_check_64)
+
+GEN_VREDUCTION_TRANS(th_vfredmax_dup_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vfredmax_dup_64, th_vfreduction_check_64)
+GEN_VREDUCTION_TRANS(th_vfredmax_c_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vfredmax_c_64, th_vfreduction_check_64)
+GEN_VREDUCTION_TRANS(th_vfredmin_dup_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vfredmin_dup_64, th_vfreduction_check_64)
+GEN_VREDUCTION_TRANS(th_vfredmin_c_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vfredmin_c_64, th_vfreduction_check_64)
+
+GEN_VBFREDUCTION_TRANS(th_vbfredmax_dup_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredmax_dup_64, th_vbfreduction_check_64)
+GEN_VBFREDUCTION_TRANS(th_vbfredmax_c_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredmax_c_64, th_vbfreduction_check_64)
+GEN_VBFREDUCTION_TRANS(th_vbfredmin_dup_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredmin_dup_64, th_vbfreduction_check_64)
+GEN_VBFREDUCTION_TRANS(th_vbfredmin_c_32, th_vbfreduction_check_32)
+GEN_VBFREDUCTION_TRANS(th_vbfredmin_c_64, th_vbfreduction_check_64)
+GEN_VREDUCTION_TRANS(th_vary_dup_32, th_vfreduction_check_32)
+GEN_VREDUCTION_TRANS(th_vary_dup_64, th_vfreduction_check_64)
+
+#define GEN_TH_CRYPT_IVV_TRANS(NAME, CHECK)                              \
+static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                   \
+{                                                                        \
+    if (CHECK(s, a)) {                                                   \
+        static gen_helper_gvec_4_ptr * const fn = gen_helper_##NAME##_d; \
+        return opivv_trans(a->rd, a->rs1, a->rs2, a->vm, fn, s);         \
+    }                                                                    \
+    return false;                                                        \
+}
+
+static bool th_crypt_ivv_check(DisasContext *s, arg_rmrr *a)
+{
+    return s->cfg_ptr->ext_xtheadvcrypto && (s->sew == MO_64) &&
+           opivv_check(s, a);
+}
+
+GEN_TH_CRYPT_IVV_TRANS(th_vmacc54l_vv, th_crypt_ivv_check)
+GEN_TH_CRYPT_IVV_TRANS(th_vmacc54h_vv, th_crypt_ivv_check)
+
+static bool th_crypt_ivs_check(DisasContext *s, arg_rmrr *a)
+{
+    return s->cfg_ptr->ext_xtheadvcrypto && (s->sew == MO_64) &&
+           opivx_check(s, a) &&
+           require_noover(a->rd, s->lmul, a->rs1, s->lmul);
+}
+
+GEN_TH_CRYPT_IVV_TRANS(th_vmacc54l_vs, th_crypt_ivs_check)
+GEN_TH_CRYPT_IVV_TRANS(th_vmacc54h_vs, th_crypt_ivs_check)
+
+/* Xuantie Coder */
+static bool th_vcoder_vv_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivv_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+static bool th_vcoder_vx_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivx_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+static bool th_vcoder_fvv_check(DisasContext *s, arg_rmrr *a)
+{
+    return opfvv_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+static bool th_vcoder_fvf_check(DisasContext *s, arg_rmrr *a)
+{
+    return opfvf_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+static bool th_vcoder_vv_widen_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivv_widen_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+static bool th_vcoder_vx_widen_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivx_widen_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvcoder;
+}
+
+GEN_OPIVV_TRANS(th_vabd_vv, th_vcoder_vv_check)
+GEN_OPIVX_TRANS(th_vabd_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vabd_vi, IMM_SX, th_vabd_vx, th_vcoder_vx_check)
+GEN_OPIVV_TRANS(th_vaba_vv, th_vcoder_vv_check)
+GEN_OPIVX_TRANS(th_vaba_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vaba_vi, IMM_SX, th_vaba_vx, th_vcoder_vx_check)
+GEN_OPIVV_TRANS(th_vabdu_vv, th_vcoder_vv_check)
+GEN_OPIVX_TRANS(th_vabdu_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vabdu_vi, IMM_SX, th_vabd_vx, th_vcoder_vx_check)
+GEN_OPIVV_TRANS(th_vabau_vv, th_vcoder_vv_check)
+GEN_OPIVX_TRANS(th_vabau_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vabau_vi, IMM_SX, th_vaba_vx, th_vcoder_vx_check)
+GEN_OPFVV_TRANS(th_vfabd_vv, th_vcoder_fvv_check)
+GEN_OPFVF_TRANS(th_vfabd_vf, th_vcoder_fvf_check)
+GEN_OPIVV_WIDEN_TRANS(th_vwabd_vv, th_vcoder_vv_widen_check)
+GEN_OPIVX_WIDEN_TRANS(th_vwabd_vx, th_vcoder_vx_widen_check)
+GEN_OPIVV_WIDEN_TRANS(th_vwabdu_vv, th_vcoder_vv_widen_check)
+GEN_OPIVX_WIDEN_TRANS(th_vwabdu_vx, th_vcoder_vx_widen_check)
+GEN_OPIVV_WIDEN_TRANS(th_vwaba_vv, th_vcoder_vv_widen_check)
+GEN_OPIVX_WIDEN_TRANS(th_vwaba_vx, th_vcoder_vx_widen_check)
+GEN_OPIVV_WIDEN_TRANS(th_vwabau_vv, th_vcoder_vv_widen_check)
+GEN_OPIVX_WIDEN_TRANS(th_vwabau_vx, th_vcoder_vx_widen_check)
+
+/* Xuantie Arith */
+static bool th_varith_vv_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivv_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvarith;
+}
+
+GEN_OPIVV_TRANS(th_vile_vv, th_varith_vv_check)
+GEN_OPIVV_TRANS(th_vilo_vv, th_varith_vv_check)

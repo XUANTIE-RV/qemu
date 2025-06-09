@@ -39,6 +39,9 @@ static void sifive_test_write(void *opaque, hwaddr addr,
         int status = val64 & 0xffff;
         int code = (val64 >> 16) & 0xffff;
         switch (status) {
+        case FINISHER_DUMP:
+            exit(0);
+            break;
         case FINISHER_FAIL:
             qemu_system_shutdown_request_with_code(
                 SHUTDOWN_CAUSE_GUEST_PANIC, code);

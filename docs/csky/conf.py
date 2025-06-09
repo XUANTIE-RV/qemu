@@ -12,7 +12,7 @@ reload(sys)
 project = u'玄铁QEMU用户手册'
 author = u''
 version = u''
-release = u'V5.0'
+release = u'V5.2'
 copyright = 'copyright'
 
 # -- General configuration

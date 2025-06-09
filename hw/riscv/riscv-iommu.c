@@ -47,6 +47,9 @@ struct RISCVIOMMUSpace {
     AddressSpace iova_as;       /* IOVA address space for attached device */
     RISCVIOMMUState *iommu;     /* Managing IOMMU device state */
     uint32_t devid;             /* Requester identifier, AKA device_id */
+    uint32_t pasid;             /* Requester identifier, AKA process_id */
+    uint32_t devfn;             /* Used as lazy update devid when OS driver update */
+    PCIBus *bus;                /* Used to differential bus when OS driver is not ready */
     bool notifier;              /* IOMMU unmap notifier enabled */
     QLIST_ENTRY(RISCVIOMMUSpace) list;
 };
@@ -1049,8 +1052,9 @@ static void riscv_iommu_ctx_put(RISCVIOMMUState *s, void *ref)
 }
 
 /* Find or allocate address space for a given device */
-static AddressSpace *riscv_iommu_space(RISCVIOMMUState *s, uint32_t devid)
+static AddressSpace *riscv_iommu_space(RISCVIOMMUState *s, PCIBus *bus, uint32_t devfn, uint32_t devid)
 {
+    static int index = 1;
     RISCVIOMMUSpace *as;
 
     /* FIXME: PCIe bus remapping for attached endpoints. */
@@ -1058,7 +1062,7 @@ static AddressSpace *riscv_iommu_space(RISCVIOMMUState *s, uint32_t devid)
 
     qemu_mutex_lock(&s->core_lock);
     QLIST_FOREACH(as, &s->spaces, list) {
-        if (as->devid == devid) {
+        if (as->bus == bus && as->devid == devid) {
             break;
         }
     }
@@ -1070,9 +1074,11 @@ static AddressSpace *riscv_iommu_space(RISCVIOMMUState *s, uint32_t devid)
 
         as->iommu = s;
         as->devid = devid;
+        as->bus  = bus;
+        as->devfn = devfn;
 
-        snprintf(name, sizeof(name), "riscv-iommu-%04x:%02x.%d-iova",
-            PCI_BUS_NUM(as->devid), PCI_SLOT(as->devid), PCI_FUNC(as->devid));
+        snprintf(name, sizeof(name), "riscv-iommu%d-%04x:%02x.%d-iova",
+            ++index, PCI_BUS_NUM(as->devid), PCI_SLOT(as->devid), PCI_FUNC(as->devid));
 
         /* IOVA address space, untranslated addresses */
         memory_region_init_iommu(&as->iova_mr, sizeof(as->iova_mr),
@@ -1214,7 +1220,7 @@ static int riscv_iommu_translate(RISCVIOMMUState *s, RISCVIOMMUContext *ctx,
      * TC[32] is reserved for custom extensions, used here to temporarily
      * enable automatic page-request generation for ATS queries.
      */
-    enable_pri = (iotlb->perm == IOMMU_NONE) && (ctx->tc & BIT_ULL(32));
+    enable_pri = (ctx->tc & RISCV_IOMMU_DC_TC_EN_PRI);
     enable_pasid = (ctx->tc & RISCV_IOMMU_DC_TC_PDTV);
 
     /* Check for ATS request. */
@@ -1326,13 +1332,18 @@ static void riscv_iommu_ats(RISCVIOMMUState *s,
 
     pasid = get_field(cmd->dword0, RISCV_IOMMU_CMD_ATS_PID);
 
-    qemu_mutex_lock(&s->core_lock);
     QLIST_FOREACH(as, &s->spaces, list) {
+
+        if(as->bus){
+            as->devid= PCI_BUILD_BDF(pci_bus_num(as->bus), as->devfn);
+            as->bus = NULL;
+        }
+
         if (as->devid == devid) {
+            as->pasid = pasid;
             break;
         }
     }
-    qemu_mutex_unlock(&s->core_lock);
 
     if (!as || !as->notifier) {
         return;
@@ -2158,7 +2169,7 @@ static IOMMUTLBEntry riscv_iommu_memory_region_translate(
         .perm = flag,
     };
 
-    ctx = riscv_iommu_ctx(as->iommu, as->devid, iommu_idx, &ref);
+    ctx = riscv_iommu_ctx(as->iommu, as->devid, as->pasid, &ref);
     if (ctx == NULL) {
         /* Translation disabled or invalid. */
         iotlb.addr_mask = 0;
@@ -2219,7 +2230,8 @@ static AddressSpace *riscv_iommu_find_as(PCIBus *bus, void *opaque, int devfn)
 
     /* Find first matching IOMMU */
     while (s != NULL && as == NULL) {
-        as = riscv_iommu_space(s, PCI_BUILD_BDF(pci_bus_num(bus), devfn));
+        int devid = PCI_BUILD_BDF(pci_bus_num(bus), devfn);
+        as = riscv_iommu_space(s, bus, devfn, devid);
         s = s->iommus.le_next;
     }
 

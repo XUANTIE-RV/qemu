@@ -16,6 +16,12 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#define REQUIRE_XTHEADLPW(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadlpw) {          \
+        return false;                            \
+    }                                            \
+} while (0)
+
 #define REQUIRE_XTHEADBA(ctx) do {               \
     if (!ctx->cfg_ptr->ext_xtheadba) {           \
         return false;                            \
@@ -46,8 +52,20 @@
     }                                            \
 } while (0)
 
-#define REQUIRE_XTHEADCP(ctx) do {               \
-    if (!ctx->cfg_ptr->ext_xtheadcp) {           \
+#define REQUIRE_XTHEADCEI(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadcei) {           \
+        return false;                            \
+    }                                            \
+} while (0)
+
+#define REQUIRE_XTHEADCEV(ctx) do {               \
+    if (!ctx->cfg_ptr->ext_xtheadcev) {           \
+        return false;                            \
+    }                                            \
+} while (0)
+
+#define REQUIRE_XTHEADCEF(ctx) do {               \
+    if (!ctx->cfg_ptr->ext_xtheadcef) {           \
         return false;                            \
     }                                            \
 } while (0)
@@ -90,6 +108,12 @@
 
 #define REQUIRE_XTHEADISR(ctx) do {              \
     if (!ctx->cfg_ptr->ext_xtheadisr) {          \
+        return false;                            \
+    }                                            \
+} while (0)
+
+#define REQUIRE_XTHEADCBOP(ctx) do {             \
+    if (!ctx->cfg_ptr->ext_xtheadcbop) {         \
         return false;                            \
     }                                            \
 } while (0)
@@ -1110,41 +1134,74 @@ static bool trans_ipop(DisasContext *ctx, arg_ipop *a)
 #endif
 }
 
-#define TRANS_CP(INSN) \
+#define TRANS_CEI(INSN) \
 static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
 {                                                          \
-    REQUIRE_XTHEADCP(ctx);                                 \
+    REQUIRE_XTHEADCEI(ctx);                                 \
     return true;                                           \
 }
 
-TRANS_CP(th_cpx0)
-TRANS_CP(th_cpx1)
-TRANS_CP(th_cpx2)
-TRANS_CP(th_cpx3)
-TRANS_CP(th_cpx4)
-TRANS_CP(th_cpx5)
-TRANS_CP(th_cpx6)
-TRANS_CP(th_cpx7)
-TRANS_CP(th_cpx8)
-TRANS_CP(th_cpx9)
-TRANS_CP(th_cpx10)
+#define TRANS_CEV(INSN) \
+static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
+{                                                          \
+    REQUIRE_XTHEADCEV(ctx);                                 \
+    return true;                                           \
+}
 
-TRANS_CP(th_vcpx0)
-TRANS_CP(th_vcpx1)
-TRANS_CP(th_vcpx2)
-TRANS_CP(th_vcpx3)
-TRANS_CP(th_vcpx4)
-TRANS_CP(th_vcpx5)
-TRANS_CP(th_vcpx6)
-TRANS_CP(th_vcpx7)
-TRANS_CP(th_vcpx8)
-TRANS_CP(th_vcpx9)
-TRANS_CP(th_vcpx10)
+#define TRANS_CEF(INSN) \
+static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
+{                                                          \
+    REQUIRE_XTHEADCEF(ctx);                                 \
+    return true;                                           \
+}
 
-TRANS_CP(th_fcpx0)
-TRANS_CP(th_fcpx1)
-TRANS_CP(th_fcpx2)
-TRANS_CP(th_fcpx3)
-TRANS_CP(th_fcpx4)
-TRANS_CP(th_fcpx5)
-TRANS_CP(th_fcpx6)
+TRANS_CEI(th_cpx0)
+TRANS_CEI(th_cpx1)
+TRANS_CEI(th_cpx2)
+TRANS_CEI(th_cpx3)
+TRANS_CEI(th_cpx4)
+TRANS_CEI(th_cpx5)
+TRANS_CEI(th_cpx6)
+TRANS_CEI(th_cpx7)
+TRANS_CEI(th_cpx8)
+TRANS_CEI(th_cpx9)
+TRANS_CEI(th_cpx10)
+
+TRANS_CEV(th_vcpx0)
+TRANS_CEV(th_vcpx1)
+TRANS_CEV(th_vcpx2)
+TRANS_CEV(th_vcpx3)
+TRANS_CEV(th_vcpx4)
+TRANS_CEV(th_vcpx5)
+TRANS_CEV(th_vcpx6)
+TRANS_CEV(th_vcpx7)
+TRANS_CEV(th_vcpx8)
+TRANS_CEV(th_vcpx9)
+TRANS_CEV(th_vcpx10)
+
+TRANS_CEF(th_fcpx0)
+TRANS_CEF(th_fcpx1)
+TRANS_CEF(th_fcpx2)
+TRANS_CEF(th_fcpx3)
+TRANS_CEF(th_fcpx4)
+TRANS_CEF(th_fcpx5)
+TRANS_CEF(th_fcpx6)
+
+static bool trans_th_wfe(DisasContext *ctx, arg_th_wfe *a)
+{
+    REQUIRE_XTHEADLPW(ctx);
+#ifndef CONFIG_USER_ONLY
+    decode_save_opc(ctx);
+    gen_update_pc(ctx, ctx->cur_insn_len);
+    gen_helper_wfe(tcg_env);
+    return true;
+#else
+    return true;
+#endif
+}
+
+static bool trans_th_cbo_cleanp(DisasContext *ctx, arg_th_cbo_cleanp *a)
+{
+    REQUIRE_XTHEADCBOP(ctx);
+    return true;
+}

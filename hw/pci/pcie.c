@@ -1140,6 +1140,63 @@ void pcie_ats_init(PCIDevice *dev, uint16_t offset, bool aligned)
     pci_set_word(dev->wmask + dev->exp.ats_cap + PCI_ATS_CTRL, 0x800f);
 }
 
+#define MAX_PASID_WIDTH 20
+
+void pcie_pasid_init(PCIDevice *dev, uint16_t offset,
+                     unsigned int max_pasid_width,
+                     bool execute, bool privilege)
+{
+    uint16_t cap, wmask = PCI_PASID_CTRL_ENABLE;
+
+    pcie_add_capability(dev, PCI_EXT_CAP_ID_PASID, 0x1,
+                        offset, PCI_EXT_CAP_PASID_SIZEOF);
+    dev->exp.pasid_cap = offset;
+
+    if (max_pasid_width > MAX_PASID_WIDTH) {
+        max_pasid_width = MAX_PASID_WIDTH;
+    }
+    cap = max_pasid_width << 8;
+
+    if (execute) {
+        cap |= PCI_PASID_CAP_EXEC;
+        wmask |= PCI_PASID_CTRL_EXEC;
+    }
+    if (privilege) {
+        cap |= PCI_PASID_CAP_PRIV;
+        wmask |= PCI_PASID_CTRL_PRIV;
+    }
+
+    pci_set_word(dev->config + offset + PCI_PASID_CAP, cap);
+
+    pci_set_word(dev->config + offset + PCI_PASID_CTRL, 0);
+    pci_set_word(dev->wmask + offset + PCI_PASID_CTRL, wmask);
+}
+
+#define RISCV_IOMMU_DEF_PQ_COUNT    4096
+
+
+void pcie_pri_init(PCIDevice *dev, uint16_t offset, bool prg_response_pasid_req)
+{
+    static const uint16_t control_reg_rw_mask = PCI_PRI_CTRL_ENABLE | PCI_PRI_CTRL_RESET;
+    static const uint16_t status_reg_rw1_mask = 0x3;
+    static const uint32_t pr_alloc_reg_rw_mask = 0xffffffff;
+
+    uint16_t status_reg = prg_response_pasid_req ? PCI_PRI_STATUS_PASID : 0;
+    status_reg |= PCI_PRI_STATUS_STOPPED; /* Stopped by default */
+
+    pcie_add_capability(dev, PCI_EXT_CAP_ID_PRI, 0x1, offset,
+                        PCI_EXT_CAP_PRI_SIZEOF); /* Disabled by default */
+
+    pci_set_word(dev->config + offset + PCI_PRI_STATUS, status_reg);
+    pci_set_word(dev->config + offset + PCI_PRI_MAX_REQ, RISCV_IOMMU_DEF_PQ_COUNT);
+
+    pci_set_word(dev->wmask + offset + PCI_PRI_CTRL, control_reg_rw_mask);
+    pci_set_word(dev->w1cmask + offset + PCI_PRI_STATUS, status_reg_rw1_mask);
+    pci_set_long(dev->wmask + offset + PCI_PRI_ALLOC_REQ, pr_alloc_reg_rw_mask);
+
+    dev->exp.pri_cap = offset;
+}
+
 /* ACS (Access Control Services) */
 void pcie_acs_init(PCIDevice *dev, uint16_t offset)
 {

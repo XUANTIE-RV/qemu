@@ -232,6 +232,3 @@ config CSKY_FFT
 
 config CSKY_MCA
     bool
-
-config THEAD_ASP_NNE_V1
-    bool

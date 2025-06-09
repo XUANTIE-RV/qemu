@@ -72,8 +72,7 @@ static void eragon_init(MachineState *machine)
     csky_uart_create(0x10015000, intc[16], serial_hd(0));
 
     csky_timer_set_freq(50000000ll);
-    sysbus_create_varargs("csky_timer", 0x10011000, intc[12], intc[13],
-                            intc[14], intc[15], NULL);
+    csky_timer_create(0x10011000, &intc[12], NULL, 1, 0);
 
     eragon_binfo.ram_size = machine->ram_size;
     eragon_binfo.kernel_filename = machine->kernel_filename;

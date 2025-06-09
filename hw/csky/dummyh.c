@@ -144,14 +144,7 @@ static void dummyh_init(MachineState *machine)
             if (!strcmp(b_info->dev[i].name, "csky_coret")) {
                 continue;
             }
-            sysbus_create_varargs(b_info->dev[i].name, b_info->dev[i].addr,
-                                  intc[b_info->dev[i].irq],
-                                  intc[b_info->dev[i].irq + 1],
-                                  intc[b_info->dev[i].irq + 2],
-                                  intc[b_info->dev[i].irq + 3],
-                                  0, 0, 0, 0,
-                                  NULL);
-
+            csky_timer_create(b_info->dev[i].addr, &intc[b_info->dev[i].irq], NULL, 1, 0);
             break;
         case DYNSOC_LCDC:
             sysbus_create_simple(b_info->dev[i].name, b_info->dev[i].addr,
