@@ -40,7 +40,7 @@ typedef struct {
     uint64_t entry;
     struct qemu_plugin_scoreboard *calls;
     struct qemu_plugin_scoreboard *total;
-    const char *symbol;
+    char *symbol;
 } FuncCount;
 
 typedef struct {
@@ -49,7 +49,7 @@ typedef struct {
     struct qemu_plugin_scoreboard *total_count;
     int trans_count;
     unsigned long insns;
-    const char *symbol;
+    char *symbol;
     FuncCount *f;
 } ExecCount;
 
@@ -286,7 +286,7 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         cnt->insns = insns;
         cnt->exec_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
         cnt->total_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
-        cnt->symbol = qemu_plugin_insn_symbol(qemu_plugin_tb_get_insn(tb, 0));
+        cnt->symbol = g_strdup(qemu_plugin_insn_symbol(qemu_plugin_tb_get_insn(tb, 0)));
         if (cnt->symbol == NULL) {
             cnt->symbol = "__undefine";
         }
