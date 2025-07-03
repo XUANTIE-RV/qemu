@@ -45,6 +45,7 @@ struct RISCVIOMMUState {
     bool enable_ats;      /* Enable ATS support */
     bool enable_s_stage;  /* Enable S/VS-Stage translation */
     bool enable_g_stage;  /* Enable G-Stage translation */
+    bool enable_gipc;     /* Enable G-Stage table in Process Context */
 
     /* IOMMU Internal State */
     uint64_t ddtp;        /* Validated Device Directory Tree Root Pointer */
