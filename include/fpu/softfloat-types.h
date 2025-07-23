@@ -118,6 +118,10 @@ typedef struct {
 typedef uint16_t bfloat16;
 typedef uint8_t float8e4;
 typedef uint8_t float8e5;
+typedef uint8_t float4e2;
+typedef uint8_t float6e2;
+typedef uint8_t float6e3;
+typedef uint8_t float8e0;
 
 /*
  * Software IEC/IEEE floating-point underflow tininess-detection mode.

@@ -28,7 +28,7 @@
 #include "hw/intc/thead_clint.h"
 #include "qemu/timer.h"
 
-static uint64_t cpu_riscv_read_rtc(void)
+static uint64_t cpu_riscv_read_rtc(void *opaque)
 {
     return muldiv64(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
                     10000000, NANOSECONDS_PER_SECOND);
@@ -47,7 +47,7 @@ static void thead_clint_mtimecmp_cb(void *opaque)
 static void thead_clint_write_timecmp(THEADCLINTState *s, int hartid,
                                       uint64_t value)
 {
-    uint64_t rtc = cpu_riscv_read_rtc();
+    uint64_t rtc = cpu_riscv_read_rtc(s);
     uint64_t cmp = s->mtimecmp[hartid] = value;
     uint64_t diff = cmp - rtc;
     uint64_t next_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
@@ -95,9 +95,9 @@ static uint64_t thead_clint_read(void *opaque, hwaddr addr, unsigned size)
             return (timecmp >> 32) & 0xFFFFFFFF;
         }
     case 0xbff8: /* time_lo */
-        return cpu_riscv_read_rtc() & 0xFFFFFFFF;
+        return cpu_riscv_read_rtc(clint) & 0xFFFFFFFF;
     case 0xbffc: /* time_hi */
-        return (cpu_riscv_read_rtc() >> 32) & 0xFFFFFFFF;
+        return (cpu_riscv_read_rtc(clint) >> 32) & 0xFFFFFFFF;
     default:
         qemu_log_mask(LOG_GUEST_ERROR,
             "clint: invalid read: 0x%" HWADDR_PRIx "\n", addr);
@@ -237,8 +237,13 @@ DeviceState *thead_clint_create(hwaddr addr, qemu_irq *pirq, int64_t num_harts)
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
 
     for (i = 0; i < num_harts; i++) {
+        CPUState *cpu = cpu_by_arch_id(i);
+        CPURISCVState *env = cpu ? cpu_env(cpu) : NULL;
         qdev_connect_gpio_out(dev, 2 * i, pirq[2 * i]);
         qdev_connect_gpio_out(dev, 2 * i + 1, pirq[2 * i + 1]);
+        if (env) {
+            riscv_cpu_set_rdtime_fn(env, cpu_riscv_read_rtc, dev);
+        }
     }
 
     return dev;

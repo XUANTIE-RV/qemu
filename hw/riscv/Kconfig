@@ -123,6 +123,15 @@ config RISCV_SMARTL
     select CSKY_EXIT
     select THEAD_PMU
 
+config RISCV_SMARTM
+    bool
+    select XT_CLIC
+    select THEAD_CLINT
+    select CSKY_UART
+    select CSKY_TIMER
+    select CSKY_EXIT
+    select THEAD_PMU
+
 config RISCV_SMARTH
     bool
     select CSKY_TIMER

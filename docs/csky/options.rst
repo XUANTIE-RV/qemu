@@ -43,3 +43,7 @@
 .. option:: -csky-trace
 
     控制 CPF trace 的详细选项，可以输入 -csky-trace help 获取一个完整的选项列表。
+
+.. option:: -dsa
+
+    用户自定义指令插件。

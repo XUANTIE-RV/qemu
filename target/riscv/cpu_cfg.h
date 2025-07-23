@@ -215,6 +215,9 @@ struct RISCVCPUConfig {
 
 #ifndef CONFIG_USER_ONLY
     RISCVSATPMap satp_mode;
+    uint32_t ext_mtvec;
+    uint32_t ext_mtvt;
+    uint32_t ext_jvt;
 #endif
 };
 

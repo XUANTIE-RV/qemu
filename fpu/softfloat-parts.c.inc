@@ -110,6 +110,9 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
 {
     if (unlikely(p->exp == 0)) {
         if (likely(frac_eqz(p))) {
+            if (fmt->zero_as_normal) {
+                goto normal;
+            }
             p->cls = float_class_zero;
         } else if (status->flush_inputs_to_zero) {
             float_raise(float_flag_input_denormal, status);
@@ -121,20 +124,32 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
             p->exp = fmt->frac_shift - fmt->exp_bias
                    - shift + !fmt->m68k_denormal;
         }
-    } else if (likely(p->exp < fmt->exp_max) || fmt->arm_althp ||
-               ((fmt->exp_size == 4) && (p->exp == fmt->exp_max) &&
-                (p->frac_lo != 0b111))) {
-        p->cls = float_class_normal;
-        p->exp -= fmt->exp_bias;
-        frac_shl(p, fmt->frac_shift);
-        p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
+        return;
+    } else if (likely(p->exp < fmt->exp_max) || fmt->arm_althp) {
+        goto normal;
     } else if (likely(frac_eqz(p))) {
+        if (fmt->inf_as_normal) {
+            goto normal;
+        }
         p->cls = float_class_inf;
+        return;
     } else {
+        uint64_t frac = p->frac_lo |
+                        MAKE_64BIT_MASK(fmt->frac_size, 64 - fmt->frac_size);
+        if (fmt->nan_as_normal ||
+            ((frac != -1) && fmt->nan_no1s_as_normal)) {
+            goto normal;
+        }
         frac_shl(p, fmt->frac_shift);
         p->cls = (parts_is_snan_frac(p->frac_hi, status)
                   ? float_class_snan : float_class_qnan);
+        return;
     }
+normal:
+    p->cls = float_class_normal;
+    p->exp -= fmt->exp_bias;
+    frac_shl(p, fmt->frac_shift);
+    p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
 }
 
 /*
@@ -155,7 +170,10 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
     uint64_t inc;
     bool overflow_norm = false;
     int exp, flags = 0;
-
+    if (fmt->ocp_e8m0 && p->sign) {
+        p->exp = 0;
+        return;
+    }
     switch (s->float_rounding_mode) {
     case float_round_nearest_even:
         if (N > 64 && frac_lsb == 0) {
@@ -216,13 +234,6 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
             }
-        } else if (unlikely(exp >= exp_max) && (fmt->exp_size == 4)) {
-            if ((exp > exp_max) || ((exp == exp_max) &&
-                                    ((p->frac_lo | round_mask) == UINT64_MAX))) {
-                flags |= float_flag_overflow | float_flag_inexact;
-                frac_allones(p);
-                exp = exp_max;
-            }
         } else if (unlikely(exp >= exp_max)) {
             flags |= float_flag_overflow;
             if (s->rebias_overflow) {
@@ -232,6 +243,52 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                 exp = exp_max - 1;
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
+            } else if (fmt->ocp_e4m3) {
+                uint64_t tmp_frac = (p->frac_lo & ~round_mask) >> frac_shift;
+                if ((exp > fmt->exp_max) || (tmp_frac > 0b1110)) {
+                    exp = fmt->exp_max;
+                    frac_allones(p);
+                    if (s->sat) {
+                        /* sat: largest float number, OF, NX */
+                        flags |= float_flag_inexact;
+                        flags |= float_flag_overflow;
+                        p->frac_lo &= ~roundeven_mask;
+                    } else {
+                        /* nosat: out of range -> cnan */
+                        flags |= float_flag_invalid;
+                        p->frac_lo &= ~round_mask;
+                        p->sign = false;
+                    }
+                } else {
+                    exp = fmt->exp_max;
+                    flags &= ~float_flag_overflow;
+                    p->frac_lo &= ~round_mask;
+                }
+            } else if (fmt->ocp_e5m2) {
+                if (s->sat) {
+                    exp = fmt->exp_max - 1;
+                    frac_allones(p);
+                    /* sat: largest float number, OF, NX */
+                    flags |= float_flag_inexact;
+                    flags |= float_flag_overflow;
+                    p->frac_lo &= ~round_mask;
+                }
+            } else if (fmt->ocp_e8m0) {
+                exp = fmt->exp_max - 1;
+                frac_allones(p);
+                /* only sat: positive max norm, OF, NX */
+                flags |= float_flag_inexact;
+                flags |= float_flag_overflow;
+                p->frac_lo &= ~round_mask;
+                p->sign = false;
+            } else if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
+                if (exp > exp_max) {
+                    /* out of range ->lfn, OF，NX */
+                    flags |= float_flag_inexact;
+                    exp = exp_max;
+                    frac_allones(p);
+                    p->frac_lo &= ~round_mask;
+                }
             } else {
                 flags |= float_flag_inexact;
                 p->cls = float_class_inf;
@@ -314,9 +371,13 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
 static void partsN(uncanon)(FloatPartsN *p, float_status *s,
                             const FloatFmt *fmt)
 {
+    const uint64_t round_mask = fmt->round_mask;
+    const uint64_t frac_lsb = round_mask + 1;
+    const uint64_t roundeven_mask = round_mask | frac_lsb;
     if (likely(p->cls == float_class_normal)) {
         parts_uncanon_normal(p, s, fmt);
     } else {
+        int flags = 0;
         switch (p->cls) {
         case float_class_zero:
             p->exp = 0;
@@ -325,12 +386,68 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
         case float_class_inf:
             g_assert(!fmt->arm_althp);
             p->exp = fmt->exp_max;
+            if (fmt->ocp_e4m3) {
+                frac_allones(p);
+                if (s->sat) {
+                    /* sat: inf->largest float number, no exception */
+                    p->frac_lo &= ~roundeven_mask;
+                } else {
+                    /* nosat: inf -> cnan */
+                    flags |= float_flag_invalid;
+                    p->frac_lo &= ~round_mask;
+                    p->sign = false;
+                }
+                frac_shr(p, fmt->frac_shift);
+                float_raise(flags, s);
+                return;
+            } else if (fmt->ocp_e5m2) {
+                if (s->sat) {
+                    p->exp = fmt->exp_max - 1;
+                    frac_allones(p);
+                    /* sat: inf->largest float number, no exception */
+                    p->frac_lo &= ~round_mask;
+                    frac_shr(p, fmt->frac_shift);
+                    float_raise(flags, s);
+                    return;
+                }
+            } else if (fmt->ocp_e8m0) {
+                if (p->sign) {
+                    p->exp = 0;
+                } else {
+                    p->exp = fmt->exp_max - 1;
+                    frac_allones(p);
+                    p->frac_lo &= ~round_mask;
+                    frac_shr(p, fmt->frac_shift);
+                }
+                return;
+            } else if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
+                /* only sat: inf -> lfn, no exception */
+                p->exp = fmt->exp_max;
+                frac_allones(p);
+                p->frac_lo &= ~round_mask;
+                frac_shr(p, fmt->frac_shift);
+                return;
+            }
             frac_clear(p);
             return;
         case float_class_qnan:
         case float_class_snan:
             g_assert(!fmt->arm_althp);
             p->exp = fmt->exp_max;
+            if (fmt->ocp_e4m3 || fmt->ocp_e8m0 || fmt->ocp_e2m1 ||
+                fmt->ocp_e2m3 || fmt->ocp_e3m2 || fmt->ocp_e5m2) {
+                /*
+                 * e4m3, e5m2, e8m0: nan -> cnan, invalid has been raised for snan
+                 * e2m1, e2m3, e3m2: nan -> positive lfn, NV
+                 */
+                if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
+                    flags |= float_flag_invalid;
+                    float_raise(flags, s);
+                }
+                frac_allones(p);
+                p->frac_lo &= ~round_mask;
+                p->sign = false;
+            }
             frac_shr(p, fmt->frac_shift);
             return;
         default:

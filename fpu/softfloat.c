@@ -529,6 +529,16 @@ typedef struct {
     bool arm_althp;
     bool m68k_denormal;
     uint64_t round_mask;
+    bool inf_as_normal;
+    bool nan_as_normal;
+    bool nan_no1s_as_normal;
+    bool zero_as_normal;
+    bool ocp_e4m3;
+    bool ocp_e2m1;
+    bool ocp_e2m3;
+    bool ocp_e3m2;
+    bool ocp_e8m0;
+    bool ocp_e5m2;
 } FloatFmt;
 
 /* Expand fields based on the size of exponent and fraction */
@@ -558,11 +568,15 @@ static const FloatFmt bfloat16_params = {
 };
 
 static const FloatFmt float8e4_params = {
-    FLOAT_PARAMS(4, 3)
+    FLOAT_PARAMS(4, 3),
+    .inf_as_normal = true,
+    .nan_no1s_as_normal = true,
+    .ocp_e4m3 = true
 };
 
 static const FloatFmt float8e5_params = {
-    FLOAT_PARAMS(5, 2)
+    FLOAT_PARAMS(5, 2),
+    .ocp_e5m2 = true,
 };
 
 static const FloatFmt float32_params = {
@@ -575,6 +589,35 @@ static const FloatFmt float64_params = {
 
 static const FloatFmt float128_params = {
     FLOAT_PARAMS(15, 112)
+};
+
+static const FloatFmt float4e2_params = {
+    FLOAT_PARAMS(2, 1),
+    .inf_as_normal = true,
+    .nan_as_normal = true,
+    .ocp_e2m1 = true
+};
+
+static const FloatFmt float6e2_params = {
+    FLOAT_PARAMS(2, 3),
+    .inf_as_normal = true,
+    .nan_as_normal = true,
+    .ocp_e2m3 = true
+};
+
+static const FloatFmt float6e3_params = {
+    FLOAT_PARAMS(3, 2),
+    .inf_as_normal = true,
+    .nan_as_normal = true,
+    .ocp_e3m2 = true
+};
+
+static const FloatFmt float8e0_params = {
+    FLOAT_PARAMS(8, 0),
+    .inf_as_normal = true,
+    .nan_no1s_as_normal = true,
+    .zero_as_normal = true,
+    .ocp_e8m0 = true
 };
 
 #define FLOATX80_PARAMS(R)              \
@@ -604,7 +647,7 @@ static void unpack_raw64(FloatParts64 *r, const FloatFmt *fmt, uint64_t raw)
         .cls = float_class_unclassified,
         .sign = extract64(raw, f_size + e_size, 1),
         .exp = extract64(raw, f_size, e_size),
-        .frac = extract64(raw, 0, f_size)
+        .frac = f_size ? extract64(raw, 0, f_size) : 0
     };
 }
 
@@ -626,6 +669,26 @@ static void QEMU_FLATTEN float8e4_unpack_raw(FloatParts64 *p, float8e4 f)
 static void QEMU_FLATTEN float8e5_unpack_raw(FloatParts64 *p, float8e5 f)
 {
     unpack_raw64(p, &float8e5_params, f);
+}
+
+static void QEMU_FLATTEN float4e2_unpack_raw(FloatParts64 *p, float4e2 f)
+{
+    unpack_raw64(p, &float4e2_params, f);
+}
+
+static void QEMU_FLATTEN float6e2_unpack_raw(FloatParts64 *p, float6e2 f)
+{
+    unpack_raw64(p, &float6e2_params, f);
+}
+
+static void QEMU_FLATTEN float6e3_unpack_raw(FloatParts64 *p, float6e3 f)
+{
+    unpack_raw64(p, &float6e3_params, f);
+}
+
+static void QEMU_FLATTEN float8e0_unpack_raw(FloatParts64 *p, float8e0 f)
+{
+    unpack_raw64(p, &float8e0_params, f);
 }
 
 static void QEMU_FLATTEN float32_unpack_raw(FloatParts64 *p, float32 f)
@@ -671,7 +734,9 @@ static uint64_t pack_raw64(const FloatParts64 *p, const FloatFmt *fmt)
 
     ret = (uint64_t)p->sign << (f_size + e_size);
     ret = deposit64(ret, f_size, e_size, p->exp);
-    ret = deposit64(ret, 0, f_size, p->frac);
+    if (!fmt->ocp_e8m0) {
+        ret = deposit64(ret, 0, f_size, p->frac);
+    }
     return ret;
 }
 
@@ -690,9 +755,29 @@ static float8e4 QEMU_FLATTEN float8e4_pack_raw(const FloatParts64 *p)
     return pack_raw64(p, &float8e4_params);
 }
 
+static float8e0 QEMU_FLATTEN float8e0_pack_raw(const FloatParts64 *p)
+{
+    return pack_raw64(p, &float8e0_params);
+}
+
 static float8e5 QEMU_FLATTEN float8e5_pack_raw(const FloatParts64 *p)
 {
     return pack_raw64(p, &float8e5_params);
+}
+
+static float4e2 QEMU_FLATTEN float4e2_pack_raw(const FloatParts64 *p)
+{
+    return pack_raw64(p, &float4e2_params);
+}
+
+static float6e2 QEMU_FLATTEN float6e2_pack_raw(const FloatParts64 *p)
+{
+    return pack_raw64(p, &float6e2_params);
+}
+
+static float6e3 QEMU_FLATTEN float6e3_pack_raw(const FloatParts64 *p)
+{
+    return pack_raw64(p, &float6e3_params);
 }
 
 static float32 QEMU_FLATTEN float32_pack_raw(const FloatParts64 *p)
@@ -1703,6 +1788,34 @@ static void float8e4_unpack_canonical(FloatParts64 *p, float8e4 f,
     parts_canonicalize(p, s, &float8e4_params);
 }
 
+static void float4e2_unpack_canonical(FloatParts64 *p, float4e2 f,
+                                      float_status *s)
+{
+    float4e2_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float4e2_params);
+}
+
+static void float6e2_unpack_canonical(FloatParts64 *p, float6e2 f,
+                                      float_status *s)
+{
+    float6e2_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float6e2_params);
+}
+
+static void float6e3_unpack_canonical(FloatParts64 *p, float6e3 f,
+                                      float_status *s)
+{
+    float6e3_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float6e3_params);
+}
+
+static void float8e0_unpack_canonical(FloatParts64 *p, float8e0 f,
+                                      float_status *s)
+{
+    float8e0_unpack_raw(p, f);
+    parts_canonicalize(p, s, &float8e0_params);
+}
+
 static void float8e5_unpack_canonical(FloatParts64 *p, float8e5 f,
                                       float_status *s)
 {
@@ -1738,11 +1851,39 @@ static float8e4 float8e4_round_pack_canonical(FloatParts64 *p,
     return float8e4_pack_raw(p);
 }
 
+static float8e4 float8e0_round_pack_canonical(FloatParts64 *p,
+                                              float_status *s)
+{
+    parts_uncanon(p, s, &float8e0_params);
+    return float8e0_pack_raw(p);
+}
+
 static float8e5 float8e5_round_pack_canonical(FloatParts64 *p,
                                               float_status *s)
 {
     parts_uncanon(p, s, &float8e5_params);
     return float8e5_pack_raw(p);
+}
+
+static float4e2 float4e2_round_pack_canonical(FloatParts64 *p,
+                                              float_status *s)
+{
+    parts_uncanon(p, s, &float4e2_params);
+    return float4e2_pack_raw(p);
+}
+
+static float6e2 float6e2_round_pack_canonical(FloatParts64 *p,
+                                              float_status *s)
+{
+    parts_uncanon(p, s, &float6e2_params);
+    return float6e2_pack_raw(p);
+}
+
+static float6e3 float6e3_round_pack_canonical(FloatParts64 *p,
+                                              float_status *s)
+{
+    parts_uncanon(p, s, &float6e3_params);
+    return float6e3_pack_raw(p);
 }
 
 static void float32_unpack_canonical(FloatParts64 *p, float32 f,
@@ -3018,6 +3159,15 @@ bfloat16 float8e4_to_bfloat16(float8e4 a, float_status *s)
     return bfloat16_round_pack_canonical(&p, s);
 }
 
+bfloat16 float8e0_to_bfloat16(float8e0 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e0_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return bfloat16_round_pack_canonical(&p, s);
+}
+
 bfloat16 float8e5_to_bfloat16(float8e5 a, float_status *s)
 {
     FloatParts64 p;
@@ -3034,6 +3184,42 @@ float16 float8e4_to_float16(float8e4 a, float_status *s)
     float8e4_unpack_canonical(&p, a, s);
     parts_float_to_float(&p, s);
     return float16_round_pack_canonical(&p, s);
+}
+
+float16 float4e2_to_float16(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float4e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float16_round_pack_canonical(&p, s);
+}
+
+float32 float4e2_to_float32(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float4e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float32_round_pack_canonical(&p, s);
+}
+
+float32 float8e0_to_float32(float8e0 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e0_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float32_round_pack_canonical(&p, s);
+}
+
+float16 float4e2_to_bfloat16(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float4e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return bfloat16_round_pack_canonical(&p, s);
 }
 
 float16 float8e5_to_float16(float8e5 a, float_status *s)
@@ -3117,6 +3303,78 @@ bfloat16 float64_to_bfloat16(float64 a, float_status *s)
     return bfloat16_round_pack_canonical(&p, s);
 }
 
+float8e5 float4e2_to_float8e5(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float4e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e5_round_pack_canonical(&p, s);
+}
+
+float4e2 float8e5_to_float4e2(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e5_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float4e2_round_pack_canonical(&p, s);
+}
+
+float8e4 float4e2_to_float8e4(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float4e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e4_round_pack_canonical(&p, s);
+}
+
+float4e2 float8e4_to_float4e2(float4e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e4_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float4e2_round_pack_canonical(&p, s);
+}
+
+float8e4 float6e2_to_float8e4(float6e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float6e2_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e4_round_pack_canonical(&p, s);
+}
+
+float6e2 float8e4_to_float6e2(float6e2 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e4_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float6e2_round_pack_canonical(&p, s);
+}
+
+float8e4 float6e3_to_float8e4(float6e3 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float6e3_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e4_round_pack_canonical(&p, s);
+}
+
+float6e3 float8e4_to_float6e3(float6e3 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float8e4_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float6e3_round_pack_canonical(&p, s);
+}
+
 float8e4 bfloat16_to_float8e4(bfloat16 a, float_status *s)
 {
     FloatParts64 p;
@@ -3126,145 +3384,13 @@ float8e4 bfloat16_to_float8e4(bfloat16 a, float_status *s)
     return float8e4_round_pack_canonical(&p, s);
 }
 
-static void uncanon_float8e4_normal(FloatParts64 *p, float_status *s,
-                                    const FloatFmt *fmt)
+float8e0 bfloat16_to_float8e0(bfloat16 a, float_status *s)
 {
-    const int exp_max = fmt->exp_max;
-    const int frac_shift = fmt->frac_shift;
-    const uint64_t round_mask = fmt->round_mask;
-    const uint64_t frac_lsb = round_mask + 1;
-    const uint64_t frac_lsbm1 = round_mask ^ (round_mask >> 1);
-    const uint64_t roundeven_mask = round_mask | frac_lsb;
-    uint64_t inc;
-    int exp, flags = 0;
+    FloatParts64 p;
 
-    switch (s->float_rounding_mode) {
-    case float_round_nearest_even:
-        inc = ((p->frac_lo & roundeven_mask) != frac_lsbm1
-               ? frac_lsbm1 : 0);
-        break;
-    case float_round_ties_away:
-        inc = frac_lsbm1;
-        break;
-    case float_round_to_zero:
-        inc = 0;
-        break;
-    case float_round_up:
-        inc = p->sign ? 0 : round_mask;
-        break;
-    case float_round_down:
-        inc = p->sign ? round_mask : 0;
-        break;
-    case float_round_to_odd:
-        /* fall through */
-    case float_round_to_odd_inf:
-        inc = p->frac_lo & frac_lsb ? 0 : round_mask;
-        break;
-    default:
-        g_assert_not_reached();
-    }
-
-    exp = p->exp + fmt->exp_bias;
-    if (likely(exp > 0)) {
-        if (p->frac_lo & round_mask) {
-            flags |= float_flag_inexact;
-            if (frac_addi(p, p, inc)) {
-                frac_shr(p, 1);
-                p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
-                exp++;
-            }
-            p->frac_lo &= ~round_mask;
-        }
-
-        if ((exp > exp_max) || ((exp == exp_max) &&
-                                ((p->frac_lo | round_mask) == UINT64_MAX))) {
-            flags |= float_flag_overflow | float_flag_inexact;
-            if (s->sat) {
-                exp = fmt->exp_max;
-                p->frac = 0b110;
-            } else {
-                p->cls = float_class_qnan;
-                exp = fmt->exp_max;
-                frac_allones(p);
-            }
-        } else {
-            frac_shr(p, frac_shift);
-        }
-    } else {
-        bool is_tiny = s->tininess_before_rounding || exp < 0;
-
-        if (!is_tiny) {
-            FloatParts64 discard;
-            is_tiny = !frac_addi(&discard, p, inc);
-        }
-
-        frac_shrjam(p, 1 - exp);
-
-        if (p->frac_lo & round_mask) {
-            /* Need to recompute round-to-even/round-to-odd. */
-            switch (s->float_rounding_mode) {
-            case float_round_nearest_even:
-                inc = ((p->frac_lo & roundeven_mask) != frac_lsbm1
-                       ? frac_lsbm1 : 0);
-                break;
-            case float_round_to_odd:
-            case float_round_to_odd_inf:
-                inc = p->frac_lo & frac_lsb ? 0 : round_mask;
-                break;
-            default:
-                break;
-            }
-            flags |= float_flag_inexact;
-            frac_addi(p, p, inc);
-            p->frac_lo &= ~round_mask;
-        }
-
-        exp = (p->frac_hi & DECOMPOSED_IMPLICIT_BIT);
-        frac_shr(p, frac_shift);
-
-        if (is_tiny && (flags & float_flag_inexact)) {
-            flags |= float_flag_underflow;
-        }
-        if (exp == 0 && frac_eqz(p)) {
-            p->cls = float_class_zero;
-        }
-    }
-    p->exp = exp;
-    float_raise(flags, s);
-}
-
-static void uncanon_float8e4(FloatParts64 *p, float_status *s,
-                             const FloatFmt *fmt)
-{
-    if (likely(p->cls == float_class_normal)) {
-        uncanon_float8e4_normal(p, s, fmt);
-    } else {
-        switch (p->cls) {
-        case float_class_zero:
-            p->exp = 0;
-            frac_clear(p);
-            return;
-        case float_class_inf:
-            if (s->sat) {
-                p->exp = fmt->exp_max;
-                p->frac = 0b110;
-            } else {
-                p->cls = float_class_qnan;
-                p->exp = fmt->exp_max;
-                frac_allones(p);
-            }
-            return;
-        case float_class_qnan:
-        case float_class_snan:
-            p->cls = float_class_qnan;
-            p->exp = fmt->exp_max;
-            frac_allones(p);
-            return;
-        default:
-            break;
-        }
-        g_assert_not_reached();
-    }
+    bfloat16_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e0_round_pack_canonical(&p, s);
 }
 
 float8e4 float16_to_float8e4(float16 a, float_status *s)
@@ -3273,8 +3399,7 @@ float8e4 float16_to_float8e4(float16 a, float_status *s)
 
     float16_unpack_canonical(&p, a, s);
     parts_float_to_float(&p, s);
-    uncanon_float8e4(&p, s, &float8e4_params);
-    return float8e4_pack_raw(&p);
+    return float8e4_round_pack_canonical(&p, s);
 }
 
 float8e4 float32_to_float8e4(float32 a, float_status *s)
@@ -3284,6 +3409,15 @@ float8e4 float32_to_float8e4(float32 a, float_status *s)
     float32_unpack_canonical(&p, a, s);
     parts_float_to_float(&p, s);
     return float8e4_round_pack_canonical(&p, s);
+}
+
+float8e0 float32_to_float8e0(float32 a, float_status *s)
+{
+    FloatParts64 p;
+
+    float32_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float8e0_round_pack_canonical(&p, s);
 }
 
 float8e4 float64_to_float8e4(float64 a, float_status *s)

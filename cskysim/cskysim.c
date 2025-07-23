@@ -38,7 +38,7 @@
 #include "../include/hw/csky/dynsoc.h"
 #include "compile_gen.h"
 
-#define CSKYSIM_VERSION "cskysim v5.2.6 (QEMU V9.0.0)"
+#define CSKYSIM_VERSION "cskysim v5.2.8 (QEMU V9.0.0)"
 #define XML_MINVER      0.0
 #define XML_MAXVER      2.0
 
@@ -215,6 +215,14 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "r807f",       .arch = "csky",    .abi = "abiv2" },
     { .name = "i805",        .arch = "csky",    .abi = "abiv2" },
     { .name = "i805f",       .arch = "csky",    .abi = "abiv2" },
+    { .name = "e901-cp",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901b-cp",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901zm-cp",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901bzm-cp",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901plus-cp",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901plusb-cp",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901plusm-cp",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "e901plusbm-cp", .arch = "riscv32", .abi = "riscv32" },
     { .name = "e902",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "e902t",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "e902m",       .arch = "riscv32", .abi = "riscv32" },

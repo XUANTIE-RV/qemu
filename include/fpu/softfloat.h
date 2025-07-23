@@ -751,6 +751,37 @@ static inline bool float8e4_unordered_quiet(float8e4 a, float8e4 b,
 #define float8e4_infinity 0x78
 
 /*----------------------------------------------------------------------------
+| Software float4e2 conversion routines.
+*----------------------------------------------------------------------------*/
+float16 float4e2_to_float16(float4e2, float_status *status);
+bfloat16 float4e2_to_bfloat16(float4e2, float_status *status);
+float32 float4e2_to_float32(float4e2, float_status *status);
+float8e5 float4e2_to_float8e5(float4e2, float_status *status);
+float8e4 float4e2_to_float8e4(float4e2, float_status *status);
+float4e2 float8e4_to_float4e2(float8e4, float_status *status);
+float4e2 float8e5_to_float4e2(float8e5, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software float6e2 conversion routines.
+*----------------------------------------------------------------------------*/
+float8e4 float6e2_to_float8e4(float6e2, float_status *status);
+float6e2 float8e4_to_float6e2(float8e4, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software float6e3 conversion routines.
+*----------------------------------------------------------------------------*/
+float8e4 float6e3_to_float8e4(float6e3, float_status *status);
+float6e3 float8e4_to_float6e3(float8e4, float_status *status);
+
+/*----------------------------------------------------------------------------
+| Software float8e0 conversion routines.
+*----------------------------------------------------------------------------*/
+float32 float8e0_to_float32(float8e0, float_status *status);
+float8e0 float32_to_float8e0(float32, float_status *status);
+float8e0 bfloat16_to_float8e0(bfloat16, float_status *status);
+bfloat16 float8e0_to_bfloat16(float8e0, float_status *status);
+
+/*----------------------------------------------------------------------------
 | Software float8e5 conversion routines.
 *----------------------------------------------------------------------------*/
 

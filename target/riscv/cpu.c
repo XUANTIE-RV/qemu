@@ -1515,6 +1515,80 @@ static void rv32_e902m_cpu_init(Object *obj)
     th_register_custom_csrs(cpu);
 }
 
+static void rv32_e901plus_cp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    riscv_cpu_set_misa_ext(env, RVE | RVC);
+    env->priv_ver = PRIV_VERSION_1_12_0;
+#ifndef CONFIG_USER_ONLY
+    set_satp_mode_max_supported(cpu, VM_1_10_MBARE);
+#endif
+    /* inherited from parent obj via riscv_cpu_init() */
+    cpu->cfg.ext_xtheadcmo = true;
+    cpu->cfg.ext_zifencei = true;
+    cpu->cfg.ext_zicsr = true;
+    cpu->cfg.ext_zihpm = false;
+    cpu->cfg.pmp = true;
+    cpu->cfg.ext_xtheadcei = true;
+    cpu->cfg.ext_zce = true;
+    cpu->cfg.mvendorid = THEAD_VENDOR_ID;
+    th_register_custom_csrs(cpu);
+}
+
+static void rv32_e901plusb_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901plus_cp_cpu_init(obj);
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbs = true;
+}
+
+static void rv32_e901plusm_cp_cpu_init(Object *obj)
+{
+    CPURISCVState *env = &RISCV_CPU(obj)->env;
+    rv32_e901plus_cp_cpu_init(obj);
+    riscv_cpu_set_misa_ext(env, RVE | RVM | RVC);
+}
+
+static void rv32_e901plusbm_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901plusm_cp_cpu_init(obj);
+    cpu->cfg.ext_zba = true;
+    cpu->cfg.ext_zbb = true;
+    cpu->cfg.ext_zbs = true;
+}
+
+static void rv32_e901_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901plus_cp_cpu_init(obj);
+    cpu->cfg.pmp = false;
+}
+
+static void rv32_e901b_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901plusb_cp_cpu_init(obj);
+    cpu->cfg.pmp = false;
+}
+
+static void rv32_e901zm_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901_cp_cpu_init(obj);
+    cpu->cfg.ext_zmmul = true;
+}
+
+static void rv32_e901bzm_cp_cpu_init(Object *obj)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    rv32_e901b_cp_cpu_init(obj);
+    cpu->cfg.ext_zmmul = true;
+}
+
 static void rv32_e906_cpu_init(Object *obj)
 {
     CPURISCVState *env = &RISCV_CPU(obj)->env;
@@ -2322,6 +2396,7 @@ static void riscv_cpu_reset_hold(Object *obj)
 #ifndef CONFIG_USER_ONLY
     uint8_t iprio;
     int i, irq, rdzero;
+    const char *typename = object_get_typename(obj);
 #endif
     CPUState *cs = CPU(obj);
     RISCVCPU *cpu = RISCV_CPU(cs);
@@ -2420,6 +2495,20 @@ static void riscv_cpu_reset_hold(Object *obj)
 
     if (kvm_enabled()) {
         kvm_riscv_reset_vcpu(cpu);
+    }
+    if (strstr(typename, "e901") && !strstr(typename, "e901plus")) {
+        env->mtvt = 0x80;
+        env->mtvec = 0x43;
+        env->jvt = 0x300;
+    }
+    if (riscv_cpu_option_set("mtvec")) {
+        env->mtvec = riscv_cpu_cfg(env)->ext_mtvec;
+    }
+    if (riscv_cpu_option_set("mtvt")) {
+        env->mtvt = riscv_cpu_cfg(env)->ext_mtvt;
+    }
+    if (riscv_cpu_option_set("jvt")) {
+        env->jvt = riscv_cpu_cfg(env)->ext_jvt;
     }
 #endif
     if (!env->xmisa && cpu->cfg.ext_matrix) {
@@ -3665,6 +3754,88 @@ static const PropertyInfo prop_marchid = {
     .set = prop_marchid_set,
 };
 
+#ifndef CONFIG_USER_ONLY
+static void prop_mtvec_set(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    cpu->cfg.ext_mtvec = value;
+    cpu_option_add_user_setting("mtvec", value);
+}
+
+static void prop_mtvec_get(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    uint32_t value = RISCV_CPU(obj)->cfg.ext_mtvec;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_mtvec = {
+    .name = "mtvec",
+    .get = prop_mtvec_get,
+    .set = prop_mtvec_set,
+};
+
+static void prop_mtvt_set(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    cpu->cfg.ext_mtvt = value;
+    cpu_option_add_user_setting("mtvt", value);
+}
+
+static void prop_mtvt_get(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    uint32_t value = RISCV_CPU(obj)->cfg.ext_mtvt;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_mtvt = {
+    .name = "mtvt",
+    .get = prop_mtvt_get,
+    .set = prop_mtvt_set,
+};
+
+static void prop_jvt_set(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    RISCVCPU *cpu = RISCV_CPU(obj);
+    uint32_t value;
+
+    if (!visit_type_uint32(v, name, &value, errp)) {
+        return;
+    }
+    cpu->cfg.ext_jvt = value;
+    cpu_option_add_user_setting("jvt", value);
+}
+
+static void prop_jvt_get(Object *obj, Visitor *v, const char *name,
+                            void *opaque, Error **errp)
+{
+    uint32_t value = RISCV_CPU(obj)->cfg.ext_jvt;
+
+    visit_type_uint32(v, name, &value, errp);
+}
+
+static const PropertyInfo prop_jvt = {
+    .name = "jvt",
+    .get = prop_jvt_get,
+    .set = prop_jvt_set,
+};
+#endif
 /*
  * RVA22U64 defines some 'named features' that are cache
  * related: Za64rs, Zic64b, Ziccif, Ziccrse, Ziccamoa
@@ -3783,6 +3954,9 @@ static Property riscv_cpu_properties[] = {
 
 #ifndef CONFIG_USER_ONLY
     DEFINE_PROP_UINT64("resetvec", RISCVCPU, env.resetvec, DEFAULT_RSTVEC),
+    {.name = "mtvec", .info = &prop_mtvec},
+    {.name = "mtvt", .info = &prop_mtvt},
+    {.name = "jvt", .info = &prop_jvt},
 #endif
 
     DEFINE_PROP_BOOL("short-isa-string", RISCVCPU, cfg.short_isa_string, false),
@@ -4164,6 +4338,14 @@ static const TypeInfo riscv_cpu_type_infos[] = {
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDRV32, MXL_RV32,  rv32_c907fd_cpu_init),
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVRV32,  MXL_RV32, rv32_c907fdv_cpu_init),
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C907FDVMRV32, MXL_RV32, rv32_c907fdvm_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901PLUS_CP_RV32,  MXL_RV32,  rv32_e901plus_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901PLUSM_CP_RV32,  MXL_RV32,  rv32_e901plusm_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901PLUSB_CP_RV32,  MXL_RV32,  rv32_e901plusb_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901PLUSBM_CP_RV32,  MXL_RV32,  rv32_e901plusbm_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901_CP_RV32,  MXL_RV32,  rv32_e901_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901ZM_CP_RV32,  MXL_RV32,  rv32_e901zm_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901B_CP_RV32,  MXL_RV32,  rv32_e901b_cp_cpu_init),
+    DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_E901BZM_CP_RV32,  MXL_RV32,  rv32_e901bzm_cp_cpu_init),
 #if defined(CONFIG_USER_ONLY)
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908IRV32,  MXL_RV32,  rv32_c908i_cpu_init),
     DEFINE_VENDOR_CPU(TYPE_RISCV_CPU_C908RV32,   MXL_RV32,  rv32_c908_cpu_init),
