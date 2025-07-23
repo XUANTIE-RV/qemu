@@ -503,6 +503,16 @@ typedef struct {
     uint64_t frac_lo;
 } FloatParts256;
 
+typedef enum {
+    OCP_NONE = 0,
+    OCP_E4M3,
+    OCP_E2M1,
+    OCP_E2M3,
+    OCP_E3M2,
+    OCP_E8M0,
+    OCP_E5M2,
+} OCPFormat;
+
 /* These apply to the most significant word of each FloatPartsN. */
 #define DECOMPOSED_BINARY_POINT    63
 #define DECOMPOSED_IMPLICIT_BIT    (1ull << DECOMPOSED_BINARY_POINT)
@@ -533,12 +543,7 @@ typedef struct {
     bool nan_as_normal;
     bool nan_no1s_as_normal;
     bool zero_as_normal;
-    bool ocp_e4m3;
-    bool ocp_e2m1;
-    bool ocp_e2m3;
-    bool ocp_e3m2;
-    bool ocp_e8m0;
-    bool ocp_e5m2;
+    OCPFormat ocp;
 } FloatFmt;
 
 /* Expand fields based on the size of exponent and fraction */
@@ -571,12 +576,12 @@ static const FloatFmt float8e4_params = {
     FLOAT_PARAMS(4, 3),
     .inf_as_normal = true,
     .nan_no1s_as_normal = true,
-    .ocp_e4m3 = true
+    .ocp = OCP_E4M3,
 };
 
 static const FloatFmt float8e5_params = {
     FLOAT_PARAMS(5, 2),
-    .ocp_e5m2 = true,
+    .ocp = OCP_E5M2,
 };
 
 static const FloatFmt float32_params = {
@@ -595,21 +600,21 @@ static const FloatFmt float4e2_params = {
     FLOAT_PARAMS(2, 1),
     .inf_as_normal = true,
     .nan_as_normal = true,
-    .ocp_e2m1 = true
+    .ocp = OCP_E2M1,
 };
 
 static const FloatFmt float6e2_params = {
     FLOAT_PARAMS(2, 3),
     .inf_as_normal = true,
     .nan_as_normal = true,
-    .ocp_e2m3 = true
+    .ocp = OCP_E2M3,
 };
 
 static const FloatFmt float6e3_params = {
     FLOAT_PARAMS(3, 2),
     .inf_as_normal = true,
     .nan_as_normal = true,
-    .ocp_e3m2 = true
+    .ocp = OCP_E3M2,
 };
 
 static const FloatFmt float8e0_params = {
@@ -617,7 +622,7 @@ static const FloatFmt float8e0_params = {
     .inf_as_normal = true,
     .nan_no1s_as_normal = true,
     .zero_as_normal = true,
-    .ocp_e8m0 = true
+    .ocp = OCP_E8M0,
 };
 
 #define FLOATX80_PARAMS(R)              \
@@ -734,7 +739,7 @@ static uint64_t pack_raw64(const FloatParts64 *p, const FloatFmt *fmt)
 
     ret = (uint64_t)p->sign << (f_size + e_size);
     ret = deposit64(ret, f_size, e_size, p->exp);
-    if (!fmt->ocp_e8m0) {
+    if (fmt->ocp != OCP_E8M0) {
         ret = deposit64(ret, 0, f_size, p->frac);
     }
     return ret;

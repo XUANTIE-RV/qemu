@@ -170,7 +170,7 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
     uint64_t inc;
     bool overflow_norm = false;
     int exp, flags = 0;
-    if (fmt->ocp_e8m0 && p->sign) {
+    if ((fmt->ocp == OCP_E8M0) && p->sign) {
         p->exp = 0;
         return;
     }
@@ -234,17 +234,12 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
             }
-        } else if (unlikely(exp >= exp_max)) {
+        } else if (unlikely((fmt->ocp != OCP_NONE) && (exp >= exp_max))) {
+            uint64_t tmp_frac = 0;
             flags |= float_flag_overflow;
-            if (s->rebias_overflow) {
-                exp -= fmt->exp_re_bias;
-            } else if (overflow_norm) {
-                flags |= float_flag_inexact;
-                exp = exp_max - 1;
-                frac_allones(p);
-                p->frac_lo &= ~round_mask;
-            } else if (fmt->ocp_e4m3) {
-                uint64_t tmp_frac = (p->frac_lo & ~round_mask) >> frac_shift;
+            switch(fmt->ocp) {
+            case OCP_E4M3:
+                tmp_frac = (p->frac_lo & ~round_mask) >> frac_shift;
                 if ((exp > fmt->exp_max) || (tmp_frac > 0b1110)) {
                     exp = fmt->exp_max;
                     frac_allones(p);
@@ -264,7 +259,8 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                     flags &= ~float_flag_overflow;
                     p->frac_lo &= ~round_mask;
                 }
-            } else if (fmt->ocp_e5m2) {
+                break;
+            case OCP_E5M2:
                 if (s->sat) {
                     exp = fmt->exp_max - 1;
                     frac_allones(p);
@@ -272,8 +268,15 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                     flags |= float_flag_inexact;
                     flags |= float_flag_overflow;
                     p->frac_lo &= ~round_mask;
+                } else {
+                    /* out of range ->lfn, OF，NX */
+                    flags |= float_flag_inexact;
+                    p->cls = float_class_inf;
+                    exp = exp_max;
+                    frac_clear(p);
                 }
-            } else if (fmt->ocp_e8m0) {
+                break;
+            case OCP_E8M0:
                 exp = fmt->exp_max - 1;
                 frac_allones(p);
                 /* only sat: positive max norm, OF, NX */
@@ -281,15 +284,32 @@ static void partsN(uncanon_normal)(FloatPartsN *p, float_status *s,
                 flags |= float_flag_overflow;
                 p->frac_lo &= ~round_mask;
                 p->sign = false;
-            } else if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
+                break;
+            case OCP_E2M1:
+            case OCP_E2M3:
+            case OCP_E3M2:
                 if (exp > exp_max) {
                     /* out of range ->lfn, OF，NX */
                     flags |= float_flag_inexact;
+                    flags |= float_flag_overflow;
                     exp = exp_max;
                     frac_allones(p);
                     p->frac_lo &= ~round_mask;
                 }
-            } else {
+                break;
+            default:
+                g_assert_not_reached();
+            }
+        } else if (unlikely(exp >= exp_max)) {
+            flags |= float_flag_overflow;
+            if (s->rebias_overflow) {
+                exp -= fmt->exp_re_bias;
+            } else if (overflow_norm) {
+                flags |= float_flag_inexact;
+                exp = exp_max - 1;
+                frac_allones(p);
+                p->frac_lo &= ~round_mask;
+            }  else {
                 flags |= float_flag_inexact;
                 p->cls = float_class_inf;
                 exp = exp_max;
@@ -386,7 +406,8 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
         case float_class_inf:
             g_assert(!fmt->arm_althp);
             p->exp = fmt->exp_max;
-            if (fmt->ocp_e4m3) {
+            switch (fmt->ocp) {
+            case OCP_E4M3:
                 frac_allones(p);
                 if (s->sat) {
                     /* sat: inf->largest float number, no exception */
@@ -400,7 +421,7 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
                 frac_shr(p, fmt->frac_shift);
                 float_raise(flags, s);
                 return;
-            } else if (fmt->ocp_e5m2) {
+            case OCP_E5M2:
                 if (s->sat) {
                     p->exp = fmt->exp_max - 1;
                     frac_allones(p);
@@ -410,7 +431,8 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
                     float_raise(flags, s);
                     return;
                 }
-            } else if (fmt->ocp_e8m0) {
+                break;
+            case OCP_E8M0:
                 if (p->sign) {
                     p->exp = 0;
                 } else {
@@ -420,13 +442,17 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
                     frac_shr(p, fmt->frac_shift);
                 }
                 return;
-            } else if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
+            case OCP_E2M1:
+            case OCP_E2M3:
+            case OCP_E3M2:
                 /* only sat: inf -> lfn, no exception */
                 p->exp = fmt->exp_max;
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
                 frac_shr(p, fmt->frac_shift);
                 return;
+            default:
+                break;
             }
             frac_clear(p);
             return;
@@ -434,19 +460,24 @@ static void partsN(uncanon)(FloatPartsN *p, float_status *s,
         case float_class_snan:
             g_assert(!fmt->arm_althp);
             p->exp = fmt->exp_max;
-            if (fmt->ocp_e4m3 || fmt->ocp_e8m0 || fmt->ocp_e2m1 ||
-                fmt->ocp_e2m3 || fmt->ocp_e3m2 || fmt->ocp_e5m2) {
-                /*
-                 * e4m3, e5m2, e8m0: nan -> cnan, invalid has been raised for snan
-                 * e2m1, e2m3, e3m2: nan -> positive lfn, NV
-                 */
-                if (fmt->ocp_e2m1 || fmt->ocp_e2m3 || fmt->ocp_e3m2) {
-                    flags |= float_flag_invalid;
-                    float_raise(flags, s);
-                }
+            switch (fmt->ocp) {
+            case OCP_NONE:
+                break;
+            /*
+             * e4m3, e5m2, e8m0: nan -> cnan, invalid has been raised for snan
+             * e2m1, e2m3, e3m2: nan -> positive lfn, NV
+             */
+            case OCP_E2M1:
+            case OCP_E2M3:
+            case OCP_E3M2:
+                flags |= float_flag_invalid;
+                float_raise(flags, s);
+                /* fall through */
+            default:
                 frac_allones(p);
                 p->frac_lo &= ~round_mask;
                 p->sign = false;
+                break;
             }
             frac_shr(p, fmt->frac_shift);
             return;

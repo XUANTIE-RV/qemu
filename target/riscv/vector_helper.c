@@ -6076,19 +6076,9 @@ static void do_fncvt_e4_h(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float16 f = *((float16 *)vs2 + i);
-    float8e4 tmp = 0;
-    bool sign = float16_is_neg(f);
-
-    if (float16_is_signaling_nan(f, s)) {
-        tmp = float8e4_set_sign(E4M3_NAN, sign);
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (float16_is_quiet_nan(f, s)) {
-        tmp = float8e4_set_sign(E4M3_NAN, sign);
-    } else {
-        s->sat = env->utn_sat;
-        tmp = float16_to_float8e4(f, s);
-    }
-    *((float8e4 *)vd + i) = tmp;
+    env->fp_status.sat = env->utn_sat;
+     *((float8e4 *)vd + i) = float16_to_float8e4(f, s);
+    env->fp_status.sat = false;
 }
 
 void HELPER(th_vfncvt_e4_h)(void *vd, void *v0, void *vs2,
@@ -6128,71 +6118,13 @@ void HELPER(th_vfncvt_e4_h)(void *vd, void *v0, void *vs2,
 #define E5M2_EXP_MIN 0x0
 #define E5M2_FRAC_MIN 0x1
 
-/*
- * float16 is greater than max float8e5 normal when:
- * 1) float16 is infinity or
- * 2) float16 exp number is greater than max float8e5 exp number or
- * 3) float16 frac is greater than max float8e5 frac
- *
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool float16_gt_float8e5_max(float16 f)
-{
-    int f16_exp = ((f >> FP16_EXP_SHIFT) & FP16_EXP_MASK) - FP16_EXP_BIAS;
-    int f16_frac = f & FP16_FRAC_MASK;
-    int float8e5_exp_max = E5M2_EXP_MAX - E5M2_EXP_BIAS;
-    int float8e5_frac_max = E5M2_FRAC_MAX;
-    /* shift by number_of(f16_frac) - number_of(f8_frac) */
-    float8e5_frac_max = float8e5_frac_max << E5M2_FRAC_F16_SHIFT;
-
-    return ((f16_exp > float8e5_exp_max) ||
-            ((f16_exp == float8e5_exp_max) && (f16_frac > float8e5_frac_max)));
-}
-
-/*
- * float16 is less than min float8e5 subnormal when:
- * 1) float16 is zero or
- * 2) float16 exp number is less than min float8e5 exp number or
- * 3) float16 frac is less than float8e5 frac
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool float16_lt_float8e5_min(float16 f)
-{
-    int f16_exp = ((f >> FP16_EXP_SHIFT) & FP16_EXP_MASK) - FP16_EXP_BIAS;
-    int f16_frac = f & FP16_FRAC_MASK;
-    int float8e5_exp_min = E5M2_EXP_MIN - E5M2_EXP_BIAS;
-    int float8e5_frac_min = E5M2_EXP_MIN;
-    /* shift by number_of(f16_frac) - number_of(f8_frac) */
-    float8e5_frac_min = float8e5_frac_min << E5M2_FRAC_F16_SHIFT;
-
-    return (f16_exp < float8e5_exp_min) ||
-           ((f16_exp == float8e5_exp_min) && (f16_frac < float8e5_frac_min));
-}
-
 static void do_fncvt_e5_h(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float16 f = *((float16 *)vs2 + i);
-    float8e5 tmp = 0;
-    bool sign = float16_is_neg(f);
-
-    if (float16_is_signaling_nan(f, s)) {
-        tmp = float8e5_set_sign(E5M2_NAN, sign);
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (float16_is_quiet_nan(f, s)) {
-        tmp = float8e5_set_sign(E5M2_NAN, sign);
-    } else if (float16_gt_float8e5_max(f)) {
-        if (env->utn_sat) {
-            tmp = float8e5_set_sign(E5M2_MAX, sign);
-        } else {
-            tmp = float8e5_set_sign(E5M2_INF, sign);
-        }
-    } else if (float16_lt_float8e5_min(f)) {
-        tmp = float8e5_set_sign(E5M2_NAN, sign);
-    } else {
-        tmp = float16_to_float8e5(f, s);
-    }
-    *((float8e5 *)vd + i) = tmp;
+    env->fp_status.sat = env->utn_sat;
+     *((float8e5 *)vd + i) = float16_to_float8e5(f, s);
+    env->fp_status.sat = false;
 }
 
 void HELPER(th_vfncvt_e5_h)(void *vd, void *v0, void *vs2,
@@ -6227,75 +6159,13 @@ void HELPER(th_vfncvt_e5_h)(void *vd, void *v0, void *vs2,
 #define BF16_FRAC_MASK 0x7f
 #define E4M3_FRAC_BF16_SHIFT 0x4
 
-/*
- * bf16 is greater than max float8e4 normal when:
- * 1) bf16 is infinity or
- * 2) bf16 exp number is greater than max float8e4 exp number or
- * 3) bf16 frac is greater than max float8e4 frac
- *
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool bf16_gt_float8e4_max(bfloat16 f)
-{
-    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
-    int bf16_frac = f & BF16_FRAC_MASK;
-    int float8e4_exp_max = E4M3_EXP_MAX - E4M3_EXP_BIAS;
-    int float8e4_frac_max = E4M3_FRAC_MAX;
-    /* shift by number_of(bf16frac) - number_of(f8_frac) */
-    float8e4_frac_max = float8e4_frac_max << E4M3_FRAC_BF16_SHIFT;
-
-    return ((bf16_exp > float8e4_exp_max) ||
-            ((bf16_exp == float8e4_exp_max) && (bf16_frac > float8e4_frac_max)));
-}
-
-/*
- * bf16 is less than min float8e4 subnormal when:
- * 1) bf16 is zero or
- * 2) bf16 exp number is less than min float8e4 exp number or
- * 3) bf16 frac is less than float8e4 frac
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool bf16_lt_float8e4_min(bfloat16 f)
-{
-    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
-    int bf16_frac = f & BF16_FRAC_MASK;
-    int float8e4_exp_min = E4M3_EXP_MIN - E4M3_EXP_BIAS;
-    int float8e4_frac_min = E4M3_EXP_MIN;
-    /* shift by number_of(bf16frac) - number_of(f8_frac) */
-    float8e4_frac_min = float8e4_frac_min << E4M3_FRAC_BF16_SHIFT;
-
-    return (bf16_exp < float8e4_exp_min) ||
-           ((bf16_exp == float8e4_exp_min) && (bf16_frac < float8e4_frac_min));
-}
-
 static void do_fncvt_e4_bf16(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float16 f = *((float16 *)vs2 + i);
-    float8e4 tmp = 0;
-    bool sign = bfloat16_is_neg(f);
-
-    if (bfloat16_is_signaling_nan(f, s)) {
-        tmp = float8e4_set_sign(E4M3_NAN, sign);
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (bfloat16_is_quiet_nan(f, s)) {
-        tmp = float8e4_set_sign(E4M3_NAN, sign);
-    } else if (bf16_gt_float8e4_max(f)) {
-        if (env->utn_sat) {
-            tmp = float8e4_set_sign(E4M3_MAX, sign);
-        } else {
-            tmp = float8e4_set_sign(E4M3_NAN, sign);
-        }
-    } else if (bf16_lt_float8e4_min(f)) {
-        tmp = float8e4_set_sign(E4M3_ZERO, sign);
-    } else {
-        /* Fixme:
-         * [F8_E4_NAN(S 1111 001), E4M3_MAX - 1(S 1111 110)) will be
-         * recgnoized as NaN for bfloat16_to_float8e4.
-         */
-        tmp = bfloat16_to_float8e4(f, s);
-    }
-    *((float8e4 *)vd + i) = tmp;
+    env->fp_status.sat = env->utn_sat;
+     *((float8e4 *)vd + i) = bfloat16_to_float8e4(f, s);
+    env->fp_status.sat = false;
 }
 
 void HELPER(th_vfncvt_e4_bf16)(void *vd, void *v0, void *vs2,
@@ -6325,71 +6195,14 @@ void HELPER(th_vfncvt_e4_bf16)(void *vd, void *v0, void *vs2,
 }
 
 #define E5M2_FRAC_BF16_SHIFT 5
-/*
- * bf16 is greater than max float8e5 normal when:
- * 1) bf16 is infinity or
- * 2) bf16 exp number is greater than max float8e5 exp number or
- * 3) bf16 frac is greater than max float8e5 frac
- *
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool bf16_gt_float8e5_max(bfloat16 f)
-{
-    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
-    int bf16_frac = f & BF16_FRAC_MASK;
-    int float8e5_exp_max = E5M2_EXP_MAX - E5M2_EXP_BIAS;
-    int float8e5_frac_max = E5M2_FRAC_MAX;
-    /* shift by number_of(bf16_frac) - number_of(f8_frac) */
-    float8e5_frac_max = float8e5_frac_max << E5M2_FRAC_BF16_SHIFT;
-
-    return ((bf16_exp > float8e5_exp_max) ||
-            ((bf16_exp == float8e5_exp_max) && (bf16_frac > float8e5_frac_max)));
-}
-
-/*
- * bf16 is less than min float8e5 subnormal when:
- * 1) bf16 is zero or
- * 2) bf16 exp number is less than min float8e5 exp number or
- * 3) bf16 frac is less than float8e5 frac
- * As 1) can be merged into 2), we only implement 2) and 3).
- */
-static bool bf16_lt_float8e5_min(bfloat16 f)
-{
-    int bf16_exp = ((f >> BF16_EXP_SHIFT) & BF16_EXP_MASK) - BF16_EXP_BIAS;
-    int bf16_frac = f & BF16_FRAC_MASK;
-    int float8e5_exp_min = E5M2_EXP_MIN - E5M2_EXP_BIAS;
-    int float8e5_frac_min = E5M2_EXP_MIN;
-    /* shift by number_of(bf16_frac) - number_of(f8_frac) */
-    float8e5_frac_min = float8e5_frac_min << E5M2_FRAC_BF16_SHIFT;
-
-    return (bf16_exp < float8e5_exp_min) ||
-           ((bf16_exp == float8e5_exp_min) && (bf16_frac < float8e5_frac_min));
-}
 
 static void do_fncvt_e5_bf16(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     bfloat16 f = *((bfloat16 *)vs2 + i);
-    float8e5 tmp = 0;
-    bool sign = bfloat16_is_neg(f);
-
-    if (bfloat16_is_signaling_nan(f, s)) {
-        tmp = float8e5_set_sign(E5M2_NAN, sign);
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (bfloat16_is_quiet_nan(f, s)) {
-        tmp = float8e5_set_sign(E5M2_NAN, sign);
-    } else if (bf16_gt_float8e5_max(f)) {
-        if (env->utn_sat) {
-            tmp = float8e5_set_sign(E5M2_MAX, sign);
-        } else {
-            tmp = float8e5_set_sign(E5M2_INF, sign);
-        }
-    } else if (bf16_lt_float8e5_min(f)) {
-        tmp = float8e5_set_sign(E5M2_ZERO, sign);
-    } else {
-        tmp = bfloat16_to_float8e5(f, s);
-    }
-    *((float8e5 *)vd + i) = tmp;
+    env->fp_status.sat = env->utn_sat;
+    *((float8e5 *)vd + i) = bfloat16_to_float8e5(f, s);
+    env->fp_status.sat = false;
 }
 
 void HELPER(th_vfncvt_e5_bf16)(void *vd, void *v0, void *vs2,
@@ -6452,17 +6265,7 @@ static void do_fwcvt_h_e4(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float8e4 f = *((float8e4 *)vs2 + i);
-    float16 tmp = 0;
-    bool sign = float8e4_is_neg(f);
-
-    if (f == E4M3_NAN) {
-        tmp = FLOAT16_CNAN;
-    } else if (float8e4_is_zero(f)) {
-        tmp = float16_set_sign(float16_zero, sign);
-    } else {
-        tmp = float8e4_to_float16(f, s);
-    }
-    *((float16 *)vd + i) = tmp;
+     *((float16 *)vd + i) = float8e4_to_float16(f, s);
 }
 
 void HELPER(th_vfwcvt_h_e4)(void *vd, void *v0, void *vs2,
@@ -6496,20 +6299,7 @@ static void do_fwcvt_h_e5(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float8e5 f = *((float8e5 *)vs2 + i);
-    float16 tmp = 0;
-    bool sign = float8e5_is_neg(f);
-
-    if ((f & 0x7f) == E5M2_SNAN) { /* Fixme: SNaN(S.11111.01) QNaN(S.11111.10/11 */
-        tmp = FLOAT16_CNAN;
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (float8e5_is_any_nan(f)) {
-        tmp = FLOAT16_CNAN;
-    } else if (float8e5_is_zero(f)) {
-        tmp = float16_set_sign(float16_zero, sign);
-    } else {
-        tmp = float8e5_to_float16(f, s);
-    }
-    *((float16 *)vd + i) = tmp;
+     *((float16 *)vd + i) = float8e5_to_float16(f, s);
 }
 
 void HELPER(th_vfwcvt_h_e5)(void *vd, void *v0, void *vs2,
@@ -6544,17 +6334,7 @@ static void do_fwcvt_bf16_e4(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float8e4 f = *((float8e4 *)vs2 + i);
-    bfloat16 tmp = 0;
-    bool sign = float8e4_is_neg(f);
-
-    if (f == E4M3_NAN) {
-        tmp = BFLOAT16_CNAN;
-    } else if (float8e4_is_zero(f)) {
-        tmp = bfloat16_set_sign(bfloat16_zero, sign);
-    } else {
-        tmp = float8e4_to_bfloat16(f, s);
-    }
-    *((bfloat16 *)vd + i) = tmp;
+     *((bfloat16 *)vd + i)  = float8e4_to_bfloat16(f, s);
 }
 
 void HELPER(th_vfwcvt_bf16_e4)(void *vd, void *v0, void *vs2,
@@ -6587,20 +6367,7 @@ static void do_fwcvt_bf16_e5(void *vd, void* vs2, int i, CPURISCVState *env)
 {
     float_status *s = &env->fp_status;
     float8e5 f = *((float8e5 *)vs2 + i);
-    bfloat16 tmp = 0;
-    bool sign = float8e5_is_neg(f);
-
-    if ((f & 0x7f) == E5M2_SNAN) { /* Fixme: SNaN(S.11111.01) QNaN(S.11111.10/11 */
-        tmp = BFLOAT16_CNAN;
-        s->float_exception_flags |= float_flag_invalid;
-    } else if (float8e5_is_any_nan(f)) {
-        tmp = BFLOAT16_CNAN;
-    } else if (float8e5_is_zero(f)) {
-        tmp = bfloat16_set_sign(bfloat16_zero, sign);
-    } else {
-        tmp = float8e5_to_bfloat16(f, s);
-    }
-    *((float16 *)vd + i) = tmp;
+     *((float16 *)vd + i) = float8e5_to_bfloat16(f, s);
 }
 
 void HELPER(th_vfwcvt_bf16_e5)(void *vd, void *v0, void *vs2,
