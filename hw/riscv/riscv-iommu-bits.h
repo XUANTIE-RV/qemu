@@ -96,6 +96,8 @@ struct riscv_iommu_pq_record {
 #define RISCV_IOMMU_CAP_PD17            BIT_ULL(39)
 #define RISCV_IOMMU_CAP_PD20            BIT_ULL(40)
 
+#define RISCV_IOMMU_CAP_GIPC            BIT_ULL(56)
+
 enum riscv_iommu_igs_modes {
     RISCV_IOMMU_CAP_IGS_MSI = 0,
     RISCV_IOMMU_CAP_IGS_WSI,
@@ -301,6 +303,8 @@ struct riscv_iommu_dc {
 #define RISCV_IOMMU_DC_TC_DPE           BIT_ULL(9)
 #define RISCV_IOMMU_DC_TC_SBE           BIT_ULL(10)
 #define RISCV_IOMMU_DC_TC_SXL           BIT_ULL(11)
+
+#define RISCV_IOMMU_DC_TC_GIPC          BIT_ULL(24)
 
 /* Second-stage (aka G-stage) context fields */
 #define RISCV_IOMMU_DC_IOHGATP_PPN      RISCV_IOMMU_ATP_PPN_FIELD
