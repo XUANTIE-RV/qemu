@@ -276,6 +276,73 @@ static RISCVException sscofpmf_32(CPURISCVState *env, int csrno)
     return sscofpmf(env, csrno);
 }
 
+/* Sscucnt extension predicates */
+static RISCVException sscpuutil_any(CPURISCVState *env, int csrno)
+{
+    if (!riscv_cpu_cfg(env)->ext_sscpuutil) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException sscpuutil_any32(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_mxl(env) != MXL_RV32) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return sscpuutil_any(env, csrno);
+}
+
+static RISCVException sscpuutil_ctr(CPURISCVState *env, int csrno)
+{
+    if (!riscv_cpu_cfg(env)->ext_sscpuutil) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    /* Determine which counter bit to check */
+    uint32_t ctr_bit;
+    if (csrno == CSR_CORECYC || csrno == CSR_CORECYCH) {
+        ctr_bit = CPUUTILEN_CORECYC;
+    } else {
+        ctr_bit = CPUUTILEN_ACTTIME;
+    }
+
+    if (env->debugger) {
+        return RISCV_EXCP_NONE;
+    }
+
+    /* M-mode access control */
+    if (env->priv < PRV_M && !(env->mcpuutilen & ctr_bit)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    /* S-mode -> U-mode access control */
+    if (riscv_has_ext(env, RVS) && env->priv == PRV_U &&
+        !(env->scpuutilen & ctr_bit)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    /* Virtual mode access control */
+    if (env->virt_enabled) {
+        if (!(env->hcpuutilen & ctr_bit)) {
+            return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+        }
+        if (env->priv == PRV_U && !(env->scpuutilen & ctr_bit)) {
+            return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+        }
+    }
+
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException sscpuutil_ctr32(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_mxl(env) != MXL_RV32) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return sscpuutil_ctr(env, csrno);
+}
+
 static RISCVException smcntrpmf(CPURISCVState *env, int csrno)
 {
     if (!riscv_cpu_cfg(env)->ext_smcntrpmf) {
@@ -6062,6 +6129,120 @@ static int write_mexstatus(CPURISCVState *env, int csrno, target_ulong val)
     env->mexstatus = val;
     return RISCV_EXCP_NONE;
 }
+/*
+ * Control and Status Register function table
+ * riscv_csr_operations::predicate() must be provided for an implemented CSR
+ */
+/* Sscucnt read/write handlers */
+static RISCVException read_mcorecyc(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    /*
+     * In QEMU, mcorecyc counts host ticks when the vCPU is running.
+     * WFI halts the vCPU, so ticks naturally pause during idle.
+     */
+    *val = (target_ulong)cpu_get_host_ticks();
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mcorecych(CPURISCVState *env, int csrno,
+                                     target_ulong *val)
+{
+    *val = (target_ulong)(cpu_get_host_ticks() >> 32);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_macttime(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    /*
+     * macttime increments at a fixed reference frequency.
+     * Use the same time source as the architectural time CSR.
+     */
+    if (env->rdtime_fn) {
+        *val = (target_ulong)env->rdtime_fn(env->rdtime_fn_arg);
+    } else {
+        *val = (target_ulong)cpu_get_host_ticks();
+    }
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_macttimeh(CPURISCVState *env, int csrno,
+                                     target_ulong *val)
+{
+    if (env->rdtime_fn) {
+        *val = (target_ulong)(env->rdtime_fn(env->rdtime_fn_arg) >> 32);
+    } else {
+        *val = (target_ulong)(cpu_get_host_ticks() >> 32);
+    }
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mcpuutilen(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->mcpuutilen;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mcpuutilen(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+    env->mcpuutilen = val & CPUUTILEN_ALL;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_hcpuutilen(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->hcpuutilen;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_hcpuutilen(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+    env->hcpuutilen = val & CPUUTILEN_ALL;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_scpuutilen(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->scpuutilen;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_scpuutilen(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+    env->scpuutilen = val & CPUUTILEN_ALL;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_corecyc(CPURISCVState *env, int csrno,
+                                   target_ulong *val)
+{
+    return read_mcorecyc(env, csrno, val);
+}
+
+static RISCVException read_corecych(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    return read_mcorecych(env, csrno, val);
+}
+
+static RISCVException read_acttime(CPURISCVState *env, int csrno,
+                                   target_ulong *val)
+{
+    return read_macttime(env, csrno, val);
+}
+
+static RISCVException read_acttimeh(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    return read_macttimeh(env, csrno, val);
+}
 
 static int read_mdtcmcr(CPURISCVState *env, int csrno, target_ulong *val)
 {
@@ -7259,6 +7440,23 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_MCOUNTINHIBIT]  = { "mcountinhibit",  any, read_mcountinhibit,
                              write_mcountinhibit,
                              .min_priv_ver = PRIV_VERSION_1_11_0       },
+
+
+    /* Sscucnt: CPU Utilization Counters */
+    [CSR_MCORECYC]  = { "mcorecyc",  sscpuutil_any,   read_mcorecyc  },
+    [CSR_MACTTIME]  = { "macttime",  sscpuutil_any,   read_macttime  },
+    [CSR_MCORECYCH] = { "mcorecych", sscpuutil_any32, read_mcorecych },
+    [CSR_MACTTIMEH] = { "macttimeh", sscpuutil_any32, read_macttimeh },
+    [CSR_MCPUUTILEN]  = { "mcpuutilen",  sscpuutil_any,   read_mcpuutilen,
+                        write_mcpuutilen },
+    [CSR_HCPUUTILEN]  = { "hcpuutilen",  sscpuutil_any,   read_hcpuutilen,
+                        write_hcpuutilen },
+    [CSR_SCPUUTILEN]  = { "scpuutilen",  sscpuutil_any,   read_scpuutilen,
+                        write_scpuutilen },
+    [CSR_CORECYC]   = { "corecyc",   sscpuutil_ctr,   read_corecyc   },
+    [CSR_ACTTIME]   = { "acttime",   sscpuutil_ctr,   read_acttime   },
+    [CSR_CORECYCH]  = { "corecych",  sscpuutil_ctr32, read_corecych  },
+    [CSR_ACTTIMEH]  = { "acttimeh",  sscpuutil_ctr32, read_acttimeh  },
 
     [CSR_MCYCLECFG]      = { "mcyclecfg",   smcntrpmf, read_mcyclecfg,
                              write_mcyclecfg,
