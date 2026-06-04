@@ -409,6 +409,11 @@ struct CPUArchState {
     uint32_t scounteren;
     uint32_t mcounteren;
 
+    /* Sscucnt: CPU utilization counter enable */
+    uint32_t mcpuutilen;
+    uint32_t scpuutilen;
+    uint32_t hcpuutilen;
+
     uint32_t scountinhibit;
     uint32_t mcountinhibit;
 

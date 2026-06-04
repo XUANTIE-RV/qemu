@@ -273,6 +273,7 @@ static void create_fdt_socket_cpus(RISCVVirtState *s, int socket,
         qemu_fdt_setprop_cell(ms->fdt, cpu_name, "reg",
             s->soc[socket].hartid_base + cpu);
         qemu_fdt_setprop_string(ms->fdt, cpu_name, "device_type", "cpu");
+        qemu_fdt_setprop_cell(ms->fdt, cpu_name, "clock-frequency", 1000000000);
         riscv_socket_fdt_write_id(ms, cpu_name, socket);
         qemu_fdt_setprop_cell(ms->fdt, cpu_name, "phandle", cpu_phandle);
 

@@ -77,6 +77,12 @@
 #define CSR_CYCLE           0xc00
 #define CSR_TIME            0xc01
 #define CSR_INSTRET         0xc02
+
+/* Sscucnt: S/U-mode shadow counters */
+#define CSR_CORECYC         0xc30
+#define CSR_ACTTIME         0xc31
+#define CSR_CORECYCH        0xcb0
+#define CSR_ACTTIMEH        0xcb1
 #define CSR_HPMCOUNTER3     0xc03
 #define CSR_HPMCOUNTER4     0xc04
 #define CSR_HPMCOUNTER5     0xc05
@@ -204,6 +210,7 @@
 #define CSR_SIE             0x104
 #define CSR_STVEC           0x105
 #define CSR_SCOUNTEREN      0x106
+#define CSR_SCPUUTILEN      0x120
 
 /* Supervisor Configuration CSRs */
 #define CSR_SENVCFG         0x10A
@@ -269,6 +276,7 @@
 #define CSR_HIDELEG         0x603
 #define CSR_HIE             0x604
 #define CSR_HCOUNTEREN      0x606
+#define CSR_HCPUUTILEN        0x620
 #define CSR_HGEIE           0x607
 #define CSR_HTVAL           0x643
 #define CSR_HVIP            0x645
@@ -443,6 +451,13 @@
 
 /* Machine counter configuration registers */
 #define CSR_MCYCLECFG       0x321
+
+/* Sscucnt: CPU Utilization Counter CSRs (addresses TBD, placeholder) */
+#define CSR_MCPUUTILEN        0x320
+#define CSR_MCORECYC        0xb30
+#define CSR_MACTTIME        0xb31
+#define CSR_MCORECYCH       0xbb0
+#define CSR_MACTTIMEH       0xbb1
 #define CSR_MINSTRETCFG     0x322
 
 #define CSR_MHPMEVENT3      0x323
@@ -1405,3 +1420,8 @@ typedef enum RISCVException {
 #define SCONTEXT32    0xFFFF
 #define SCONTEXT64    0xFFFFFFFF
 #endif
+
+/* Sscucnt enable bits */
+#define CPUUTILEN_CORECYC     (1U << 0)
+#define CPUUTILEN_ACTTIME     (1U << 1)
+#define CPUUTILEN_ALL         (CPUUTILEN_CORECYC | CPUUTILEN_ACTTIME)
