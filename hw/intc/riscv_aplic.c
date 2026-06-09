@@ -34,6 +34,8 @@
 #include "sysemu/kvm.h"
 #include "kvm/kvm_riscv.h"
 #include "migration/vmstate.h"
+#include "hw/core/split-irq.h"
+#include "hw/riscv/xiaohui_v2.h"
 
 #define APLIC_MAX_IDC                  (1UL << 14)
 #define APLIC_MAX_SOURCE               1024
@@ -347,6 +349,25 @@ static void riscv_aplic_msi_send(RISCVAPLICState *aplic,
     RISCVAPLICState *aplic_m;
     uint32_t lhxs, lhxw, hhxs, hhxw, group_idx, msicfgaddr, msicfgaddrH;
 
+    if (aplic->fixed_msi) {
+        CPUState *cpu = cpu_by_arch_id(aplic->hartid_base + hart_idx);
+        CPURISCVState *env = cpu ? cpu_env(cpu) : NULL;
+        int priv = aplic->mmode ? 3 : 1;
+        bool virt = !aplic->mmode && !!guest_idx;
+        int xlen = riscv_cpu_mxl_bits(env);
+        int isel = eiid / xlen + ISELECT_IMSIC_EIP0;
+        target_ulong new_val = (target_ulong)1 << (eiid % xlen);
+        target_ulong wr_mask = new_val;
+        target_ulong val;
+        if (env) {
+            env->aia_ireg_rmw_fn[priv](env->aia_ireg_rmw_fn_arg[priv],
+                                        AIA_MAKE_IREG(isel,
+                                                      priv,
+                                                      virt, guest_idx, xlen),
+                                        &val, new_val, wr_mask);
+        }
+        return;
+    }
     aplic_m = aplic;
     while (aplic_m && !aplic_m->mmode) {
         aplic_m = aplic_m->parent;
@@ -376,6 +397,7 @@ static void riscv_aplic_msi_send(RISCVAPLICState *aplic,
 
     group_idx = hart_idx >> lhxw;
     hart_idx &= APLIC_xMSICFGADDR_PPN_LHX_MASK(lhxw);
+
 
     addr = msicfgaddr;
     addr |= ((uint64_t)(msicfgaddrH & APLIC_xMSICFGADDRH_BAPPN_MASK)) << 32;
@@ -545,11 +567,17 @@ static void riscv_aplic_request(void *opaque, int irq, int level)
         if ((level > 0) && !(state & APLIC_ISTATE_PENDING)) {
             riscv_aplic_set_pending_raw(aplic, irq, true);
             update = true;
+        } else if ((level == 0) && (state & APLIC_ISTATE_INPUT)) {
+            riscv_aplic_set_pending_raw(aplic, irq, false);
+            update = true;
         }
         break;
     case APLIC_SOURCECFG_SM_LEVEL_LOW:
         if ((level <= 0) && !(state & APLIC_ISTATE_PENDING)) {
             riscv_aplic_set_pending_raw(aplic, irq, true);
+            update = true;
+        } else if ((level != 0) && (state & APLIC_ISTATE_INPUT)) {
+            riscv_aplic_set_pending_raw(aplic, irq, false);
             update = true;
         }
         break;
@@ -593,10 +621,10 @@ static uint64_t riscv_aplic_read(void *opaque, hwaddr addr, unsigned size)
         return aplic->sourcecfg[irq];
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_MMSICFGADDR)) {
-        return aplic->mmsicfgaddr;
+        return aplic->fixed_msi ? 0 : aplic->mmsicfgaddr;
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_MMSICFGADDRH)) {
-        return aplic->mmsicfgaddrH;
+        return aplic->fixed_msi ? 0x80000000 : aplic->mmsicfgaddrH;
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_SMSICFGADDR)) {
         /*
@@ -608,10 +636,11 @@ static uint64_t riscv_aplic_read(void *opaque, hwaddr addr, unsigned size)
          *     only zero in at least one of the supervisor-level child
          * domains).
          */
-        return (aplic->num_children) ? aplic->smsicfgaddr : 0;
+        return (aplic->num_children && !aplic->fixed_msi) ? aplic->smsicfgaddr : 0;
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_SMSICFGADDRH)) {
-        return (aplic->num_children) ? aplic->smsicfgaddrH : 0;
+        return ((aplic->num_children) && !aplic->fixed_msi) ?
+                    aplic->smsicfgaddrH : 0;
     } else if ((APLIC_SETIP_BASE <= addr) &&
             (addr < (APLIC_SETIP_BASE + aplic->bitfield_words * 4))) {
         word = (addr - APLIC_SETIP_BASE) >> 2;
@@ -685,7 +714,11 @@ static void riscv_aplic_write(void *opaque, hwaddr addr, uint64_t value,
     if (addr == APLIC_DOMAINCFG) {
         /* Only IE bit writable at the moment */
         value &= APLIC_DOMAINCFG_IE;
-        aplic->domaincfg = value;
+        if (aplic->fixed_msi) {
+            aplic->domaincfg = value | APLIC_DOMAINCFG_DM;
+        } else {
+            aplic->domaincfg = value;
+        }
     } else if ((APLIC_SOURCECFG_BASE <= addr) &&
             (addr < (APLIC_SOURCECFG_BASE + (aplic->num_irqs - 1) * 4))) {
         irq  = ((addr - APLIC_SOURCECFG_BASE) >> 2) + 1;
@@ -705,12 +738,14 @@ static void riscv_aplic_write(void *opaque, hwaddr addr, uint64_t value,
         }
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_MMSICFGADDR)) {
-        if (!(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L)) {
+        if (!(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L) &&
+            !aplic->fixed_msi) {
             aplic->mmsicfgaddr = value;
         }
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_MMSICFGADDRH)) {
-        if (!(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L)) {
+        if (!(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L) &&
+            !aplic->fixed_msi) {
             aplic->mmsicfgaddrH = value & APLIC_xMSICFGADDRH_VALID_MASK;
         }
     } else if (aplic->mmode && aplic->msimode &&
@@ -725,13 +760,15 @@ static void riscv_aplic_write(void *opaque, hwaddr addr, uint64_t value,
          * domains).
          */
         if (aplic->num_children &&
-            !(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L)) {
+            !(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L) &&
+            !aplic->fixed_msi) {
             aplic->smsicfgaddr = value;
         }
     } else if (aplic->mmode && aplic->msimode &&
                (addr == APLIC_SMSICFGADDRH)) {
         if (aplic->num_children &&
-            !(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L)) {
+            !(aplic->mmsicfgaddrH & APLIC_xMSICFGADDRH_L) &&
+            !aplic->fixed_msi) {
             aplic->smsicfgaddrH = value & APLIC_xMSICFGADDRH_VALID_MASK;
         }
     } else if ((APLIC_SETIP_BASE <= addr) &&
@@ -897,6 +934,7 @@ static Property riscv_aplic_properties[] = {
     DEFINE_PROP_UINT32("num-irqs", RISCVAPLICState, num_irqs, 0),
     DEFINE_PROP_BOOL("msimode", RISCVAPLICState, msimode, 0),
     DEFINE_PROP_BOOL("mmode", RISCVAPLICState, mmode, 0),
+    DEFINE_PROP_BOOL("fixed-msi", RISCVAPLICState, fixed_msi, 0),
     DEFINE_PROP_END_OF_LIST(),
 };
 
@@ -977,17 +1015,49 @@ void riscv_aplic_add_child(DeviceState *parent, DeviceState *child)
 }
 
 /*
+ * Split a single APLIC IRQ output to multiple targets
+ * @src: Source device that generates the IRQ signal
+ * @aplic_out_irq: The specific output IRQ line number from the source device
+ * @out1: First target IRQ line to receive the split signal
+ * @out2: Second target IRQ line to receive the split signal
+ *
+ * This function creates an IRQ splitter device to distribute a single APLIC
+ * output interrupt signal to two different destination IRQ lines. 
+ * 
+ * Because it is not valid to try to connect one outbound GPIO to multiple
+ * qemu_irqs at once, or to connect multiple outbound GPIOs to the
+ * same qemu_irq.
+ *
+ */
+static void split_irq_for_aplic_out(DeviceState *src, uint32_t aplic_out_irq,
+                                    qemu_irq out1, qemu_irq out2)
+{
+    DeviceState *splitter = qdev_new(TYPE_SPLIT_IRQ);
+
+    /* Configure the splitter to have 2 output lines */
+    qdev_prop_set_uint32(splitter, "num-lines", 2);
+    qdev_realize_and_unref(splitter, NULL, &error_fatal);
+
+    /* Connect splitter outputs to the target IRQ input lines */
+    qdev_connect_gpio_out(splitter, 0, out1);
+    qdev_connect_gpio_out(splitter, 1, out2);
+
+    /* Connect the source APLIC output IRQ to the splitter input */
+    qdev_connect_gpio_out(src, aplic_out_irq, qdev_get_gpio_in(splitter, 0));
+}
+
+/*
  * Create APLIC device.
  */
 DeviceState *riscv_aplic_create(hwaddr addr, hwaddr size,
     uint32_t hartid_base, uint32_t num_harts, uint32_t num_sources,
-    uint32_t iprio_bits, bool msimode, bool mmode, DeviceState *parent)
+    uint32_t iprio_bits, bool msimode, bool mmode, DeviceState *parent,
+    bool fixed_msi)
 {
     DeviceState *dev = qdev_new(TYPE_RISCV_APLIC);
     uint32_t i;
 
     assert(num_harts < APLIC_MAX_IDC);
-    assert((APLIC_IDC_BASE + (num_harts * APLIC_IDC_SIZE)) <= size);
     assert(num_sources < APLIC_MAX_SOURCE);
     assert(APLIC_MIN_IPRIO_BITS <= iprio_bits);
     assert(iprio_bits <= APLIC_MAX_IPRIO_BITS);
@@ -999,6 +1069,7 @@ DeviceState *riscv_aplic_create(hwaddr addr, hwaddr size,
     qdev_prop_set_uint32(dev, "num-irqs", num_sources + 1);
     qdev_prop_set_bit(dev, "msimode", msimode);
     qdev_prop_set_bit(dev, "mmode", mmode);
+    qdev_prop_set_bit(dev, "fixed-msi", fixed_msi);
 
     if (parent) {
         riscv_aplic_add_child(parent, dev);
@@ -1010,13 +1081,21 @@ DeviceState *riscv_aplic_create(hwaddr addr, hwaddr size,
         sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);
     }
 
+    int irq_ext = mmode ? IRQ_M_EXT : IRQ_S_EXT;
     if (!msimode) {
         for (i = 0; i < num_harts; i++) {
             CPUState *cpu = cpu_by_arch_id(hartid_base + i);
+            RISCVCPU *rvcpu = RISCV_CPU(cpu);
+            CPURISCVState *env = &rvcpu->env;
+            qemu_irq cpu_in = qdev_get_gpio_in(DEVICE(cpu), irq_ext);
 
-            qdev_connect_gpio_out_named(dev, NULL, i,
-                                        qdev_get_gpio_in(DEVICE(cpu),
-                                            (mmode) ? IRQ_M_EXT : IRQ_S_EXT));
+            if (env->xt_clic_v0p10) {
+                qemu_irq clic_in = qdev_get_gpio_in(DEVICE(env->xt_clic_v0p10),
+                                        i * XIAOHUI_V2_CLIC_IRQ_NUMS + irq_ext);
+                split_irq_for_aplic_out(dev, i, cpu_in, clic_in);
+            } else {
+                qdev_connect_gpio_out(dev, i, cpu_in);
+            }
         }
     }
 

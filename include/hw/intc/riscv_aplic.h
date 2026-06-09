@@ -68,12 +68,14 @@ struct RISCVAPLICState {
     uint32_t num_irqs;
     bool msimode;
     bool mmode;
+    bool fixed_msi;
 };
 
 void riscv_aplic_add_child(DeviceState *parent, DeviceState *child);
 
 DeviceState *riscv_aplic_create(hwaddr addr, hwaddr size,
     uint32_t hartid_base, uint32_t num_harts, uint32_t num_sources,
-    uint32_t iprio_bits, bool msimode, bool mmode, DeviceState *parent);
+    uint32_t iprio_bits, bool msimode, bool mmode, DeviceState *parent,
+    bool fixed_msi);
 
 #endif

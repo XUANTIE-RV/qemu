@@ -4800,7 +4800,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (int16_t)env->vfp.reg[ry].dspc[i]
                 );
                 tmp1.dsps[i] = (
-                    env->vfp.reg[rz].dsps[cnt + i] +
+                    env->vfp.reg[rz + 1].dsps[i] +
                     (int16_t)env->vfp.reg[rx].dspc[cnt + i] *
                     (int16_t)env->vfp.reg[ry].dspc[cnt + i]
                 );
@@ -4814,7 +4814,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (int32_t)env->vfp.reg[ry].dsps[i]
                 );
                 tmp1.dspi[i] = (
-                    env->vfp.reg[rz].dspi[cnt + i] +
+                    env->vfp.reg[rz + 1].dspi[i] +
                     (int32_t)env->vfp.reg[rx].dsps[cnt + i] *
                     (int32_t)env->vfp.reg[ry].dsps[cnt + i]
                 );
@@ -4828,7 +4828,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (int64_t)env->vfp.reg[ry].dspi[i]
                 );
                 tmp1.dspl[i] = (
-                    env->vfp.reg[rz].dspl[cnt + i] +
+                    env->vfp.reg[rz + 1].dspl[i] +
                     (int64_t)env->vfp.reg[rx].dspi[cnt + i] *
                     (int64_t)env->vfp.reg[ry].dspi[cnt + i]
                 );
@@ -4845,7 +4845,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (uint16_t)env->vfp.reg[ry].udspc[i]
                 );
                 tmp1.udsps[i] = (
-                    env->vfp.reg[rz].udsps[cnt + i] +
+                    env->vfp.reg[rz + 1].udsps[i] +
                     (uint16_t)env->vfp.reg[rx].udspc[cnt + i] *
                     (uint16_t)env->vfp.reg[ry].udspc[cnt + i]
                 );
@@ -4859,7 +4859,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (uint32_t)env->vfp.reg[ry].udsps[i]
                 );
                 tmp1.udspi[i] = (
-                    env->vfp.reg[rz].udspi[cnt + i] +
+                    env->vfp.reg[rz + 1].udspi[i] +
                     (uint32_t)env->vfp.reg[rx].udsps[cnt + i] *
                     (uint32_t)env->vfp.reg[ry].udsps[cnt + i]
                 );
@@ -4873,7 +4873,7 @@ void VDSP2_HELPER(vmulae)(CPUCSKYState *env, uint32_t insn)
                     (uint64_t)env->vfp.reg[ry].udspi[i]
                 );
                 tmp1.udspl[i] = (
-                    env->vfp.reg[rz].udspl[cnt + i] +
+                    env->vfp.reg[rz + 1].udspl[i] +
                     (uint64_t)env->vfp.reg[rx].udspi[cnt + i] *
                     (uint64_t)env->vfp.reg[ry].udspi[cnt + i]
                 );

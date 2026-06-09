@@ -81,6 +81,7 @@ config XILINX
 config XILINX_AXI
     bool
     select PTIMER # for hw/dma/xilinx_axidma.c
+    select STREAM
 
 config XLNX_ZYNQMP
     bool

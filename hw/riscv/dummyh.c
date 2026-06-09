@@ -211,7 +211,7 @@ static void dummyh_init(MachineState *machine)
                         pirq[2 * j] = clic_irqs[3 + j * 256];
                         pirq[2 * j + 1] = clic_irqs[7 + j * 256];
                     }
-                    thead_clint_create(b_info->dev[i].addr, pirq, smp_cpus);
+                    thead_clint_create(b_info->dev[i].addr, pirq, smp_cpus, 20000000);
                 }
             }
             break;
@@ -226,6 +226,11 @@ static void dummyh_init(MachineState *machine)
                 continue;
             }
             if (plic_irqs[b_info->dev[i].irq]) {
+                if (has_plic) {
+                    csky_timer_set_freq(25000000ll);
+                } else if (has_clic) {
+                    csky_timer_set_freq(20000000ll);
+                }
                 csky_timer_create(b_info->dev[i].addr,
                                   &plic_irqs[b_info->dev[i].irq],
                                   &clic_irqs[b_info->dev[i].irq],

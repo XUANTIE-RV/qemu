@@ -72,6 +72,12 @@ typedef struct DisasContext {
     RISCVExtStatus mstatus_vs;
     uint32_t mcsr_ms;
     bool msd;
+    bool xt_aioe_en;
+    bool xt_cbop_en;
+    bool xt_vector_dis;
+    bool xt_crc_dis;
+    bool xt_coprcs_en;
+    bool xt_mm;
     uint32_t mem_idx;
     uint32_t priv;
     /*
@@ -106,29 +112,53 @@ typedef struct DisasContext {
     uint8_t vta;
     uint8_t vma;
     bool cfg_vta_all_1s;
+    bool altfmt;
     bool vstart_eq_zero;
     bool vl_eq_vlmax;
     uint16_t mlen;
     bool bf16;
     bool pwfp;
     bool pwint;
-    bool sparsity_fp;
-    bool sparsity_int;
+    bool bf20f32;
+    bool f8bf16;
     bool fp_int_cvt;
     bool f8f32;
     bool f8f16;
     bool i4i32;
     bool i8i32;
     bool i16i64;
+    bool bf16f32;
     bool f16f16;
+    bool bf16bf16;
     bool f32f32;
     bool f64f64;
     bool f16f32;
     bool f32f64;
+    bool f4f16;
+    bool f4bf16;
+    bool f4f32;
+    bool mhp;
+    bool mxf8;
+    bool mxf4;
+    bool mxf8f4;
+    bool msf;
+    bool mdma;
+    bool mred;
+    bool mew4b;
+    bool mew8b;
+    bool mew16b;
+    bool mew32b;
+    bool mew64b;
     bool mill;
+    bool me0;
     bool nill;
+    bool nx2;
     bool kill;
-    bool npill;
+    bool ke0;
+    bool km2;
+    bool km4;
+    bool km8;
+    bool tpe_tcm;
     uint16_t mrowlen;
     CPUState *cs;
     TCGv zero;
@@ -1354,6 +1384,7 @@ static uint32_t opcode_at(DisasContextBase *dcbase, target_ulong pc)
 /* Include the auto-generated decoder for 16 bit insn */
 #include "decode-insn16.c.inc"
 #include "insn_trans/trans_rvzce.c.inc"
+#include "insn_trans/trans_zilsd.c.inc"
 #include "insn_trans/trans_rvzcmop.c.inc"
 
 /* Include decoders for cfi extensions */
@@ -1470,7 +1501,7 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
         ctx->addr_width = 64 - riscv_pm_get_pmlen(pm_pmm);
         ctx->addr_signed = EX_TBFLAGS_ANY(tb_flags, PM_SIGNEXTEND);
     }
-    ctx->ztso = cpu->cfg.ext_ztso;
+    ctx->ztso = cpu->cfg.ext_ztso || cpu->cfg.ext_ssdtso;
     ctx->itrigger = EX_TBFLAGS_ANY(tb_flags, ITRIGGER);
     ctx->zero = tcg_constant_tl(0);
     ctx->virt_inst_excp = false;
@@ -1483,27 +1514,57 @@ static void riscv_tr_init_disas_context(DisasContextBase *dcbase, CPUState *cs)
     ctx->ext_psfoperand = cpu->cfg.ext_psfoperand;
     ctx->mcsr_ms = EX_TBFLAGS_THEAD(tb_flags, MS);
     ctx->msd = EX_TBFLAGS_THEAD(tb_flags, MSD);
-    ctx->pwfp = EX_TBFLAGS_THEAD(tb_flags, PWFP);
-    ctx->pwint = EX_TBFLAGS_THEAD(tb_flags, PWINT);
-    ctx->sparsity_fp = EX_TBFLAGS_THEAD(tb_flags, SPARSITYFP);
-    ctx->sparsity_int = EX_TBFLAGS_THEAD(tb_flags, SPARSITYINT);
-    ctx->fp_int_cvt = EX_TBFLAGS_THEAD(tb_flags, FPINTCVT);
-    ctx->f8f16 = EX_TBFLAGS_THEAD(tb_flags, F8F16);
-    ctx->f8f32 = EX_TBFLAGS_THEAD(tb_flags, F8F32);
-    ctx->i4i32 = EX_TBFLAGS_THEAD(tb_flags, I4I32);
-    ctx->i8i32 = EX_TBFLAGS_THEAD(tb_flags, I8I32);
-    ctx->i16i64 = EX_TBFLAGS_THEAD(tb_flags, I16I64);
-    ctx->f16f16 = EX_TBFLAGS_THEAD(tb_flags, F16F16);
-    ctx->f32f32 = EX_TBFLAGS_THEAD(tb_flags, F32F32);
-    ctx->f64f64 = EX_TBFLAGS_THEAD(tb_flags, F64F64);
-    ctx->f16f32 = EX_TBFLAGS_THEAD(tb_flags, F16F32);
-    ctx->f32f64 = EX_TBFLAGS_THEAD(tb_flags, F32F64);
+    ctx->pwfp = cpu->cfg.ext_xtheadmpwfp;
+    ctx->pwint = cpu->cfg.ext_xtheadmpwint;
+    ctx->bf20f32 = cpu->cfg.ext_xtheadmbf20f32;
+    ctx->f8bf16 = cpu->cfg.ext_xtheadmf8bf16;
+    ctx->fp_int_cvt = cpu->cfg.ext_xtheadmfp_int_cvt;
+    ctx->f8f16 = cpu->cfg.ext_xtheadmf8f16;
+    ctx->f8f32 = cpu->cfg.ext_xtheadmf8f32;
+    ctx->i4i32 = cpu->cfg.ext_xtheadmi4i32;
+    ctx->i8i32 = cpu->cfg.ext_xtheadmi8i32;
+    ctx->bf16f32 = cpu->cfg.ext_xtheadmbf16f32;
+    ctx->f16f16 = cpu->cfg.ext_xtheadmf16f16;
+    ctx->bf16bf16 = cpu->cfg.ext_xtheadmbf16bf16;
+    ctx->f32f32 = cpu->cfg.ext_xtheadmf32f32;
+    ctx->f64f64 = cpu->cfg.ext_xtheadmf64f64;
+    ctx->f16f32 = cpu->cfg.ext_xtheadmf16f32;
+    ctx->f32f64 = cpu->cfg.ext_xtheadmf32f64;
+    ctx->f4f16 = cpu->cfg.ext_xtheadmf4f16;
+    ctx->f4bf16 = cpu->cfg.ext_xtheadmf4bf16;
+    ctx->f4f32 = cpu->cfg.ext_xtheadmf4f32;
+    ctx->mhp = cpu->cfg.ext_xtheadmmhp;
+    ctx->mxf8 = cpu->cfg.ext_xtheadmmxf8;
+    ctx->mxf4 = cpu->cfg.ext_xtheadmmxf4;
+    ctx->mxf8f4 = cpu->cfg.ext_xtheadmmxf8mxf4;
+    ctx->msf = cpu->cfg.ext_xtheadmsf;
+    ctx->mdma = cpu->cfg.ext_xtheadmdma;
+    ctx->mred = cpu->cfg.ext_xtheadmred;
+    ctx->mew4b = cpu->cfg.ext_xtheadmew4b;
+    ctx->mew8b = cpu->cfg.ext_xtheadmew8b;
+    ctx->mew16b = cpu->cfg.ext_xtheadmew16b;
+    ctx->mew32b = cpu->cfg.ext_xtheadmew32b;
+    ctx->mew64b = cpu->cfg.ext_xtheadmew64b;
     ctx->mill = EX_TBFLAGS_THEAD(tb_flags, MILL);
+    ctx->me0 = EX_TBFLAGS_THEAD(tb_flags, ME0);
     ctx->nill = EX_TBFLAGS_THEAD(tb_flags, NILL);
+    ctx->nx2 = EX_TBFLAGS_THEAD(tb_flags, NX2);
     ctx->kill = EX_TBFLAGS_THEAD(tb_flags, KILL);
-    ctx->npill = EX_TBFLAGS_THEAD(tb_flags, NPILL);
+    ctx->ke0 = EX_TBFLAGS_THEAD(tb_flags, KE0);
+    ctx->km2 = EX_TBFLAGS_THEAD(tb_flags, KM2);
+    ctx->km4 = EX_TBFLAGS_THEAD(tb_flags, KM4);
+    ctx->km8 = EX_TBFLAGS_THEAD(tb_flags, KM8);
     ctx->bf16 = EX_TBFLAGS_THEAD(tb_flags, BF16);
     ctx->mrowlen = cpu->cfg.mrowlen;
+    ctx->altfmt = EX_TBFLAGS_THEAD(tb_flags, ALTFMT);
+    ctx->xt_aioe_en = EX_TBFLAGS_THEAD(tb_flags, AIOE_EN);
+    ctx->xt_cbop_en = EX_TBFLAGS_THEAD(tb_flags, CBOP_EN);
+    ctx->xt_crc_dis = EX_TBFLAGS_THEAD(tb_flags, CRC_DIS);
+    ctx->xt_vector_dis = EX_TBFLAGS_THEAD(tb_flags, XTV_DIS);
+    ctx->xt_coprcs_en = EX_TBFLAGS_THEAD(tb_flags, XTCP_EN);
+    ctx->xt_mm = EX_TBFLAGS_THEAD(tb_flags, MM);
+    /* Fixme: wait for OpenSBI support. EX_TBFLAGS_THEAD(tb_flags, TCM); */
+    ctx->tpe_tcm = EX_TBFLAGS_THEAD(tb_flags, TCM);
 }
 
 static void csky_tb_start_tb(CPURISCVState *env, TranslationBlock *tb)

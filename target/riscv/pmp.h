@@ -29,7 +29,9 @@ typedef enum {
     PMP_WRITE = 1 << 1,
     PMP_EXEC  = 1 << 2,
     PMP_AMATCH = (3 << 3),
-    PMP_LOCK  = 1 << 7
+    PMP_LOCK  = 1 << 7,
+    PMP_U = 1 << 8,
+    PMP_SHARED = 1 << 9
 } pmp_priv_t;
 
 typedef enum {
@@ -51,7 +53,7 @@ typedef enum {
 
 typedef struct {
     target_ulong addr_reg;
-    uint8_t  cfg_reg;
+    uint16_t  cfg_reg;
 } pmp_entry_t;
 
 typedef struct {
@@ -63,6 +65,7 @@ typedef struct {
     pmp_entry_t pmp[MAX_RISCV_PMPS];
     pmp_addr_t  addr[MAX_RISCV_PMPS];
     uint32_t num_rules;
+    uint8_t  spmp_start;
 } pmp_table_t;
 
 void pmpcfg_csr_write(CPURISCVState *env, uint32_t reg_index,
@@ -93,5 +96,26 @@ void pmp_unlock_entries(CPURISCVState *env);
 int get_physical_address_pmp(CPURISCVState *env, int *prot, hwaddr addr,
                              int size, MMUAccessType access_type,
                              int mode);
+uint8_t pmp_get_a_field(uint16_t cfg_reg);
+int pmp_is_in_range(CPURISCVState *env, int pmp_index, hwaddr addr);
+int spmp_lookup(CPURISCVState *env, hwaddr addr,
+                target_ulong size, MMUAccessType access_type,
+                pmp_priv_t *allowed_privs, int mmu_idx);
+target_ulong spmp_get_tlb_size(CPURISCVState *env, hwaddr addr);
+/*
+ * A function pointer type for callbacks that check if a PMP/SPMP rule
+ * at a given index is currently active.
+ */
+typedef bool (*is_pmp_rule_active_fn)(CPURISCVState *env, int index);
+target_ulong get_pmp_tlb_size_core(CPURISCVState *env, hwaddr addr,
+                                   int start_idx, int end_idx,
+                                   is_pmp_rule_active_fn is_active_cb);
+                                   
+target_ulong spmpaddr_csr_read(CPURISCVState *env, uint32_t addr_index);
+void spmpaddr_csr_write(CPURISCVState *env, uint32_t addr_index,
+                        target_ulong val);
 
+target_ulong spmpcfg_csr_read(CPURISCVState *env, uint32_t global_index);
+void spmpcfg_csr_write(CPURISCVState *env, uint32_t global_index,
+                       target_ulong val);
 #endif

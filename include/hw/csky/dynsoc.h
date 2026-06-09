@@ -40,7 +40,7 @@
 #define DYNSOC_FFT     (1 << 14)
 
 struct dynsoc_cpu {
-    char        cpu_name[32];
+    char        cpu_name[128];
     char        abi[8];
     char        endian[8];
 };

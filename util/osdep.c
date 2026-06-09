@@ -459,6 +459,44 @@ ssize_t qemu_write_full(int fd, const void *buf, size_t count)
 }
 
 /*
+ * A variant of read(2) which handles partial read.
+ *
+ * Return the number of bytes transferred.
+ * Set errno if fewer than `count' bytes are read.
+ *
+ * This function don't work with non-blocking fd's.
+ * Any of the possibilities with non-blocking fd's is bad:
+ *   - return a short read (then name is wrong)
+ *   - busy wait adding (errno == EAGAIN) to the loop
+ */
+ssize_t qemu_read_full(int fd, void *buf, size_t count)
+{
+    ssize_t ret = 0;
+    ssize_t total = 0;
+
+    while (count) {
+        ret = read(fd, buf, count);
+        if (ret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            break; /* other error */
+        }
+
+        if (ret == 0) {
+            /* EOF: cannot make progress */
+            errno = 0; /* optional; see note below */
+            break;
+        }
+
+        count -= ret;
+        buf = (char *)buf + ret;
+        total += ret;
+    }
+
+    return total;
+}
+/*
  * Opens a socket with FD_CLOEXEC set
  */
 int qemu_socket(int domain, int type, int protocol)

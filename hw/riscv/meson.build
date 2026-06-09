@@ -24,5 +24,6 @@ riscv_ss.add(when: 'CONFIG_RISCV_IOMMU', if_true: files('riscv-iommu.c', 'riscv-
 riscv_ss.add(when: 'CONFIG_RISCV_CBQRI',
               if_true: files('cbqri_capacity.c', 'cbqri_bandwidth.c'))
 riscv_ss.add(when: 'CONFIG_CBQRI_EXAMPLE_SOC', if_true: files('cbqri_example_soc.c'))
+riscv_ss.add(when: 'CONFIG_RISCV_TPE', if_true: files('riscv_tpe.c'))
 
 hw_arch += {'riscv': riscv_ss}

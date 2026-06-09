@@ -21,6 +21,7 @@
 
 #include "qemu/osdep.h"
 #include "hw/sysbus.h"
+#include "hw/qdev-properties.h"
 #include "hw/boards.h"
 #include "trace.h"
 #include "qemu/timer.h"
@@ -29,13 +30,15 @@
 #include "hw/core/cpu.h"
 #include "target/riscv/riscv-power.h"
 #include "qemu/bitops.h"
+#include "hw/misc/xiaohui_pcu.h"
 
 typedef struct {
     SysBusDevice parent_obj;
 
     MemoryRegion iomem;
     uint32_t release_bits;
-    uint64_t rvba[9];
+    uint64_t rvba[10];
+    bool use_pcu_rvba;
 } xiaohui_cpr_state;
 
 #define TYPE_XIAOHUI_CPR  "xiaohui_cpr"
@@ -84,7 +87,7 @@ static uint64_t xiaohui_cpr_read(void *opaque, hwaddr offset, unsigned size)
     case XIAOHUI_CPR_CPU8_RVBA_LO:
     case XIAOHUI_CPR_CPU9_RVBA_LO:
     {
-        i = (offset - XIAOHUI_CPR_CPU1_RVBA_LO) / 8;
+        i = (offset - XIAOHUI_CPR_CPU1_RVBA_LO) / 8 + 1;
         return s->rvba[i] & UINT32_MAX;
     }
     case XIAOHUI_CPR_CPU1_RVBA_HI:
@@ -97,7 +100,7 @@ static uint64_t xiaohui_cpr_read(void *opaque, hwaddr offset, unsigned size)
     case XIAOHUI_CPR_CPU8_RVBA_HI:
     case XIAOHUI_CPR_CPU9_RVBA_HI:
     {
-        i = (offset - XIAOHUI_CPR_CPU1_RVBA_HI) / 8;
+        i = (offset - XIAOHUI_CPR_CPU1_RVBA_HI) / 8 + 1;
         return s->rvba[i] >> 32;
     }
     case XIAOHUI_CPR_MXLEN:
@@ -135,14 +138,45 @@ static void xiaohui_cpr_write(void *opaque, hwaddr offset,
         i = 0;
         s->release_bits = value;
         while (value) {
-            i++;
             if (value & 0x1) {
                 cpu = qemu_get_cpu(i);
-                /* Release a not exist CPU is ignore */
+                /* Release a not-existent CPU is ignored */
                 if (cpu != NULL) {
-                    riscv_cpu_release(cpu, s->rvba[i - 1]);
+                    uint64_t rvba = s->rvba[i];
+                    int hart_id = i;
+
+                    if (s->use_pcu_rvba) {
+                        DeviceState *pcu = xiaohui_pcu_find_by_hart(hart_id);
+                        uint64_t pcu_rvba = 0;
+
+                        if (pcu == NULL) {
+                            qemu_log_mask(LOG_GUEST_ERROR,
+                                          "xiaohui_cpr: PCU for hart %d "
+                                          "not found, skip release\n",
+                                          hart_id);
+                            value = value >> 1;
+                            i++;
+                            continue;
+                        }
+
+                        if (!xiaohui_pcu_get_release_info(pcu, &pcu_rvba)) {
+                            qemu_log_mask(LOG_GUEST_ERROR,
+                                          "xiaohui_cpr: PCU for hart %d "
+                                          "not ready (rvba/mode not "
+                                          "configured), skip release\n",
+                                          hart_id);
+                            value = value >> 1;
+                            i++;
+                            continue;
+                        }
+
+                        rvba = pcu_rvba;
+                    }
+
+                    riscv_cpu_release(cpu, rvba, hart_id);
                 }
             }
+            i++;
             value = value >> 1;
         }
         break;
@@ -157,8 +191,8 @@ static void xiaohui_cpr_write(void *opaque, hwaddr offset,
     case XIAOHUI_CPR_CPU8_RVBA_LO:
     case XIAOHUI_CPR_CPU9_RVBA_LO:
     {
-        i = (offset - XIAOHUI_CPR_CPU1_RVBA_LO) / 8;
-        s->rvba[i] = deposit64(s->rvba[0], 0, 32, value);
+        i = (offset - XIAOHUI_CPR_CPU1_RVBA_LO) / 8 + 1;
+        s->rvba[i] = deposit64(s->rvba[i], 0, 32, value);
         break;
     }
     case XIAOHUI_CPR_CPU1_RVBA_HI:
@@ -171,8 +205,8 @@ static void xiaohui_cpr_write(void *opaque, hwaddr offset,
     case XIAOHUI_CPR_CPU8_RVBA_HI:
     case XIAOHUI_CPR_CPU9_RVBA_HI:
     {
-        i = (offset - XIAOHUI_CPR_CPU1_RVBA_HI) / 8;
-        s->rvba[i] = deposit64(s->rvba[0], 32, 32, value);
+        i = (offset - XIAOHUI_CPR_CPU1_RVBA_HI) / 8 + 1;
+        s->rvba[i] = deposit64(s->rvba[i], 32, 32, value);
         break;
     }
     default:
@@ -200,11 +234,24 @@ static void xiaohui_cpr_init(Object *obj)
     sysbus_init_mmio(sbd, &s->iomem);
 }
 
+static Property xiaohui_cpr_properties[] = {
+    DEFINE_PROP_BOOL("use-pcu-rvba", xiaohui_cpr_state, use_pcu_rvba, false),
+    DEFINE_PROP_END_OF_LIST(),
+};
+
+static void xiaohui_cpr_class_init(ObjectClass *klass, void *data)
+{
+    DeviceClass *dc = DEVICE_CLASS(klass);
+
+    device_class_set_props(dc, xiaohui_cpr_properties);
+}
+
 static const TypeInfo xiaohui_cpr_info = {
     .name          = TYPE_XIAOHUI_CPR,
     .parent        = TYPE_SYS_BUS_DEVICE,
     .instance_size = sizeof(xiaohui_cpr_state),
     .instance_init = xiaohui_cpr_init,
+    .class_init    = xiaohui_cpr_class_init,
 };
 
 static void xiaohui_cpr_register_types(void)

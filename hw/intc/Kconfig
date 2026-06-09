@@ -122,3 +122,7 @@ config CSKY_INTC
 
 config CSKY_MIC
     bool
+
+config XT_CLIC_V0P10
+    bool
+    select SPLIT_IRQ

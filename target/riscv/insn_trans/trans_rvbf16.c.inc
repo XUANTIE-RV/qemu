@@ -28,6 +28,18 @@
     } \
 } while (0)
 
+#define REQUIRE_ZVFBFMIN(ctx) do { \
+    if (!ctx->cfg_ptr->ext_zvfbfmin) { \
+        return false; \
+    } \
+} while (0)
+
+#define REQUIRE_XTHEADVFOFP8MIN(ctx) do { \
+    if (!ctx->cfg_ptr->ext_xtheadvfofp8min) { \
+        return false; \
+    } \
+} while (0)
+
 #define REQUIRE_ZVFBFWMA(ctx) do { \
     if (!ctx->cfg_ptr->ext_zvfbfwma) { \
         return false; \
@@ -82,7 +94,34 @@ static bool trans_vfncvtbf16_f_f_w(DisasContext *ctx, arg_vfncvtbf16_f_f_w *a)
                            vreg_ofs(ctx, a->rs2), tcg_env,
                            ctx->cfg_ptr->vlenb,
                            ctx->cfg_ptr->vlenb, data,
-                           gen_helper_vfncvtbf16_f_f_w);
+                           gen_helper_vfncvtbf16_f_f_w_h);
+        finalize_rvv_inst(ctx);
+        return true;
+    }
+    return false;
+}
+
+static bool trans_th_vfncvtbf16_f_f_w(DisasContext *ctx,
+                                      arg_th_vfncvtbf16_f_f_w *a)
+{
+    REQUIRE_FPU;
+    REQUIRE_XTHEADVFOFP8MIN(ctx);
+
+    if (opfv_narrow_check(ctx, a) && (ctx->sew == MO_8)) {
+        uint32_t data = 0;
+
+        gen_set_rm_chkfrm(ctx, RISCV_FRM_DYN);
+
+        data = FIELD_DP32(data, VDATA, VM, a->vm);
+        data = FIELD_DP32(data, VDATA, LMUL, ctx->lmul);
+        data = FIELD_DP32(data, VDATA, VTA, ctx->vta);
+        data = FIELD_DP32(data, VDATA, VMA, ctx->vma);
+        data = FIELD_DP32(data, VDATA, ALTFMT, ctx->altfmt);
+        tcg_gen_gvec_3_ptr(vreg_ofs(ctx, a->rd), vreg_ofs(ctx, 0),
+                           vreg_ofs(ctx, a->rs2), tcg_env,
+                           ctx->cfg_ptr->vlenb,
+                           ctx->cfg_ptr->vlenb, data,
+                           gen_helper_vfncvtbf16_f_f_w_b);
         finalize_rvv_inst(ctx);
         return true;
     }
@@ -107,7 +146,34 @@ static bool trans_vfwcvtbf16_f_f_v(DisasContext *ctx, arg_vfwcvtbf16_f_f_v *a)
                            vreg_ofs(ctx, a->rs2), tcg_env,
                            ctx->cfg_ptr->vlenb,
                            ctx->cfg_ptr->vlenb, data,
-                           gen_helper_vfwcvtbf16_f_f_v);
+                           gen_helper_vfwcvtbf16_f_f_v_h);
+        finalize_rvv_inst(ctx);
+        return true;
+    }
+    return false;
+}
+
+static bool trans_th_vfwcvtbf16_f_f_v(DisasContext *ctx,
+                                      arg_th_vfwcvtbf16_f_f_v *a)
+{
+    REQUIRE_FPU;
+    REQUIRE_XTHEADVFOFP8MIN(ctx);
+
+    if (opfv_widen_check(ctx, a) && (ctx->sew == MO_8)) {
+        uint32_t data = 0;
+
+        gen_set_rm_chkfrm(ctx, RISCV_FRM_DYN);
+
+        data = FIELD_DP32(data, VDATA, VM, a->vm);
+        data = FIELD_DP32(data, VDATA, LMUL, ctx->lmul);
+        data = FIELD_DP32(data, VDATA, VTA, ctx->vta);
+        data = FIELD_DP32(data, VDATA, VMA, ctx->vma);
+        data = FIELD_DP32(data, VDATA, ALTFMT, ctx->altfmt);
+        tcg_gen_gvec_3_ptr(vreg_ofs(ctx, a->rd), vreg_ofs(ctx, 0),
+                           vreg_ofs(ctx, a->rs2), tcg_env,
+                           ctx->cfg_ptr->vlenb,
+                           ctx->cfg_ptr->vlenb, data,
+                           gen_helper_vfwcvtbf16_f_f_v_b);
         finalize_rvv_inst(ctx);
         return true;
     }

@@ -49,7 +49,6 @@
 @r_vm    ...... vm:1 ..... ..... ... ..... ....... &rmrr %rs2 %rs1 %rd
 @r_vm_1  ...... . ..... ..... ... ..... .......    &rmrr vm=1 %rs2 %rs1 %rd
 @th_rs2    ....... ..... .....   ... ..... ....... &th_rs2 %rs2 %rd
-@r2_vm_1 ...... . ..... ..... ... ..... ....... &rmr vm=1 %rs2 %rd
 
 # XTheadBa
 # Instead of defining a new encoding, we simply use the decoder to
@@ -229,11 +228,36 @@ th_fcpx4 index:2 00010     fs2:5 fs1:5    100 fd:5      1011011 #th_fcpx4
 th_fcpx5 index:2 00010     fs2:5 fs1:5    101 fd:5      1011011 #th_fcpx5
 th_fcpx6 index:2 00011     fs2:5 imm:5    101 fd:5      1011011 #th_fcpx6
 
+# XTheadcvwn (Coprocessor Vector Widen/Narrow)
+th_vwcpx0_vx   index:2 1000 vm:1 vs2:5 rs1:5    010 vd:5      1011011 #th_vwcpx0_vx
+th_vwcpx1_vx   index:2 1000 vm:1 vs2:5 rs1:5    011 vd:5      1011011 #th_vwcpx1_vx
+th_vwcpx2_vv   index:2 1001 vm:1 vs2:5 vs1:5    010 vd:5      1011011 #th_vwcpx2_vv
+th_vwcpx3_vv   index:2 1001 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vwcpx3_vv
+th_vncpx4_vv   index:2 1010 vm:1 vs2:5 vs1:5    010 00000     1011011 #th_vncpx4_vv
+th_vncpx5_vv   index:2 1010 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vncpx5_vv
+th_vfwqcpx6_vf index:2 1011 vm:1 vs2:5 fs1:5    010 vd:5      1011011 #th_vfwqcpx6_vf
+th_vfwqcpx7_vf index:2 1011 vm:1 vs2:5 fs1:5    011 vd:5      1011011 #th_vfwqcpx7_vf
+th_vwqcpx8_vv  index:2 1100 vm:1 vs2:5 vs1:5    010 00000     1011011 #th_vwqcpx8_vv
+th_vwqcpx9_vv  index:2 1100 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vwqcpx9_vv
+th_vnqcpx10_vv index:2 1101 vm:1 vs2:5 vs1:5    010 00000     1011011 #th_vnqcpx10_vv
+th_vnqcpx11_vv index:2 1101 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vnqcpx11_vv
+th_vwcpx12_vv  index:2 1110 vm:1 vs2:5 vs1:5    010 00000     1011011 #th_vwcpx12_vv
+th_vwcpx13_vv  index:2 1110 vm:1 vs2:5 vs1:5    011 vd:5      1011011 #th_vwcpx13_vv
+th_vncpx14_v   index:2 1111 vm:1 vs2:5 00000    010 00000     1011011 #th_vncpx14_v
+th_vnqcpx15_v  index:2 1111 vm:1 vs2:5 00001    010 00000     1011011 #th_vnqcpx15_v
+th_vncpx16_v   index:2 1111 vm:1 vs2:5 10000    010 vd:5      1011011 #th_vncpx16_v
+th_vnqcpx17_v  index:2 1111 vm:1 vs2:5 10001    010 vd:5      1011011 #th_vnqcpx17_v
+
 # XTheadvsfa
 th_vfexp2  110000 . ..... 00000 110 .....  0001011 @r2_vm
 th_vftanh  110000 . ..... 00001 110 .....  0001011 @r2_vm
 th_vfsig   110000 . ..... 00010 110 .....  0001011 @r2_vm
 th_vfrec   110000 . ..... 00011 110 .....  0001011 @r2_vm
+th_vfsin   110000 . ..... 00100 110 .....  0001011 @r2_vm
+th_vfcos   110000 . ..... 00101 110 .....  0001011 @r2_vm
+th_vflog2  110000 . ..... 00110 110 .....  0001011 @r2_vm
+th_vfsqrt  110000 . ..... 00111 110 .....  0001011 @r2_vm
+th_vfrsqrt 110000 . ..... 01000 110 .....  0001011 @r2_vm
 
 # XTheadlpw
 th_wfe     000000 0 11100 00000 000 00000 0001011
@@ -300,20 +324,48 @@ th_vwaba_vv    111100 . ..... ..... 111 ..... 0001011  @r_vm
 th_vwaba_vx    111101 . ..... ..... 111 ..... 0001011  @r_vm
 th_vwabau_vv   111110 . ..... ..... 111 ..... 0001011  @r_vm
 th_vwabau_vx   111111 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabdu_vv    101000 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabdu_vx    101001 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabdu_vi    101010 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabau_vv    101110 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabau_vx    101111 . ..... ..... 111 ..... 0001011  @r_vm
-th_vabau_vi    101011 . ..... ..... 111 ..... 0001011  @r_vm
+th_vabdu_vv    101000 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabdu_vx    101001 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabdu_vi    101010 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabau_vv    101100 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabau_vx    101101 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabau_vi    101011 . ..... ..... 110 ..... 0001011  @r_vm
+th_vabsmax_vv  011010 . ..... ..... 111 ..... 0001011  @r_vm
 
 # *** Xuantie Arith ***
 th_vile_vv      110110 1 ..... ..... 110 ..... 0001011  @r_vm_1
 th_vilo_vv      111100 1 ..... ..... 110 ..... 0001011  @r_vm_1
-th_vgmul_vv     101000 1 ..... 10001 010 ..... 1110111  @r2_vm_1
-th_vgmul_vs     101001 1 ..... 10001 010 ..... 1110111  @r2_vm_1
+th_vgmulxor_vv  011110 1 ..... ..... 110 ..... 0001011  @r_vm_1
 th_vcrcfoldr_vv 111110 1 ..... ..... 110 ..... 0001011  @r_vm_1
 th_vcrcfoldn_vv 111111 1 ..... ..... 110 ..... 0001011  @r_vm_1
 
 # *** Xuantie Cbop ***
 th_cbo_cleanp   100000 0 00001 ..... 010 00000 0001111 @sfence_vm
+
+# *** Xuantie Atomic IO Enaueue ***
+th_senq_64b 0000000 ..... ..... 110 ..... 0101111 @r
+th_uenq_64b 0000100 ..... ..... 110 ..... 0101111 @r
+
+# *** Xuantie Vector OCP FP6 Convert Extension ***
+th_vfwcvt_f_f6_v  011110 . ..... 00000 111 ..... 0001011  @r2_vm
+th_vfncvt_f6_f_v  011110 . ..... 00001 111 ..... 0001011  @r2_vm
+
+# *** Xuantie Vector OCP FP4 Convert Extension ***
+th_vfwcvt_f_f_v_vf2  011110 . ..... 01010 111 ..... 0001011  @r2_vm
+th_vfncvt_f_f_w_vf2  011110 . ..... 10010 111 ..... 0001011  @r2_vm
+
+# *** Xuantie Vector OCP E8M0 Convert Extension ***
+th_vfwcvt_f_e8m0_v   011110 . ..... 01001 111 ..... 0001011  @r2_vm
+th_vfncvt_e8m0_f_w   011110 . ..... 10001 111 ..... 0001011  @r2_vm
+th_vfncvt_e8m0_f_q   011110 . ..... 11010 111 ..... 0001011  @r2_vm
+
+# *** Xuantie Vector OCP FP8 Convert Extension ***
+th_vfncvt_bf16_sat_f_f_w   011110 . ..... 10000 111 ..... 0001011  @r2_vm
+th_vfncvt_f_f_q            011110 . ..... 11000 111 ..... 0001011  @r2_vm
+th_vfncvt_sat_f_f_q        011110 . ..... 11001 111 ..... 0001011  @r2_vm
+th_vfncvtbf16_f_f_w  011110 . ..... 10101 111 ..... 0001011 @r2_vm
+th_vfwcvtbf16_f_f_v  011110 . ..... 01101 111 ..... 0001011 @r2_vm
+
+# *** Xuantie CRC Instruction Extension ***
+th_crc32c_w  0000000 ..... ..... 110 ..... 0001011 @r
+th_crc32c_d  0000001 ..... ..... 110 ..... 0001011 @r

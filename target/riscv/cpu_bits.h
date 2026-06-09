@@ -377,6 +377,18 @@
 #define CSR_PMPCFG1         0x3a1
 #define CSR_PMPCFG2         0x3a2
 #define CSR_PMPCFG3         0x3a3
+#define CSR_PMPCFG4         0x3a4
+#define CSR_PMPCFG5         0x3a5
+#define CSR_PMPCFG6         0x3a6
+#define CSR_PMPCFG7         0x3a7
+#define CSR_PMPCFG8         0x3a8
+#define CSR_PMPCFG9         0x3a9
+#define CSR_PMPCFG10        0x3aa
+#define CSR_PMPCFG11        0x3ab
+#define CSR_PMPCFG12        0x3ac
+#define CSR_PMPCFG13        0x3ad
+#define CSR_PMPCFG14        0x3ae
+#define CSR_PMPCFG15        0x3af
 #define CSR_PMPADDR0        0x3b0
 #define CSR_PMPADDR1        0x3b1
 #define CSR_PMPADDR2        0x3b2
@@ -393,6 +405,54 @@
 #define CSR_PMPADDR13       0x3bd
 #define CSR_PMPADDR14       0x3be
 #define CSR_PMPADDR15       0x3bf
+#define CSR_PMPADDR16       0x3c0
+#define CSR_PMPADDR17       0x3c1
+#define CSR_PMPADDR18       0x3c2
+#define CSR_PMPADDR19       0x3c3
+#define CSR_PMPADDR20       0x3c4
+#define CSR_PMPADDR21       0x3c5
+#define CSR_PMPADDR22       0x3c6
+#define CSR_PMPADDR23       0x3c7
+#define CSR_PMPADDR24       0x3c8
+#define CSR_PMPADDR25       0x3c9
+#define CSR_PMPADDR26       0x3ca
+#define CSR_PMPADDR27       0x3cb
+#define CSR_PMPADDR28       0x3cc
+#define CSR_PMPADDR29       0x3cd
+#define CSR_PMPADDR30       0x3ce
+#define CSR_PMPADDR31       0x3cf
+#define CSR_PMPADDR32       0x3d0
+#define CSR_PMPADDR33       0x3d1
+#define CSR_PMPADDR34       0x3d2
+#define CSR_PMPADDR35       0x3d3
+#define CSR_PMPADDR36       0x3d4
+#define CSR_PMPADDR37       0x3d5
+#define CSR_PMPADDR38       0x3d6
+#define CSR_PMPADDR39       0x3d7
+#define CSR_PMPADDR40       0x3d8
+#define CSR_PMPADDR41       0x3d9
+#define CSR_PMPADDR42       0x3da
+#define CSR_PMPADDR43       0x3db
+#define CSR_PMPADDR44       0x3dc
+#define CSR_PMPADDR45       0x3dd
+#define CSR_PMPADDR46       0x3de
+#define CSR_PMPADDR47       0x3df
+#define CSR_PMPADDR48       0x3e0
+#define CSR_PMPADDR49       0x3e1
+#define CSR_PMPADDR50       0x3e2
+#define CSR_PMPADDR51       0x3e3
+#define CSR_PMPADDR52       0x3e4
+#define CSR_PMPADDR53       0x3e5
+#define CSR_PMPADDR54       0x3e6
+#define CSR_PMPADDR55       0x3e7
+#define CSR_PMPADDR56       0x3e8
+#define CSR_PMPADDR57       0x3e9
+#define CSR_PMPADDR58       0x3ea
+#define CSR_PMPADDR59       0x3eb
+#define CSR_PMPADDR60       0x3ec
+#define CSR_PMPADDR61       0x3ed
+#define CSR_PMPADDR62       0x3ee
+#define CSR_PMPADDR63       0x3ef
 
 /* Debug/Trace Registers (shared with Debug Mode) */
 #define CSR_TSELECT         0x7a0
@@ -619,6 +679,7 @@ typedef enum {
 #define HSTATUS_VTW          0x00200000
 #define HSTATUS_VTSR         0x00400000
 #define HSTATUS_VSXL         0x300000000
+#define HSTATUS_HUPMM        0x3000000000000ULL
 
 #define HSTATUS32_WPRI       0xFF8FF87E
 #define HSTATUS64_WPRI       0xFFFFFFFFFF8FF87EULL
@@ -668,7 +729,8 @@ typedef enum {
 #define PTE_SOFT            0x300 /* Reserved for Software */
 #define PTE_PBMT            0x6000000000000000ULL /* Page-based memory types */
 #define PTE_N               0x8000000000000000ULL /* NAPOT translation */
-#define PTE_RESERVED        0x1FC0000000000000ULL /* Reserved bits */
+#define PTE_RESERVED(svrsw60t59b)    \
+    (svrsw60t59b ? 0x07C0000000000000ULL : 0x1FC0000000000000ULL) /* Reserved bits */
 #define PTE_ATTR            (PTE_N | PTE_PBMT) /* All attributes bits */
 
 /* Page table PPN shift amount */
@@ -733,7 +795,9 @@ typedef enum RISCVException {
 #define IRQ_M_EXT                          11
 #define IRQ_S_GEXT                         12
 #define IRQ_PMU_OVF                        13
-#define IRQ_LOCAL_MAX                      16
+/* Xuantie interrupt causes */
+#define IRQ_TPE_DMA                        49
+#define IRQ_LOCAL_MAX                      64
 #define IRQ_LOCAL_GUEST_MAX                (TARGET_LONG_BITS - 1)
 
 /* mip masks */
@@ -751,6 +815,7 @@ typedef enum RISCVException {
 #define MIP_MEIP                           (1 << IRQ_M_EXT)
 #define MIP_SGEIP                          (1 << IRQ_S_GEXT)
 #define MIP_LCOFIP                         (1 << IRQ_PMU_OVF)
+#define MIP_TPE_DMA                        (1ULL << IRQ_TPE_DMA)
 
 /* sip masks */
 #define SIP_SSIP                           MIP_SSIP
@@ -779,6 +844,8 @@ typedef enum RISCVException {
 #define MENVCFG_CBIE                       (3UL << 4)
 #define MENVCFG_CBCFE                      BIT(6)
 #define MENVCFG_CBZE                       BIT(7)
+#define MENVCFG_DTSO                       BIT(8)
+#define MENVCFG_SUENQ                      BIT(31)
 #define MENVCFG_CDE                        (1ULL << 60)
 #define MENVCFG_PMM                        (3ULL << 32)
 #define MENVCFG_DTE                        (1ULL << 59) /* Ssdbltrp extension */
@@ -798,6 +865,7 @@ typedef enum RISCVException {
 #define SENVCFG_CBIE                       MENVCFG_CBIE
 #define SENVCFG_CBCFE                      MENVCFG_CBCFE
 #define SENVCFG_CBZE                       MENVCFG_CBZE
+#define SENVCFG_DTSO                       MENVCFG_DTSO
 #define SENVCFG_PMM                        MENVCFG_PMM
 
 #define HENVCFG_FIOM                       MENVCFG_FIOM
@@ -806,6 +874,8 @@ typedef enum RISCVException {
 #define HENVCFG_CBIE                       MENVCFG_CBIE
 #define HENVCFG_CBCFE                      MENVCFG_CBCFE
 #define HENVCFG_CBZE                       MENVCFG_CBZE
+#define HENVCFG_DTSO                       MENVCFG_DTSO
+#define HENVCFG_SUENQ                      MENVCFG_SUENQ
 #define HENVCFG_PMM                        MENVCFG_PMM
 #define HENVCFG_DTE                        MENVCFG_DTE
 #define HENVCFG_ADUE                       MENVCFG_ADUE
@@ -976,7 +1046,6 @@ typedef enum RISCVException {
 /* [M|S|VS]SELCT value for Indirect CSR Access Extension */
 #define ISELECT_CD_FIRST                   0x40
 #define ISELECT_CD_LAST                    0x5f
-#define ISELECT_MASK_SXCSRIND              0xfff
 
 /* Dummy [M|S|VS]ISELECT value for emulating [M|S|VS]TOPEI CSRs */
 #define ISELECT_IMSIC_TOPEI                (ISELECT_MASK_AIA + 1)
@@ -1076,6 +1145,9 @@ typedef enum RISCVException {
 #define MCONTEXT64_HCONTEXT                0x0000000000003FFFULL
 
 /* Xuantie custom CSRs */
+#define CSR_SUENQ         0x9D0
+#define CSR_SUENQ_DL      0xC000000000000000ULL
+#define CSR_SUENQ_DATA    0xFFFFFFFF
 #define TH_MSTATUS_VS     0x01800000
 
 #define TH_FSR_VXRM_SHIFT      9
@@ -1101,17 +1173,51 @@ typedef enum RISCVException {
 #define CSR_MLENB           0xCC1
 #define CSR_XMISA           0xCC2
 
-#define MXSTATUS_MSD        0x1
+/* Matrix 0.5 CSR */
+#define CSR_XMXADESC        0x810
+#define CSR_XMXBDESC        0x811
+/* Independent access of xmcsr field */
+#define CSR_XMXRM           0x812
+#define CSR_XMSAT           0x813
+#define CSR_XMFFLAGS        0x814
+#define CSR_XMFRM           0x815
+#define CSR_XMSATEN         0x816
+
+#define CSR_XMXADESC_BLOCKSIZE     0x3
+#define CSR_XMXADESC_COLIDX_SHIFT  2
+#define CSR_XMXADESC_COLIDX        0xffff
+
+#define MXSTATUS_MSD        BIT_ULL(0)
+#define MXSTATUS_CP_EN      BIT_ULL(24)
+#define MXSTATUS_MM         BIT_ULL(15)
 
 #define MEXSTATUS_EXPT      0x20
 #define MEXSTATUS_SPSWAP    0x20000
 
 /* Matrix Sub Extension */
-#define MATRIX_PW_FLOAT         0x80000000
-#define MATRIX_SPARSITY_FLOAT   0x40000000
-#define MATRIX_FLOAT_INT_CVT    0x20000000
-#define MATRIX_PW_INT           0x10000000
-#define MATRIX_SPARSITY_INT     0x8000000
+#define MATRIX_PW_FLOAT      0x80000000
+#define MATRIX_MHP           0x40000000
+#define MATRIX_FLOAT_INT_CVT 0x20000000
+#define MATRIX_PW_INT        0x10000000
+
+#define MATRIX_MEW64B        0x8000000
+#define MATRIX_MEW32B        0x4000000
+#define MATRIX_MEW16B        0x2000000
+#define MATRIX_MEW8B         0x1000000
+#define MATRIX_MEW4B         0x800000
+#define MATRIX_MRED          0x400000
+#define MATRIX_MSF           0x200000
+#define MATRIX_MDMA          0x100000
+
+#define MATRIX_MULT_MXF8MXF4    0x40000
+#define MATRIX_MULT_MXF8        0x20000
+#define MATRIX_MULT_MXF4        0x10000
+#define MATRIX_MULT_F4F32       0x8000
+#define MATRIX_MULT_F4BF16      0x4000
+#define MATRIX_MULT_F4F16       0x2000
+#define MATRIX_MULT_F8BF16      0x1000
+#define MATRIX_MULT_BF20F32     0x800
+#define MATRIX_MULT_BF16F32     0x400
 #define MATRIX_MULT_F8F32       0x200
 #define MATRIX_MULT_F8F16       0x100
 #define MATRIX_MULT_F32F64      0x80
@@ -1119,15 +1225,21 @@ typedef enum RISCVException {
 #define MATRIX_MULT_F64F64      0x20
 #define MATRIX_MULT_F32F32      0x10
 #define MATRIX_MULT_F16F16      0x8
-#define MATRIX_MULT_I16I64      0x4
+#define MATRIX_MULT_BF16BF16    0x4
 #define MATRIX_MULT_I8I32       0x2
 #define MATRIX_MULT_I4I32       0x1
 
 /* Matrix Status */
 #define MCSR_RM            0x3
 #define MCSR_SAT           0x4
+#define MCSR_FFLAGS_SHIFT  3
 #define MCSR_FFLAGS        0xf8
+#define MCSR_FRM_SHIFT     8
 #define MCSR_FRM           0x700
+
+/* Matrix 0.5 new fields */
+#define MCSR_XMSATEN_SHIFT 11
+#define MCSR_XMSATEN       0x800
 
 /* Xuantie CSR */
 
@@ -1146,7 +1258,7 @@ typedef enum RISCVException {
 #define CSR_TH_UTNMODE      0x8da
 #define TH_UTNMODE_SAT      0x1
 #define MFASTM_ENABLE       0x8000000000000000
- 
+
 #define CSR_MXSTATUS        0x7c0
 #define CSR_MHCR            0x7c1
 #define CSR_MCOR            0x7c2
@@ -1157,6 +1269,7 @@ typedef enum RISCVException {
 #define CSR_MRVBR           0x7c7
 #define CSR_MCER            0x7c8
 #define CSR_MCOUNTERWEN     0x7c9
+#define CSR_MHINT2H         0x7ca
 #define CSR_MCOUNTERINTEN   0x7ca
 #define CSR_MCOUNTEROF      0x7cb
 #define CSR_MHINT2          0x7cc
@@ -1174,6 +1287,8 @@ typedef enum RISCVException {
 #define CSR_MCINDEXH        0x7da
 #define CSR_MCDATA0H        0x7db
 #define CSR_MCDATA1H        0x7dc
+#define CSR_MIEBR           0x7de
+#define CSR_MDEBR           0x7df
 #define CSR_MRADDR          0x7e0
 #define CSR_MEXSTATUS       0x7e1
 #define CSR_MNMICAUSE       0x7e2
@@ -1199,6 +1314,7 @@ typedef enum RISCVException {
 #define CSR_MDBGINFO        0xfe1
 #define CSR_MPCFIFO         0xfe2
 #define CSR_MDBGFIFO2       0xfe3
+#define CSR_MPMPDELEG       0xfe4
 #define CSR_SXSTATUS        0x5c0
 #define CSR_SHCR            0x5c1
 #define CSR_SCER2           0x5c2
@@ -1220,9 +1336,8 @@ typedef enum RISCVException {
 #define CSR_SSBEPA2         0x5d2
 #define CSR_SCERH           0x5d3
 #define CSR_SCER2H          0x5d4
-#define CSR_CYCLE_C910      0x5e0
-#define CSR_SHPMCOUNTER1    0x5e1
-#define CSR_SHPMCOUNTER2    0x5e2
+#define CSR_SCYCLE          0x5e0
+#define CSR_SINSTRET        0x5e2
 #define CSR_SHPMCOUNTER3    0x5e3
 #define CSR_SHPMCOUNTER4    0x5e4
 #define CSR_SHPMCOUNTER5    0x5e5
@@ -1289,6 +1404,53 @@ typedef enum RISCVException {
 #define CSR_SHPMCOUNTER30H   0x9fe
 #define CSR_SHPMCOUNTER31H   0x9ff
 
+#define CSR_MFPPCR           0xbc0
+#define CSR_MONCHIPBA        0xbc1
+#define CSR_MFLASHCR         0xbc2
+#define CSR_MRASCR           0xbc3
+#define CSR_MSTCCR           0xbc4
+#define CSR_MWATCHDOG        0xbc5
+#define CSR_MBUSTIME1        0xbc6
+#define CSR_MBUSTIME2        0xbc7
+#define CSR_MBUSTIME3        0xbc8
+#define CSR_MERRINJ          0xbc9
+#define CSR_MTEBR0           0xbca
+#define CSR_MTEBR1           0xbcb
+#define CSR_MVMID            0xbcc
+#define CSR_MTIMEDELTA       0xbcd
+#define CSR_MTIMEDELTAH      0xbce
+#define CSR_MLOCKWAY         0xbd8
+#define CSR_MLOCKADDR        0xbd9
+#define CSR_MUNLOCKCTL       0xbda
+
+/* E908A CacheLock */
+#define CSR_MRplCntlSt	     0xbd8
+#define CSR_MCacheLock	     0xbd9
+#define CSR_MCacheRplPri0	 0xbda
+#define CSR_MCacheRplPri1	 0xbdb
+#define CSR_MCacheRplPri2	 0xbdc
+#define CSR_MCacheRplPri3	 0xbdd
+#define CSR_MCacheRplPri4	 0xbde
+#define CSR_MCacheRplPri5	 0xbdf
+
+#define CSR_SRplCntlSt	     0x9d8
+#define CSR_SCacheLock	     0x9d9
+#define CSR_SCacheRplPri0	 0x9da
+#define CSR_SCacheRplPri1	 0x9db
+#define CSR_SCacheRplPri2	 0x9dc
+#define CSR_SCacheRplPri3	 0x9dd
+#define CSR_SCacheRplPri4	 0x9de
+#define CSR_SCacheRplPri5	 0x9df
+
+#define CSR_URplCntlSt   	 0x8e8
+#define CSR_UCacheLock	     0x8e9
+#define CSR_UCacheRplPri0	 0x8ea
+#define CSR_UCacheRplPri1	 0x8eb
+#define CSR_UCacheRplPri2	 0x8ec
+#define CSR_UCacheRplPri3	 0x8ed
+#define CSR_UCacheRplPri4	 0x8ee
+#define CSR_UCacheRplPri5	 0x8ef
+
 /* Floating point round mode in fxcr */
 #define FXCR_RD_SHIFT       24
 #define FXCR_RD             (0x7 << FXCR_RD_SHIFT)
@@ -1330,26 +1492,30 @@ typedef enum RISCVException {
 #define CSKY_SMCIR_TTLBINV_ALL_MASK  (1 << CSKY_SMCIR_TTLBINV_ALL_SHIFT)
 
 /* CLIC */
-#define CSR_MINTSTATUS      0x346
-#define CSR_SINTSTATUS      0x146
-#define CSR_MCLICBASE       0x350
-#define CSR_MSCRATCHCSW     0x348
-#define CSR_MSCRATCHCSL     0x349
+#define CSR_MINTSTATUS_0p8      0x346
+#define CSR_SINTSTATUS_0p8      0x146
+#define CSR_MINTSTATUS_0p10     0xfb1
+#define CSR_SINTSTATUS_0p10     0xdb1
+#define CSR_MCLICBASE           0x350
+#define CSR_MSCRATCHCSW         0x348
+#define CSR_MSCRATCHCSL         0x349
+#define CSR_SSCRATCHCSW         0x148
+#define CSR_SSCRATCHCSL         0x149
 
 /* mintstatus */
 #define MINTSTATUS_MIL                     0xff000000 /* mil[7:0] */
 #define MINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
 #define MINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
 
-/* sintstatus */
-#define SINTSTATUS_SIL                     0x0000ff00 /* sil[7:0] */
-#define SINTSTATUS_UIL                     0x000000ff /* uil[7:0] */
-
 #define CSR_MINTTHRESH      0x347
 #define CSR_SINTTHRESH      0x147
+#define MINTTHRESH_MTH                     0xff000000 /* mth[7:0] */
+#define MINTTHRESH_MTH_V0P10               0x000000ff /* mth[7:0] */
 
 #define CSR_MTVT            0x307
 #define CSR_STVT            0x107
+#define STVT_MASK_RV32      0xffffffc0
+#define STVT_MASK_RV64      0xffffffffffffffc0ULL
 
 /* FIXME: only exist in 0.9 spec */
 #define CSR_MNXTI           0x345
@@ -1368,19 +1534,19 @@ typedef enum RISCVException {
 #define SCAUSE_EXCCODE                     0x00000fff /* exccode[11:0] */
 
 /* Smsdid */
-#define CSR_MTTP        0xbc0
-#define CSR_MSDCFG      0xbd1
+#define CSR_MMPT        0x382
+#define CSR_MSDCFG      0xbd0
 
-#define MTTP_MODE_MASK_32   0xC0000000
-#define MTTP_SDID_MASK_32   0x3F000000
-#define MTTP_PPN_MASK_32    0x003FFFFF
+#define MMPT_MODE_MASK_32   0xC0000000
+#define MMPT_SDID_MASK_32   0x3F000000
+#define MMPT_PPN_MASK_32    0x003FFFFF
 
-#define MTTP_MODE_SHIFT_32  30
-#define MTTP_SDID_SHIFT_32  24
+#define MMPT_MODE_SHIFT_32  30
+#define MMPT_SDID_SHIFT_32  24
 
-#define MTTP_MODE_MASK_64   0xF000000000000000ULL
-#define MTTP_SDID_MASK_64   0x0FC0000000000000ULL
-#define MTTP_PPN_MASK_64    0x00000FFFFFFFFFFFULL
+#define MMPT_MODE_MASK_64   0xF000000000000000ULL
+#define MMPT_SDID_MASK_64   0x0FC0000000000000ULL
+#define MMPT_PPN_MASK_64    0x000FFFFFFFFFFFFFULL
 
 #define MPTE_L3_VALID       0x0000100000000000ULL
 #define MPTE_L3_RESERVED    0xFFFFE00000000000ULL
@@ -1391,8 +1557,8 @@ typedef enum RISCVException {
 #define MPTE_L1_RESERVED_64    0xFFFFFFFF00000000ULL
 #define MPTE_L1_RESERVED_32    0xFFFF0000
 
-#define MTTP_MODE_SHIFT_64  60
-#define MTTP_SDID_SHIFT_64  54
+#define MMPT_MODE_SHIFT_64  60
+#define MMPT_SDID_SHIFT_64  54
 
 /* Zicfiss */
 #define CSR_SSP             0x011
@@ -1404,4 +1570,109 @@ typedef enum RISCVException {
 #define CSR_SCONTEXT  0x5a8
 #define SCONTEXT32    0xFFFF
 #define SCONTEXT64    0xFFFFFFFF
+
+/* TPE CSR */
+#define CSR_XMDMAIDLE       0xcc3
+#define XMDMAIDLE_IDLE_MASK 0xff
+#define CSR_XMTCMCSR 0x8000000000000823ULL
+#define XMTCMCSR_MCA_MASK    0x1
+#define XMTCMCSR_MTCMEN_MASK 0x2
+#define CSR_XMDMAERRINFO        0x9d5
+#define XMDMAERRINFO_VEC_MASK   0xf
+#define XMDMAERRINFO_TYPE_MASK  0xf00
+#define XMDMAERRINFO_ID_MASK    0xf000
+#define XMDMAERRINFO_V_MASK     INT64_MIN
+#define CSR_XMSYNCTR     0x817
+#define XMSYNCTR_CHAIN_NEXT_ID 0xff
+#define XMSYNCTR_CHAIN_HEAD (0x1ULL << 30)
+#define XMSYNCTR_SEND_SEMA  (0x1ULL << 31)
+#define CSR_XMSYNCDSR    0xcc4
+#define XMSYNCDSR_SYNC_DONE 0x1
+
+/* Xuantie C930 CSR */
+#define CSR_XT_CESTATUS 0x805
+#define CSR_XT_SER      0x806
+#define CSR_XT_MCDATA2  0x7dd
+
+#define CSR_XT_PMACFG0  0x8000000000000000ULL
+#define CSR_XT_PMACFG2  0x8000000000000002ULL
+#define CSR_XT_PMAADDR0_64 0x8000000000000010ULL
+#define CSR_XT_PMAADDR1_64 0x8000000000000011ULL
+#define CSR_XT_PMAADDR2_64 0x8000000000000012ULL
+#define CSR_XT_PMAADDR3_64 0x8000000000000013ULL
+#define CSR_XT_PMAADDR4_64 0x8000000000000014ULL
+#define CSR_XT_PMAADDR5_64 0x8000000000000015ULL
+#define CSR_XT_PMAADDR6_64 0x8000000000000016ULL
+#define CSR_XT_PMAADDR7_64 0x8000000000000017ULL
+#define CSR_XT_PMAADDR8_64 0x8000000000000018ULL
+#define CSR_XT_PMAADDR9_64 0x8000000000000019ULL
+#define CSR_XT_PMAADDR10_64 0x800000000000001aULL
+#define CSR_XT_PMAADDR11_64 0x800000000000001bULL
+#define CSR_XT_PMAADDR12_64 0x800000000000001cULL
+#define CSR_XT_PMAADDR13_64 0x800000000000001dULL
+#define CSR_XT_PMAADDR14_64 0x800000000000001eULL
+#define CSR_XT_PMAADDR15_64 0x800000000000001fULL
+
+#define CSR_XT_PMAADDR0_32  0x80000010UL
+#define CSR_XT_PMAADDR1_32  0x80000011UL
+#define CSR_XT_PMAADDR2_32  0x80000012UL
+#define CSR_XT_PMAADDR3_32  0x80000013UL
+#define CSR_XT_PMAADDR4_32  0x80000014UL
+#define CSR_XT_PMAADDR5_32  0x80000015UL
+#define CSR_XT_PMAADDR6_32  0x80000016UL
+#define CSR_XT_PMAADDR7_32  0x80000017UL
+#define CSR_XT_PMAADDR8_32  0x80000018UL
+#define CSR_XT_PMAADDR9_32  0x80000019UL
+#define CSR_XT_PMAADDR10_32 0x8000001aUL
+#define CSR_XT_PMAADDR11_32 0x8000001bUL
+#define CSR_XT_PMAADDR12_32 0x8000001cUL
+#define CSR_XT_PMAADDR13_32 0x8000001dUL
+#define CSR_XT_PMAADDR14_32 0x8000001eUL
+#define CSR_XT_PMAADDR15_32 0x8000001fUL
+#define CSR_XT_PMAADDR16_32 0x80000020UL
+#define CSR_XT_PMAADDR17_32 0x80000021UL
+#define CSR_XT_PMAADDR18_32 0x80000022UL
+#define CSR_XT_PMAADDR19_32 0x80000023UL
+#define CSR_XT_PMAADDR20_32 0x80000024UL
+#define CSR_XT_PMAADDR21_32 0x80000025UL
+#define CSR_XT_PMAADDR22_32 0x80000026UL
+#define CSR_XT_PMAADDR23_32 0x80000027UL
+#define CSR_XT_PMAADDR24_32 0x80000028UL
+#define CSR_XT_PMAADDR25_32 0x80000029UL
+#define CSR_XT_PMAADDR26_32 0x8000002aUL
+#define CSR_XT_PMAADDR27_32 0x8000002bUL
+#define CSR_XT_PMAADDR28_32 0x8000002cUL
+#define CSR_XT_PMAADDR29_32 0x8000002dUL
+#define CSR_XT_PMAADDR30_32 0x8000002eUL
+#define CSR_XT_PMAADDR31_32 0x8000002fUL
+
+
+#define CSR_XT_L3_BADDR  0x8000000000000600ULL
+#define CSR_XT_MHINT4    0x8000000000001000ULL
+#define CSR_XT_MHINT7    0x8000000000001200ULL
+#define CSR_XT_MLOCKCNT  0x8000000000001201ULL
+#define CSR_XT_MEM_MCTRL 0x8000000000001400ULL
+#define CSR_XT_L2_FLUSH  0x8000000000001600ULL
+#define CSR_XT_MTWCOUNTER 0x8000000000001a00ULL 
+#define CSR_XT_MNASTATUS 0x8000000000000210ULL
+#define CSR_XT_MHINT3    0xC000000000001200ULL
+
+#define MNASTATUS_AIOE_EN   BIT_ULL(3)
+#define MNASTATUS_CBOP_EN   BIT_ULL(4)
+
+#define MHINT3_XTAIDIS      BIT_ULL(9)
+#define MHINT7_CBOP_EN      BIT_ULL(0)
+
+#define XT_CLIC_ENTRIES_FIRST                  0x1000
+#define XT_CLIC_ENTRIES_LAST                   0x14a0
+#define CSR_SPMPADDR0                          0x80000e00
+#define CSR_SPMPSWITCH                         0x80000e40
+#define CSR_MPMPSWITCH0                        0x800000c8
+#define CSR_MPMPSWITCH1                        0x800000c9
+#define XT_CSR_MTIMEDELTA                      0xbcd
+#define XT_CSR_MTIMEDELTAH                     0xbce
+#define XT_CSR_MVMID                           0xbcc
+#define XT_CSR_VMID_MASK                       0xff
+#define XT_CSR_VMID_EN_MASK                    0x80000000
+#define XT_CSR_MPMPDELEG                       0x80000e41
 #endif

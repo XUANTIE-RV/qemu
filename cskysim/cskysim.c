@@ -38,12 +38,13 @@
 #include "../include/hw/csky/dynsoc.h"
 #include "compile_gen.h"
 
-#define CSKYSIM_VERSION "cskysim v5.2.8 (QEMU V9.0.0)"
+#define CSKYSIM_VERSION "cskysim v5.4.3 (QEMU V9.0.0)"
 #define XML_MINVER      0.0
 #define XML_MAXVER      2.0
 
 static enum {
     USER_DEFINE_CPU_PROP = 1 << 0,
+    USER_DEFINE_CPU = 1 << 1,
 } cskysim_user_options;
 
 char *cpu_610_mpu_list[] = {
@@ -233,6 +234,12 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "e906p",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "e906fp",      .arch = "riscv32", .abi = "riscv32" },
     { .name = "e906fdp",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063t",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063ft",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063fdt", .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063pt",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063fpt", .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e9063fdpt", .arch = "riscv32", .abi = "riscv32" },
     { .name = "e907",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "e907f",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "e907fd",      .arch = "riscv32", .abi = "riscv32" },
@@ -267,9 +274,11 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "c908-cp_v2",        .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908i-cp_v2",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908v-cp_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908vk-cp_v2",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908-cp-xt_v2",        .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908i-cp-xt_v2",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908v-cp-xt_v2",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908vk-cp-xt_v2",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906",        .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906fd",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c906fdv",     .arch = "riscv64", .abi = "riscv64" },
@@ -300,9 +309,11 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "r908-cp",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fd-cp",     .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fdv-cp",    .arch = "riscv64", .abi = "riscv64" },
+    { .name = "r908fdvk-cp",   .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908-cp-xt",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fd-cp-xt",     .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908fdv-cp-xt",    .arch = "riscv64", .abi = "riscv64" },
+    { .name = "r908fdvk-cp-xt",   .arch = "riscv64", .abi = "riscv64" },
     { .name = "r908-rv32",          .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fd-rv32",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fdv-rv32",       .arch = "riscv32", .abi = "riscv32" },
@@ -312,6 +323,18 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "r908-cp-xt-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fd-cp-xt-rv32",     .arch = "riscv32", .abi = "riscv32" },
     { .name = "r908fdv-cp-xt-rv32",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "r908fdvk-cp-rv32",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "r908fdvk-cp-xt-rv32",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1",      .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1f",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fd",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fdv",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fdvk",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1t",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1ft",    .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fdt",   .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fdvt",  .arch = "riscv32", .abi = "riscv32" },
+    { .name = "xt-e908a1fdvkt", .arch = "riscv32", .abi = "riscv32" },
     { .name = "c910v3",         .arch = "riscv64", .abi = "riscv64" },
     { .name = "c910v3-cp",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c910v3-cp-xt",      .arch = "riscv64", .abi = "riscv64" },
@@ -319,9 +342,25 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "c920v3-cp",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "c920v3-cp-xt",      .arch = "riscv64", .abi = "riscv64" },
     { .name = "zhijiang",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c930-cp",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c930v-cp",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9301fdt",    .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9301fdvkt",  .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c925-cp",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c925v-cp",      .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9251fdt",    .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9251fdvt",   .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9251fdvkt",  .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9501fdvt",   .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9501fdvkt",  .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9501fdvmt",  .arch = "riscv64", .abi = "riscv64" },
+    { .name = "xt-c9501fdvkmt", .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908x",          .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908x-cp",       .arch = "riscv64", .abi = "riscv64" },
     { .name = "c908x-cp-xt",       .arch = "riscv64", .abi = "riscv64" },
+    { .name = "c908-rv32",      .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908i-rv32",     .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908v-rv32",     .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908x-rv32",     .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908x-cp-rv32",  .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908x-cp-xt-rv32",  .arch = "riscv32", .abi = "riscv32" },
@@ -331,9 +370,11 @@ static const struct cpu_info cpu_arr[] = {
     { .name = "c908-cp_v2-rv32",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908i-cp_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908v-cp_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908vk-cp_v2-rv32",      .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908-cp-xt_v2-rv32",        .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908i-cp-xt_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
     { .name = "c908v-cp-xt_v2-rv32",       .arch = "riscv32", .abi = "riscv32" },
+    { .name = "c908vk-cp-xt_v2-rv32",      .arch = "riscv32", .abi = "riscv32" },
     { .name = NULL }
 };
 
@@ -826,9 +867,25 @@ static int check_cpu_info(struct dynsoc_board_info *b_info)
     int i = 0,
         is_find = 0,
         ret = 0;
+    char *comma_pos;
+    char cpu_name_base[32];
+
+    /* Extract base CPU name before comma if present */
+    comma_pos = strchr(b_info->cpu.cpu_name, ',');
+    if (comma_pos != NULL) {
+        size_t len = comma_pos - b_info->cpu.cpu_name;
+        if (len >= sizeof(cpu_name_base)) {
+            len = sizeof(cpu_name_base) - 1;
+        }
+        strncpy(cpu_name_base, b_info->cpu.cpu_name, len);
+        cpu_name_base[len] = '\0';
+    } else {
+        strncpy(cpu_name_base, b_info->cpu.cpu_name, sizeof(cpu_name_base) - 1);
+        cpu_name_base[sizeof(cpu_name_base) - 1] = '\0';
+    }
 
     while (cpu_arr[i].name != NULL) {
-        if (strcmp(b_info->cpu.cpu_name, cpu_arr[i].name) == 0) {
+        if (strcmp(cpu_name_base, cpu_arr[i].name) == 0) {
             is_find = 1;
             break;
         }
@@ -1291,7 +1348,7 @@ char *cmd_copy(struct dynsoc_board_info *b_info, int argc, char *argv[],
                         index += strlen(argv[i + 1]);
                         *index = ' ';
                         index += 1;
-                        i += 2;
+                        i += 1;
                         continue;
                     }
                     printf("pctrace legal value is on or off\n");
@@ -1306,6 +1363,8 @@ char *cmd_copy(struct dynsoc_board_info *b_info, int argc, char *argv[],
                 i++;
                 continue;
             }
+        } else if (strcmp(argv[i], "-cpu") == 0) {
+            cskysim_user_options |= USER_DEFINE_CPU;
         }
         strcpy(index, argv[i]);
         index += strlen(argv[i]);
@@ -1379,7 +1438,6 @@ void start_qemu(char *cmd)
 static char *prefix_args(struct dynsoc_board_info *b_info, char *cmd)
 {
     char *ret;
-
     if ((strcmp(b_info->arch, "riscv32") == 0)) {
         strcpy(cmd, "qemu-system-riscv32 ");
     } else if ((strcmp(b_info->arch, "riscv64") == 0)) {
@@ -1431,7 +1489,7 @@ char *cmd_copy(struct dynsoc_board_info *b_info, int argc, char *argv[],
                         index += strlen(argv[i + 1]);
                         *index = ' ';
                         index += 1;
-                        i += 2;
+                        i += 1;
                         continue;
                     }
                     printf("pctrace legal value is on or off\n");
@@ -1446,6 +1504,8 @@ char *cmd_copy(struct dynsoc_board_info *b_info, int argc, char *argv[],
                 i++;
                 continue;
             }
+        } else if (strcmp(argv[i], "-cpu") == 0) {
+            cskysim_user_options |= USER_DEFINE_CPU;
         }
         strcpy(index, argv[i]);
         index += strlen(argv[i]);
@@ -1473,19 +1533,29 @@ static struct dynsoc_board_info *share_board_info(int shmkey)
     return b_info;
 }
 
-static int postfix_args(struct dynsoc_board_info *b_info, char *cmd)
+static int postfix_args(struct dynsoc_board_info *b_info, char *cmd,
+                        char *cmd_start)
 {
-    space_strcat(cmd, "-machine");
-    space_strcat(cmd, b_info->name);
-    space_strcat(cmd, "-cpu");
-    strcat(cmd, b_info->cpu.cpu_name);
-    if (xt_vlen) {
-        char xt_vlen_str[32];
-        int len = snprintf(xt_vlen_str, sizeof(xt_vlen_str), ",vlen=%d", xt_vlen);
-        if (len < 0) {
-            return -1;
+    if (strstr(cmd_start, "-machine") == NULL) {
+        space_strcat(cmd, "-machine");
+        space_strcat(cmd, b_info->name);
+    } else {
+       printf("Error: -machine must not be specified in cmd\n");
+       return -1;
+    }
+    /* Only add -cpu if not already present in cmd */
+    if ((cskysim_user_options & USER_DEFINE_CPU) == 0) {
+        space_strcat(cmd, "-cpu");
+        strcat(cmd, b_info->cpu.cpu_name);
+        if (xt_vlen) {
+            char xt_vlen_str[32];
+            int len = snprintf(xt_vlen_str, sizeof(xt_vlen_str), ",vlen=%d",
+                               xt_vlen);
+            if (len < 0) {
+                return -1;
+            }
+            strcat(cmd, xt_vlen_str);
         }
-        strcat(cmd, xt_vlen_str);
     }
     strcat(cmd, " ");
     if ((cskysim_user_options & USER_DEFINE_CPU_PROP) == 0) {
@@ -1572,7 +1642,6 @@ int main(int argc, char *argv[])
             }
         }
     }
-
     /* generate dynsoc_board_info randomly. */
     srand((unsigned)time(NULL));
     i = 20;
@@ -1657,7 +1726,7 @@ int main(int argc, char *argv[])
     }
 
     /* postfix args from xml can override the same argv[] */
-    ret = postfix_args(b_info, index);
+    ret = postfix_args(b_info, index, cmd);
     if (ret != 0) {
         printf("postfix args failed\n");
         goto cskysim_fail;

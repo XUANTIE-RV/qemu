@@ -131,6 +131,9 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
         if (fmt->inf_as_normal) {
             goto normal;
         }
+        if (fmt->inf_as_nan) {
+            goto handle_nan;
+        }
         p->cls = float_class_inf;
         return;
     } else {
@@ -139,17 +142,21 @@ static void partsN(canonicalize)(FloatPartsN *p, float_status *status,
         if (fmt->nan_as_normal ||
             ((frac != -1) && fmt->nan_no1s_as_normal)) {
             goto normal;
+        } else {
+            goto handle_nan;
         }
-        frac_shl(p, fmt->frac_shift);
-        p->cls = (parts_is_snan_frac(p->frac_hi, status)
-                  ? float_class_snan : float_class_qnan);
-        return;
     }
 normal:
     p->cls = float_class_normal;
     p->exp -= fmt->exp_bias;
     frac_shl(p, fmt->frac_shift);
     p->frac_hi |= DECOMPOSED_IMPLICIT_BIT;
+    return;
+handle_nan:
+    frac_shl(p, fmt->frac_shift);
+    p->cls = (parts_is_snan_frac(p->frac_hi, status)
+              ? float_class_snan : float_class_qnan);
+    return;
 }
 
 /*

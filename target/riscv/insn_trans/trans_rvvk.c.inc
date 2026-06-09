@@ -643,19 +643,17 @@ static bool vsm4r_vs_check(DisasContext *s, arg_rmr *a)
 
 GEN_V_UNMASKED_TRANS(vsm4r_vs, vsm4r_vs_check, ZVKSED_EGS)
 
-static bool th_vgmul_vv_check(DisasContext *s, arg_rmr *a)
+static bool th_vgmulxor_vv_check(DisasContext *s, arg_rmrr *a)
 {
-    return s->cfg_ptr->ext_xtheadvarith &&
-           vext_check_isa_ill(s) &&
-           require_rvv(s) &&
-           vext_check_ss(s, a->rd, a->rs2, a->vm) &&
+    return s->cfg_ptr->ext_xtheadvarith && !s->xt_vector_dis &&
+           opivv_check(s, a) &&
            s->sew == MO_8;
 }
 
-static bool trans_th_vgmul_vv(DisasContext *s, arg_rmr *a)
+static bool trans_th_vgmulxor_vv(DisasContext *s, arg_rmrr *a)
 {
-    if (th_vgmul_vv_check(s, a)) {
-        TCGv_ptr rd_v, rs2_v;
+    if (th_vgmulxor_vv_check(s, a)) {
+        TCGv_ptr rd_v, rs2_v, rs1_v;
         TCGv_i32 desc;
         uint32_t data = 0;
 
@@ -666,46 +664,13 @@ static bool trans_th_vgmul_vv(DisasContext *s, arg_rmr *a)
         data = FIELD_DP32(data, VDATA, VMA, s->vma);
         rd_v = tcg_temp_new_ptr();
         rs2_v = tcg_temp_new_ptr();
+        rs1_v = tcg_temp_new_ptr();
         desc = tcg_constant_i32(
             simd_desc(s->cfg_ptr->vlenb, s->cfg_ptr->vlenb, data));
         tcg_gen_addi_ptr(rd_v, tcg_env, vreg_ofs(s, a->rd));
         tcg_gen_addi_ptr(rs2_v, tcg_env, vreg_ofs(s, a->rs2));
-        gen_helper_th_vgmul_vv(rd_v, rs2_v, tcg_env, desc);
-        finalize_rvv_inst(s);
-        return true;
-    }
-    return false;
-}
-
-static bool th_vgmul_vs_check(DisasContext *s, arg_rmr *a)
-{
-    return s->cfg_ptr->ext_xtheadvarith &&
-           vext_check_isa_ill(s) &&
-           require_rvv(s) &&
-           vext_check_ss(s, a->rd, a->rs2, a->vm) &&
-           s->sew == MO_8 &&
-           !is_overlapped(a->rd, 1 << MAX(s->lmul, 0), a->rs2, 1);
-}
-
-static bool trans_th_vgmul_vs(DisasContext *s, arg_rmr *a)
-{
-    if (th_vgmul_vs_check(s, a)) {
-        TCGv_ptr rd_v, rs2_v;
-        TCGv_i32 desc;
-        uint32_t data = 0;
-
-        data = FIELD_DP32(data, VDATA, VM, a->vm);
-        data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
-        data = FIELD_DP32(data, VDATA, VTA, s->vta);
-        data = FIELD_DP32(data, VDATA, VTA_ALL_1S, s->cfg_vta_all_1s);
-        data = FIELD_DP32(data, VDATA, VMA, s->vma);
-        rd_v = tcg_temp_new_ptr();
-        rs2_v = tcg_temp_new_ptr();
-        desc = tcg_constant_i32(
-            simd_desc(s->cfg_ptr->vlenb, s->cfg_ptr->vlenb, data));
-        tcg_gen_addi_ptr(rd_v, tcg_env, vreg_ofs(s, a->rd));
-        tcg_gen_addi_ptr(rs2_v, tcg_env, vreg_ofs(s, a->rs2));
-        gen_helper_th_vgmul_vs(rd_v, rs2_v, tcg_env, desc);
+        tcg_gen_addi_ptr(rs1_v, tcg_env, vreg_ofs(s, a->rs1));
+        gen_helper_th_vgmulxor_vv(rd_v, rs1_v, rs2_v, tcg_env, desc);
         finalize_rvv_inst(s);
         return true;
     }
@@ -714,7 +679,7 @@ static bool trans_th_vgmul_vs(DisasContext *s, arg_rmr *a)
 
 static bool th_vcrcfold_check(DisasContext *s, arg_rmrr *a)
 {
-    return s->cfg_ptr->ext_xtheadvarith &&
+    return s->cfg_ptr->ext_xtheadvarith && !s->xt_vector_dis &&
            opivv_check(s, a) &&
            (s->sew == MO_64);
 }

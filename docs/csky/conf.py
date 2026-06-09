@@ -12,7 +12,7 @@ reload(sys)
 project = u'玄铁QEMU用户手册'
 author = u''
 version = u''
-release = u'V5.2'
+release = u'V5.4'
 copyright = 'copyright'
 
 # -- General configuration
@@ -130,8 +130,6 @@ latex_elements = {
 
 \textbf{版本}       & \textbf{描述}               & \textbf{日期}                 \\ \hline
 01                  & 第一次正式发布。              & 2021.07.31                  \\ \hline
-02                  & 实验性支持C908x和DSA功能。    & 2025.06.12                  \\ \hline
-03                  & 支持E901。                    & 2025.06.18                  \\ \hline
 
 
 \end{tabular}

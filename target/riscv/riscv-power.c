@@ -22,13 +22,18 @@ static void riscv_set_cpu_on_async_work(CPUState *cs,
     cpu_set_pc(cs, *(uint64_t *)data.host_ptr);
 }
 
-uint64_t release_address;
+uint64_t release_address[32];
 
-void riscv_cpu_release(CPUState *cs, uint64_t entry)
+void riscv_cpu_release(CPUState *cs, uint64_t entry, int i)
 {
+    g_assert(i < 32);
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    if (cpu->power_state == XT_POWER_ON) {
+        return;
+    }
     cs->halted = false;
     riscv_cpu_set_power_on(cs);
-    release_address = entry;
+    release_address[i] = entry;
     async_run_on_cpu(cs, riscv_set_cpu_on_async_work,
-                     RUN_ON_CPU_HOST_PTR(&release_address));
+                     RUN_ON_CPU_HOST_PTR(&release_address[i]));
 }

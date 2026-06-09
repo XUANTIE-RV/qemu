@@ -3474,6 +3474,12 @@ static bool trans_vfmv_s_f(DisasContext *s, arg_vfmv_s_f *a)
         /* if vstart >= vl, skip vector register write back */
         tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
 
+        if (s->vta) {
+            tcg_gen_gvec_dup_imm(s->sew, vreg_ofs(s, a->rd),
+                                 s->cfg_ptr->vlenb, s->cfg_ptr->vlenb,
+                                 UINT64_MAX);
+        }
+
         /* NaN-box f[rs1] */
         t1 = tcg_temp_new_i64();
         do_nanbox(s, t1, cpu_fpr[a->rs1]);
@@ -3680,7 +3686,7 @@ static bool trans_##NAME(DisasContext *s, arg_##NAME * a)               \
         QEMU_IS_ALIGNED(a->rd, LEN) &&                                  \
         QEMU_IS_ALIGNED(a->rs2, LEN)) {                                 \
         uint32_t maxsz = s->cfg_ptr->vlenb * LEN;                       \
-        if (s->vstart_eq_zero) {                                        \
+        if (s->vstart_eq_zero && (maxsz * 8 <= QEMU_VECTOR_MAXSZ)) {  \
             tcg_gen_gvec_mov(s->sew, vreg_ofs(s, a->rd),                \
                              vreg_ofs(s, a->rs2), maxsz, maxsz);        \
         } else {                                                        \
@@ -3779,6 +3785,50 @@ GEN_INT_EXT_TRANS(vsext_vf2, 1, 3)
 GEN_INT_EXT_TRANS(vsext_vf4, 2, 4)
 GEN_INT_EXT_TRANS(vsext_vf8, 3, 5)
 
+/* Vector Dot Product Extension */
+static bool vext_vqdot_vv_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivv_check(s, a) &&
+           s->cfg_ptr->ext_zvqdotq &&
+           MAXSZ(s) >= 4;
+}
+
+#define GEN_VQDOT_VV_TRANS(NAME, CHECK)                                  \
+static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                   \
+{                                                                        \
+    if (CHECK(s, a)) {                                                   \
+        return opivv_trans(a->rd, a->rs1, a->rs2, a->vm,                 \
+                           gen_helper_##NAME, s);                        \
+    }                                                                    \
+    return false;                                                        \
+}
+
+GEN_VQDOT_VV_TRANS(vqdot_vv, vext_vqdot_vv_check)
+GEN_VQDOT_VV_TRANS(vqdotu_vv, vext_vqdot_vv_check)
+GEN_VQDOT_VV_TRANS(vqdotsu_vv, vext_vqdot_vv_check)
+
+static bool vext_vqdot_vx_check(DisasContext *s, arg_rmrr *a)
+{
+    return opivx_check(s, a) &&
+           s->cfg_ptr->ext_zvqdotq &&
+           MAXSZ(s) >= 4;
+}
+
+#define GEN_VQDOT_VX_TRANS(NAME, CHECK)                                  \
+static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                   \
+{                                                                        \
+    if (CHECK(s, a)) {                                                   \
+        return opivx_trans(a->rd, a->rs1, a->rs2, a->vm,                 \
+                           gen_helper_##NAME, s);                        \
+    }                                                                    \
+    return false;                                                        \
+}
+
+GEN_VQDOT_VX_TRANS(vqdot_vx, vext_vqdot_vx_check)
+GEN_VQDOT_VX_TRANS(vqdotu_vx, vext_vqdot_vx_check)
+GEN_VQDOT_VX_TRANS(vqdotsu_vx, vext_vqdot_vx_check)
+GEN_VQDOT_VX_TRANS(vqdotus_vx, vext_vqdot_vx_check)
+
 /* XuanTie cpu custom vector */
 #define GEN_OPIVV_X_TRANS(NAME, CHECK)                             \
 static bool trans_##NAME(DisasContext *s, arg_rmrr *a)             \
@@ -3823,7 +3873,7 @@ static bool opivv_x_check(DisasContext *s, arg_rmrr *a)
     return opivv_check(s, a) &&
            (s->sew == MO_32) &&
            opivv_x_check_lmul(s->lmul) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVV_X_TRANS(vmaqa_vv,   opivv_x_check)
@@ -3845,7 +3895,7 @@ static bool opivx_x_check(DisasContext *s, arg_rmrr *a)
     return opivx_check(s, a) &&
            (s->sew == MO_32) &&
            opivv_x_check_lmul(s->lmul) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVX_X_TRANS(vmaqa_vx, opivx_x_check)
@@ -3866,7 +3916,7 @@ static bool opiwv_narrow_x_check(DisasContext *s, arg_rmrr *a)
 {
     return opiwv_narrow_check(s, a) &&
            (s->sew == MO_8) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVV_X_TRANS(vpnclip_wv, opiwv_narrow_x_check)
@@ -3876,7 +3926,7 @@ static bool opiwx_narrow_x_check(DisasContext *s, arg_rmrr *a)
 {
     return opiwx_narrow_check(s, a) &&
            (s->sew == MO_8) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVX_X_TRANS(vpnclip_wx, opiwx_narrow_x_check)
@@ -3886,7 +3936,7 @@ static bool opivv_widen_x_check(DisasContext *s, arg_rmrr *a)
 {
     return opivv_widen_check(s, a) &&
            (s->sew == MO_8) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVV_X_TRANS(vpwadd_vv, opivv_widen_x_check)
@@ -3896,7 +3946,7 @@ static bool opivx_widen_x_check(DisasContext *s, arg_rmrr *a)
 {
     return opivx_widen_check(s, a) &&
            (s->sew == MO_8) &&
-           s->cfg_ptr->ext_xtheadvdot;
+           s->cfg_ptr->ext_xtheadvdot && !s->xt_vector_dis;
 }
 
 GEN_OPIVX_X_TRANS(vpwadd_vx, opivx_widen_x_check)
@@ -3910,7 +3960,6 @@ static bool do_vsfa(DisasContext *s, arg_rmr *a,
     if (checkfn(s, a)) {
         uint32_t data = 0;
         TCGLabel *over = gen_new_label();
-        gen_set_rm_chkfrm(s, rm);
         tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
         tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
 
@@ -3929,16 +3978,23 @@ static bool do_vsfa(DisasContext *s, arg_rmr *a,
     return false;
 }
 
+/**
+ * The FRM is set to RUP, but the round mode isn't determined
+ * by this feild. Because we do the helper by the sfu functions
+ * in target/riscv/sfu/sfu_cmodel.cpp, these functions
+ * only support the RUP round mode which is as same as the hardware.
+ * So this FRM is only to indicate the round mode,
+ * it will ont affect the result.
+ */
 #define GEN_VSFA_TRANS(NAME, CHECK, FRM)               \
 static bool trans_##NAME(DisasContext *s, arg_rmr *a)  \
 {                                                      \
     return do_vsfa(s, a, gen_helper_##NAME##_w, CHECK, FRM);    \
 }
 
-static bool vsfa_check(DisasContext *s, arg_rmr *a)
+static bool vsfu_check(DisasContext *s, arg_rmr *a)
 {
-    return s->cfg_ptr->ext_xtheadvsfa &&
-           (s->sew == 2) &&
+    return (s->sew == 2) &&
            (s->lmul >= -1) &&
            require_rvv(s) &&
            require_rvf(s) &&
@@ -3946,10 +4002,20 @@ static bool vsfa_check(DisasContext *s, arg_rmr *a)
            vext_check_ss(s, a->rd, a->rs2, a->vm);
 }
 
-GEN_VSFA_TRANS(th_vfexp2, vsfa_check,  RISCV_FRM_RUP)
-GEN_VSFA_TRANS(th_vftanh, vsfa_check,  RISCV_FRM_RUP)
-GEN_VSFA_TRANS(th_vfsig, vsfa_check,  RISCV_FRM_RUP)
-GEN_VSFA_TRANS(th_vfrec, vsfa_check,  RISCV_FRM_RUP)
+static bool vsfa_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvsfa && vsfu_check(s, a);
+}
+
+GEN_VSFA_TRANS(th_vfexp2,  vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vftanh,  vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfsig,   vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfrec,   vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfsin,   vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfcos,   vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vflog2,  vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfsqrt,  vsfa_check,  RISCV_FRM_RUP)
+GEN_VSFA_TRANS(th_vfrsqrt, vsfa_check,  RISCV_FRM_RUP)
 
 static bool vfncvt_check(DisasContext *s, arg_rmr *a)
 {
@@ -3969,10 +4035,37 @@ static bool vfncvt_rod_check(DisasContext *s, arg_rmr *a)
            opffv_narrow_check(s, a);
 }
 
+static bool do_vfcvt(DisasContext *s, arg_rmr *a,
+                    gen_helper_gvec_3_ptr *fn,
+                    bool (*checkfn)(DisasContext *, arg_rmr *),
+                    int rm)
+{
+    if (checkfn(s, a)) {
+        gen_set_rm_chkfrm(s, rm);
+        uint32_t data = 0;
+        TCGLabel *over = gen_new_label();
+        tcg_gen_brcondi_tl(TCG_COND_EQ, cpu_vl, 0, over);
+        tcg_gen_brcond_tl(TCG_COND_GEU, cpu_vstart, cpu_vl, over);
+
+        data = FIELD_DP32(data, VDATA, VM, a->vm);
+        data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+        data = FIELD_DP32(data, VDATA, VTA, s->vta);
+        data = FIELD_DP32(data, VDATA, VMA, s->vma);
+        tcg_gen_gvec_3_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),
+                           vreg_ofs(s, a->rs2), tcg_env,
+                           s->cfg_ptr->vlenb,
+                           s->cfg_ptr->vlenb, data, fn);
+        mark_vs_dirty(s);
+        gen_set_label(over);
+        return true;
+    }
+    return false;
+}
+
 #define GEN_VFCVT_TRANS(NAME, CHECK, FRM)              \
 static bool trans_##NAME(DisasContext *s, arg_rmr *a)     \
 {                                                         \
-    return do_vsfa(s, a, gen_helper_##NAME, CHECK, FRM);  \
+    return do_vfcvt(s, a, gen_helper_##NAME, CHECK, FRM);  \
 }
 
 
@@ -4118,8 +4211,8 @@ static bool trans_##NAME(DisasContext *s, arg_rmrr *a)                   \
 
 static bool th_crypt_ivv_check(DisasContext *s, arg_rmrr *a)
 {
-    return s->cfg_ptr->ext_xtheadvcrypto && (s->sew == MO_64) &&
-           opivv_check(s, a);
+    return s->cfg_ptr->ext_xtheadvcrypto && !s->xt_vector_dis
+           && (s->sew == MO_64) && opivv_check(s, a);
 }
 
 GEN_TH_CRYPT_IVV_TRANS(th_vmacc54l_vv, th_crypt_ivv_check)
@@ -4127,8 +4220,8 @@ GEN_TH_CRYPT_IVV_TRANS(th_vmacc54h_vv, th_crypt_ivv_check)
 
 static bool th_crypt_ivs_check(DisasContext *s, arg_rmrr *a)
 {
-    return s->cfg_ptr->ext_xtheadvcrypto && (s->sew == MO_64) &&
-           opivx_check(s, a) &&
+    return s->cfg_ptr->ext_xtheadvcrypto && !s->xt_vector_dis
+           && (s->sew == MO_64) && opivx_check(s, a) &&
            require_noover(a->rd, s->lmul, a->rs1, s->lmul);
 }
 
@@ -4138,37 +4231,37 @@ GEN_TH_CRYPT_IVV_TRANS(th_vmacc54h_vs, th_crypt_ivs_check)
 /* Xuantie Coder */
 static bool th_vcoder_vv_check(DisasContext *s, arg_rmrr *a)
 {
-    return opivv_check(s, a) &&
+    return opivv_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
 static bool th_vcoder_vx_check(DisasContext *s, arg_rmrr *a)
 {
-    return opivx_check(s, a) &&
+    return opivx_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
 static bool th_vcoder_fvv_check(DisasContext *s, arg_rmrr *a)
 {
-    return opfvv_check(s, a) &&
+    return opfvv_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
 static bool th_vcoder_fvf_check(DisasContext *s, arg_rmrr *a)
 {
-    return opfvf_check(s, a) &&
+    return opfvf_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
 static bool th_vcoder_vv_widen_check(DisasContext *s, arg_rmrr *a)
 {
-    return opivv_widen_check(s, a) &&
+    return opivv_widen_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
 static bool th_vcoder_vx_widen_check(DisasContext *s, arg_rmrr *a)
 {
-    return opivx_widen_check(s, a) &&
+    return opivx_widen_check(s, a) && !s->xt_vector_dis &&
            s->cfg_ptr->ext_xtheadvcoder;
 }
 
@@ -4180,10 +4273,10 @@ GEN_OPIVX_TRANS(th_vaba_vx, th_vcoder_vx_check)
 GEN_OPIVI_TRANS(th_vaba_vi, IMM_SX, th_vaba_vx, th_vcoder_vx_check)
 GEN_OPIVV_TRANS(th_vabdu_vv, th_vcoder_vv_check)
 GEN_OPIVX_TRANS(th_vabdu_vx, th_vcoder_vx_check)
-GEN_OPIVI_TRANS(th_vabdu_vi, IMM_SX, th_vabd_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vabdu_vi, IMM_ZX, th_vabdu_vx, th_vcoder_vx_check)
 GEN_OPIVV_TRANS(th_vabau_vv, th_vcoder_vv_check)
 GEN_OPIVX_TRANS(th_vabau_vx, th_vcoder_vx_check)
-GEN_OPIVI_TRANS(th_vabau_vi, IMM_SX, th_vaba_vx, th_vcoder_vx_check)
+GEN_OPIVI_TRANS(th_vabau_vi, IMM_ZX, th_vabau_vx, th_vcoder_vx_check)
 GEN_OPFVV_TRANS(th_vfabd_vv, th_vcoder_fvv_check)
 GEN_OPFVF_TRANS(th_vfabd_vf, th_vcoder_fvf_check)
 GEN_OPIVV_WIDEN_TRANS(th_vwabd_vv, th_vcoder_vv_widen_check)
@@ -4194,6 +4287,7 @@ GEN_OPIVV_WIDEN_TRANS(th_vwaba_vv, th_vcoder_vv_widen_check)
 GEN_OPIVX_WIDEN_TRANS(th_vwaba_vx, th_vcoder_vx_widen_check)
 GEN_OPIVV_WIDEN_TRANS(th_vwabau_vv, th_vcoder_vv_widen_check)
 GEN_OPIVX_WIDEN_TRANS(th_vwabau_vx, th_vcoder_vx_widen_check)
+GEN_OPIVV_TRANS(th_vabsmax_vv, th_vcoder_vv_check)
 
 /* Xuantie Arith */
 static bool th_varith_vv_check(DisasContext *s, arg_rmrr *a)
@@ -4204,3 +4298,133 @@ static bool th_varith_vv_check(DisasContext *s, arg_rmrr *a)
 
 GEN_OPIVV_TRANS(th_vile_vv, th_varith_vv_check)
 GEN_OPIVV_TRANS(th_vilo_vv, th_varith_vv_check)
+
+/* Xuantie Vector OCP FP6 Convert Extension */
+static bool ocp_f6_check(DisasContext *s, arg_rmr *a)
+{
+    return s->cfg_ptr->ext_xtheadvfofp6min &&
+           (s->sew == MO_8) &&
+           require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           /* OPFV instructions ignore vs1 check */
+           vext_check_ss(s, a->rd, a->rs2, a->vm);
+}
+
+static bool ocp_f6_trans(DisasContext *s, arg_rmr *a,
+                         gen_helper_gvec_3_ptr *fn,
+                         bool (*checkfn)(DisasContext *, arg_rmr *))
+{
+    if (checkfn(s, a)) {
+        uint32_t data = 0;
+        gen_set_rm(s, RISCV_FRM_DYN);
+
+        data = FIELD_DP32(data, VDATA, VM, a->vm);
+        data = FIELD_DP32(data, VDATA, LMUL, s->lmul);
+        data = FIELD_DP32(data, VDATA, VTA, s->vta);
+        data = FIELD_DP32(data, VDATA, VMA, s->vma);
+        data = FIELD_DP32(data, VDATA, ALTFMT, s->altfmt);
+        tcg_gen_gvec_3_ptr(vreg_ofs(s, a->rd), vreg_ofs(s, 0),
+                           vreg_ofs(s, a->rs2), tcg_env,
+                           s->cfg_ptr->vlenb,
+                           s->cfg_ptr->vlenb, data, fn);
+        finalize_rvv_inst(s);
+        return true;
+    }
+    return false;
+}
+
+#define GEN_FP6_TRANS(NAME, CHECK)                           \
+static bool trans_##NAME(DisasContext *s, arg_rmr *a)        \
+{                                                            \
+    return ocp_f6_trans(s, a, gen_helper_##NAME, CHECK);     \
+}
+
+GEN_FP6_TRANS(th_vfncvt_f6_f_v, ocp_f6_check)
+GEN_FP6_TRANS(th_vfwcvt_f_f6_v, ocp_f6_check)
+
+static bool ocp_f4_widen_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_widen_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfofp4min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+static bool ocp_f8_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_narrow_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfofp4min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+GEN_FP6_TRANS(th_vfwcvt_f_f_v_vf2, ocp_f4_widen_check)
+GEN_FP6_TRANS(th_vfncvt_f_f_w_vf2, ocp_f8_narrow_check)
+
+static bool ocp_e8m0_widen_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_widen_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfoe8m0min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+static bool ocp_e8m0_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_narrow_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfoe8m0min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+static bool vext_quad_narrow_check_common(DisasContext *s, int vd, int vs2,
+                                         int vm)
+{
+    return (s->lmul <= 1) &&
+           ((s->sew + 2) <= (s->cfg_ptr->elen >> 4)) &&
+           require_align(vs2, s->lmul + 2) &&
+           require_align(vd, s->lmul) &&
+           require_vm(vm, vd);
+}
+
+static bool vext_check_sq(DisasContext *s, int vd, int vs, int vm)
+{
+    bool ret = vext_quad_narrow_check_common(s, vd, vs, vm);
+    if (vd != vs) {
+        ret &= require_noover(vd, s->lmul, vs, s->lmul + 2);
+    }
+    return ret;
+}
+
+static bool opfv_quad_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return require_rvv(s) &&
+           vext_check_isa_ill(s) &&
+           /* OPFV narrowing instructions ignore vs1 check */
+           vext_check_sq(s, a->rd, a->rs2, a->vm);
+}
+
+static bool ocp_e8m0_quad_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_quad_narrow_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfoe8m0min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+GEN_FP6_TRANS(th_vfwcvt_f_e8m0_v, ocp_e8m0_widen_check)
+GEN_FP6_TRANS(th_vfncvt_e8m0_f_w, ocp_e8m0_narrow_check)
+GEN_FP6_TRANS(th_vfncvt_e8m0_f_q, ocp_e8m0_quad_narrow_check)
+
+static bool ocp_fp8_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_narrow_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfofp8min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+GEN_FP6_TRANS(th_vfncvt_bf16_sat_f_f_w, ocp_fp8_narrow_check)
+static bool ocp_fp8_quad_narrow_check(DisasContext *s, arg_rmr *a)
+{
+    return opfv_quad_narrow_check(s, a) &&
+           s->cfg_ptr->ext_xtheadvfofp8min && !s->xt_vector_dis &&
+           (s->sew == MO_8);
+}
+
+GEN_FP6_TRANS(th_vfncvt_f_f_q, ocp_fp8_quad_narrow_check)
+GEN_FP6_TRANS(th_vfncvt_sat_f_f_q, ocp_fp8_quad_narrow_check)

@@ -12,11 +12,13 @@
 #include <stdio.h>
 //#include "/guesthome/damo/ctl/dm_qichen.zhang/Documents/softfloat_3d/SoftFloat-3d/source/include/specialize.h"
 //#include "/guesthome/damo/ctl/dm_qichen.zhang/Documents/softfloat_3d/SoftFloat-3d/source/include/internals.h"
-//#include "internals.h"
 
-extern "C" {
-	#include "softfloat.h"
-}
+//extern "C" {
+//	#include "/proj/h/a01/arch/zhangqichen.zqc/SoftFloat-3d/source/include/internals.h"
+//	#include </proj/h/a01/arch/zhangqichen.zqc/SoftFloat-3d/source/include/softfloat.h>
+//}
+//#include "internals.h"
+#include "softfloat.h"
 using namespace std;  
 #define T_D 31
 #define P_D 22
@@ -29,6 +31,7 @@ using namespace std;
 #define DEC_FP32 23
 // EXP_FP32
 #define EXP_FP32 8
+//#define MAX_POS 42 
 #define MAX_POS 40 
 #define X2_2 40
 #define BOOTH_X2 10
@@ -51,11 +54,26 @@ using namespace std;
 #define HALF 0x3F000000
 #define EXP_DENORMAL 0x3f800001
 #define EXP_NEAR_ONE 0x3f800000
+#define _SIN_LOW_LIMIT -512.0 
+//#define _SIN_LOW_LIMIT 0xC4000000
+#define _SIN_HIGH_LIMIT 512.0 
+//#define _SIN_HIGH_LIMIT 0x44000000
+#define _INF_NEAR 8.507059173023462e+37
+#define _NINF_NEAR -8.507059173023462e+37
 // function
-#define EXP2 1
-#define RCP 8
-#define TANH 2
-#define SIGMOID 4
+#define EXP2 0
+#define RCP 3
+#define TANH 1
+#define SIGMOID 2
+#define LOG2 6
+#define SIN 4
+#define COS 5
+#define RSQRT 8
+#define RSQRT_EVEN 256 
+#define RSQRT_ODD 512
+#define SQRT 7 
+#define SQRT_EVEN 2048
+#define SQRT_ODD 4096
 #define _C1 0
 #define _C2 1
 
@@ -84,7 +102,6 @@ unsigned int to_unsigned_int(float x);
 
 static int PP_out_c1[100];
 static int PP_out_c2[170];
-/*
 static int ex3_c1x2_pp[100];
 static int ex3_c2x2x2_pp[170];
 
@@ -93,7 +110,8 @@ static int ex3_c2x2x2_pp_A_sign[170];
 
 static int ex3_c1x2_pp_sign[100];
 static int ex3_c2x2x2_pp_sign[170];
-*/
+
+static int64_t c2_x2_x2_16_17;
 
 struct sfu_output{
     float sfu_data_output;
@@ -101,5 +119,5 @@ struct sfu_output{
     int sfu_exception_output;
     long int sfu_booth_output;
 };
-sfu_output sfu_cmodel(float a_float, int opcode, bool debug);
-//sfu_output sfu_cmodel(int a_int, int opcode, bool debug);
+//sfu_output sfu_cmodel(float a_float, int opcode, bool debug);
+sfu_output sfu_cmodel(int a_int, int opcode, bool debug);

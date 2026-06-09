@@ -30,8 +30,9 @@
 
 static uint64_t cpu_riscv_read_rtc(void *opaque)
 {
+    THEADCLINTState *clint = opaque;
     return muldiv64(qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL),
-                    10000000, NANOSECONDS_PER_SECOND);
+                    clint->freq, NANOSECONDS_PER_SECOND);
 }
 
 static void thead_clint_mtimecmp_cb(void *opaque)
@@ -52,7 +53,7 @@ static void thead_clint_write_timecmp(THEADCLINTState *s, int hartid,
     uint64_t diff = cmp - rtc;
     uint64_t next_ns = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL) +
                                          muldiv64(diff, NANOSECONDS_PER_SECOND,
-                                                  10000000);
+                                                  s->freq);
 
     qemu_set_irq(s->pirq[2 * hartid + 1], 0);
     if (cmp <= rtc) {
@@ -228,10 +229,13 @@ type_init(thead_clint_register_types)
 /*
  * Create CLINT device.
  */
-DeviceState *thead_clint_create(hwaddr addr, qemu_irq *pirq, int64_t num_harts)
+DeviceState *thead_clint_create(hwaddr addr, qemu_irq *pirq, int64_t num_harts,
+                                uint64_t freq)
 {
     int i;
     DeviceState *dev = qdev_new(TYPE_THEAD_CLINT);
+    THEADCLINTState *clint = THEAD_CLINT(dev);
+    clint->freq = freq;
     qdev_prop_set_uint64(dev, "num-harts", num_harts);
     sysbus_realize_and_unref(SYS_BUS_DEVICE(dev), &error_fatal);
     sysbus_mmio_map(SYS_BUS_DEVICE(dev), 0, addr);

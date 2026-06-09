@@ -55,6 +55,7 @@ struct RISCVVirtState {
 
     int fdt_size;
     bool have_aclint;
+    bool have_tpe;
     bool have_iopmp;
     RISCVVirtAIAType aia_type;
     int aia_guests;

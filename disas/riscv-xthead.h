@@ -24,5 +24,6 @@ void decode_xtheadmac(rv_decode *, rv_isa);
 void decode_xtheadmemidx(rv_decode *, rv_isa);
 void decode_xtheadmempair(rv_decode *, rv_isa);
 void decode_xtheadsync(rv_decode *, rv_isa);
+void decode_xtheadcvwn(rv_decode *, rv_isa);
 
 #endif /* DISAS_RISCV_XTHEAD_H */

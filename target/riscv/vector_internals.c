@@ -55,6 +55,111 @@ void vext_set_elems_1s(void *base, uint32_t is_agnostic, uint32_t cnt,
     memset(base + cnt, -1, tot - cnt);
 }
 
+/* set agnostic fp6 elements to 1s */
+void vext_set_fp6_1s(void *base, uint32_t is_agnostic,
+                     uint32_t index, uint32_t tot)
+{
+    if (is_agnostic == 0) {
+        /* policy undisturbed */
+        return;
+    }
+    /* If first tail element start from a new byte */
+    if (index * 6 % 8 == 0) {
+        vext_set_elems_1s(base, 1, index * 6 / 8, tot);
+    } else {
+        /* First process the tail element bits in last body byte */
+        uint8_t last_body_byte = *((uint8_t *)base + H1(index * 6 / 8));
+        int start_pos = index * 6 % 8;
+        int width = 8 - start_pos;
+        last_body_byte = deposit64(last_body_byte, start_pos, width, -1);
+        *((uint8_t *)base + H1(index * 6 / 8)) = last_body_byte;
+        vext_set_elems_1s(base, 1, index * 6 / 8 + 1, tot);
+    }
+}
+
+static inline bool crossbyte(int32_t index)
+{
+    return (index * 6) % 8 > (8 - 6);
+}
+
+static void process_crossbyte(void *base, int index, uint8_t val)
+{
+    /* Find the position of first byte and bit position */
+    uint8_t first_byte = *((uint8_t *)base + H1(index * 6 / 8));
+    uint8_t second_byte = *((uint8_t *)base + H1(index * 6 / 8 + 1));
+    int start_pos = index * 6 % 8;
+    int width = 8 - start_pos;
+    first_byte = deposit64(first_byte, start_pos, width, val);
+    *((uint8_t *)base + H1(index * 6 / 8)) = first_byte;
+    /* Find the position of second byte and bit position*/
+    second_byte = deposit64(second_byte, 0, 6 - width, val >> width);
+    *((uint8_t *)base + H1(index * 6 / 8 + 1)) = second_byte;
+}
+
+static void process_onebyte(void *base, int32_t index, uint8_t val)
+{
+    uint8_t first_byte = *((uint8_t *)base + H1(index * 6 / 8));
+    int start_pos = index * 6 % 8;
+    first_byte = deposit64(first_byte, start_pos, 6, val);
+    *((uint8_t *)base + H1(index * 6 / 8)) = first_byte;
+}
+
+/* set agnostic elements to 1s */
+void vext_set_fp6_1s_by_index(void *base, uint32_t is_agnostic, int index)
+{
+    if (is_agnostic == 0) {
+        /* policy undisturbed */
+        return;
+    }
+    if (crossbyte(index)) {
+        process_crossbyte(base, index, -1);
+    } else {
+        process_onebyte(base, index, -1);
+    }
+}
+
+/* set fp6 element */
+void vext_set_fp6_elem(void *base, int index, uint8_t val, CPURISCVState *env)
+{
+    if (crossbyte(index)) {
+        process_crossbyte(base, index, val);
+    } else {
+        process_onebyte(base, index, val);
+    }
+}
+
+static uint8_t get_crossbyte(void *base, int index)
+{
+    /* Find the position of first byte and bit position */
+    uint8_t first_byte = *((uint8_t *)base + H1(index * 6 / 8));
+    uint8_t second_byte = *((uint8_t *)base + H1(index * 6 / 8 + 1));
+    uint8_t ret = 0;
+
+    int start_pos = index * 6 % 8;
+    int width = 8 - start_pos;
+    ret = extract64(first_byte, start_pos, width);
+    /* Find the position of second byte and bit position*/
+    ret |= extract64(second_byte, 0, 6 - width) << width;
+    return ret;
+}
+
+static uint8_t get_onebyte(void *base, int32_t index)
+{
+    uint8_t first_byte = *((uint8_t *)base + H1(index * 6 / 8));
+    int start_pos = index * 6 % 8;
+    return extract64(first_byte, start_pos, 6);
+}
+
+/* get fp6 element */
+uint8_t vext_get_fp6_elem(void *base, int index, CPURISCVState *env)
+{
+    if (crossbyte(index)) {
+        return get_crossbyte(base, index);
+    } else {
+        return get_onebyte(base, index);
+    }
+}
+
 void do_vext_vv(void *vd, void *v0, void *vs1, void *vs2,
                 CPURISCVState *env, uint32_t desc,
                 opivv2_fn *fn, uint32_t esz)

@@ -4944,7 +4944,7 @@ static void append(char *s1, const char *s2, size_t n)
 {
     size_t l1 = strlen(s1);
     if (n - l1 - 1 > 0) {
-        strncat(s1, s2, n - l1);
+        snprintf(s1 + l1, n - l1, "%s", s2);
     }
 }
 
@@ -5317,6 +5317,7 @@ disasm_inst(char *buf, size_t buflen, rv_isa isa, uint64_t pc, rv_inst inst,
         { has_xtheadmemidx_p, xthead_opcode_data, decode_xtheadmemidx },
         { has_xtheadmempair_p, xthead_opcode_data, decode_xtheadmempair },
         { has_xtheadsync_p, xthead_opcode_data, decode_xtheadsync },
+        { has_xtheadcvwn_p, xthead_opcode_data, decode_xtheadcvwn },
         { has_XVentanaCondOps_p, ventana_opcode_data, decode_xventanacondops },
     };
 

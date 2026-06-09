@@ -185,8 +185,9 @@ target_ulong csky_do_semihosting(CPUCSKYState *env)
 
     switch (nr) {
     case CSKY_SEMIHOST_EXIT:
-        gdb_exit(env->regs[1]);
-        exit(env->regs[1]);
+        GET_ARG(0);
+        gdb_exit(arg0);
+        exit(arg0);
         break;
     case CSKY_SEMIHOST_OPEN:
         GET_ARG(0);

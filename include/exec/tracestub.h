@@ -219,7 +219,7 @@ void trace_termsig_handler(void);
 void trace_send(void);
 void trace_send_immediately(void);
 bool trace_range_test(void *cpu, uint32_t pc, uint32_t smask);
-void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid);
+void csky_trace_handle_opts(uint32_t cpuid);
 void csky_trace_set_cpu(const char *cpu_type);
 
 void extern_helper_trace_tb_exit(uint32_t subtype, uint32_t offset);

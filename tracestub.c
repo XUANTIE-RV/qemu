@@ -97,22 +97,17 @@ void csky_trace_set_cpu(const char *cpu_type)
     }
 }
 
-void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid)
+void csky_trace_handle_opts(uint32_t cpuid)
 {
     QemuOptsList *ret;
     QemuOpts *opts;
     bool b;
+    char *str;
 
     ret = qemu_find_opts("csky-trace");
     if (ret) {
         opts = qemu_opts_find(ret, NULL);
         if (opts) {
-            cs->csky_trace_features |= CSKY_TRACE;
-            cs->csky_trace_features |= TB_TRACE;
-            cs->csky_trace_features |= MEM_TRACE;
-            cs->csky_trace_features |= X_VF_TRACE;
-            cs->csky_trace_features |= X_LMUL_TRACE;
-
             tfilter.enable = true;
             tfilter.cpuid = cpuid;
             tfilter.event |= TRACE_EVENT_INSN;
@@ -142,6 +137,18 @@ void csky_trace_handle_opts(CPUState *cs, uint32_t cpuid)
                 tfilter.event &= ~TRACE_EVENT_INSN;
                 tfilter.enable = false;
             }
+            str = qemu_opt_get_del(opts, "start");
+            if (str != NULL) {
+                tfilter.stsp_range[0].start = strtoull(str, NULL, 0);
+                tfilter.stsp_range[0].end = UINT64_MAX;
+                str = qemu_opt_get_del(opts, "exit");
+                if (str != NULL) {
+                    tfilter.stsp_range[0].end = strtoull(str, NULL, 0);
+                }
+                tfilter.stsp_num = 1;
+                tfilter.sstsp = STSP_EXIT;
+            }
+            tfilter.proxy = qemu_opt_get_bool(opts, "proxy_trace", false);
         }
     }
 }

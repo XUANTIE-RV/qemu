@@ -52,20 +52,37 @@
     }                                            \
 } while (0)
 
+#define REQUIRE_XTHEADCBI(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadcbi             \
+            || !ctx->xt_coprcs_en) {             \
+        return false;                            \
+    }                                            \
+} while (0)
+
 #define REQUIRE_XTHEADCEI(ctx) do {              \
-    if (!ctx->cfg_ptr->ext_xtheadcei) {           \
+    if (!ctx->cfg_ptr->ext_xtheadcei             \
+            || !ctx->xt_coprcs_en) {             \
         return false;                            \
     }                                            \
 } while (0)
 
-#define REQUIRE_XTHEADCEV(ctx) do {               \
-    if (!ctx->cfg_ptr->ext_xtheadcev) {           \
+#define REQUIRE_XTHEADCEV(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadcev             \
+            || !ctx->xt_coprcs_en) {             \
         return false;                            \
     }                                            \
 } while (0)
 
-#define REQUIRE_XTHEADCEF(ctx) do {               \
-    if (!ctx->cfg_ptr->ext_xtheadcef) {           \
+#define REQUIRE_XTHEADCEF(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadcef             \
+            || !ctx->xt_coprcs_en) {             \
+        return false;                            \
+    }                                            \
+} while (0)
+
+#define REQUIRE_XTHEADCVWN(ctx) do {                 \
+    if (!ctx->cfg_ptr->ext_xtheadcvwn                \
+            || !ctx->xt_coprcs_en) {             \
         return false;                            \
     }                                            \
 } while (0)
@@ -113,10 +130,26 @@
 } while (0)
 
 #define REQUIRE_XTHEADCBOP(ctx) do {             \
-    if (!ctx->cfg_ptr->ext_xtheadcbop) {         \
+    if (!ctx->cfg_ptr->ext_xtheadcbop            \
+            || !ctx->xt_cbop_en) {               \
         return false;                            \
     }                                            \
 } while (0)
+
+#define REQUIRE_XTHEADAIOE(ctx) do {             \
+    if (!ctx->cfg_ptr->ext_xtheadaioe            \
+            || !ctx->xt_aioe_en) {               \
+        return false;                            \
+    }                                            \
+} while (0)
+
+#define REQUIRE_XTHEADCRC(ctx) do {              \
+    if (!ctx->cfg_ptr->ext_xtheadcrc             \
+            || ctx->xt_crc_dis) {                \
+        return false;                            \
+    }                                            \
+} while (0)
+
 
 /*
  * Calculate and return the address for indexed mem operations:
@@ -1134,6 +1167,13 @@ static bool trans_ipop(DisasContext *ctx, arg_ipop *a)
 #endif
 }
 
+#define TRANS_CBI(INSN) \
+static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
+{                                                          \
+    REQUIRE_XTHEADCBI(ctx);                                 \
+    return true;                                           \
+}
+
 #define TRANS_CEI(INSN) \
 static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
 {                                                          \
@@ -1155,17 +1195,17 @@ static bool trans_##INSN(DisasContext *ctx, arg_##INSN *a) \
     return true;                                           \
 }
 
-TRANS_CEI(th_cpx0)
-TRANS_CEI(th_cpx1)
-TRANS_CEI(th_cpx2)
-TRANS_CEI(th_cpx3)
-TRANS_CEI(th_cpx4)
-TRANS_CEI(th_cpx5)
-TRANS_CEI(th_cpx6)
+TRANS_CBI(th_cpx0)
+TRANS_CBI(th_cpx1)
+TRANS_CBI(th_cpx2)
+TRANS_CBI(th_cpx3)
+TRANS_CBI(th_cpx4)
+TRANS_CBI(th_cpx5)
+TRANS_CBI(th_cpx6)
 TRANS_CEI(th_cpx7)
 TRANS_CEI(th_cpx8)
-TRANS_CEI(th_cpx9)
-TRANS_CEI(th_cpx10)
+TRANS_CBI(th_cpx9)
+TRANS_CBI(th_cpx10)
 
 TRANS_CEV(th_vcpx0)
 TRANS_CEV(th_vcpx1)
@@ -1187,6 +1227,33 @@ TRANS_CEF(th_fcpx4)
 TRANS_CEF(th_fcpx5)
 TRANS_CEF(th_fcpx6)
 
+#define TRANS_CVWN(INSN)                                        \
+static bool trans_##INSN(DisasContext *ctx,                     \
+                         arg_##INSN * a)                        \
+{                                                               \
+    REQUIRE_XTHEADCVWN(ctx);                                        \
+    return true;                                                \
+}
+
+TRANS_CVWN(th_vwcpx0_vx)
+TRANS_CVWN(th_vwcpx1_vx)
+TRANS_CVWN(th_vwcpx2_vv)
+TRANS_CVWN(th_vwcpx3_vv)
+TRANS_CVWN(th_vncpx4_vv)
+TRANS_CVWN(th_vncpx5_vv)
+TRANS_CVWN(th_vfwqcpx6_vf)
+TRANS_CVWN(th_vfwqcpx7_vf)
+TRANS_CVWN(th_vwqcpx8_vv)
+TRANS_CVWN(th_vwqcpx9_vv)
+TRANS_CVWN(th_vnqcpx10_vv)
+TRANS_CVWN(th_vnqcpx11_vv)
+TRANS_CVWN(th_vwcpx12_vv)
+TRANS_CVWN(th_vwcpx13_vv)
+TRANS_CVWN(th_vncpx14_v)
+TRANS_CVWN(th_vnqcpx15_v)
+TRANS_CVWN(th_vncpx16_v)
+TRANS_CVWN(th_vnqcpx17_v)
+
 static bool trans_th_wfe(DisasContext *ctx, arg_th_wfe *a)
 {
     REQUIRE_XTHEADLPW(ctx);
@@ -1203,5 +1270,52 @@ static bool trans_th_wfe(DisasContext *ctx, arg_th_wfe *a)
 static bool trans_th_cbo_cleanp(DisasContext *ctx, arg_th_cbo_cleanp *a)
 {
     REQUIRE_XTHEADCBOP(ctx);
+    gen_helper_th_cbo_cleanp(tcg_env);
+    return true;
+}
+
+static bool trans_th_senq_64b(DisasContext *ctx, arg_r *a)
+{
+    TCGv addr = get_gpr(ctx, a->rs1, EXT_ZERO);
+    REQUIRE_XTHEADAIOE(ctx);
+    if (a->rs2 > 24) {
+        return false;
+    }
+    gen_helper_senq_64b(tcg_env, addr, tcg_constant_tl(a->rs2),
+                        tcg_constant_tl(a->rd));
+    return true;
+}
+
+static bool trans_th_uenq_64b(DisasContext *ctx, arg_r *a)
+{
+    TCGv addr = get_gpr(ctx, a->rs1, EXT_ZERO);
+    REQUIRE_XTHEADAIOE(ctx);
+    if (a->rs2 > 24) {
+        return false;
+    }
+    gen_helper_uenq_64b(tcg_env, addr, tcg_constant_tl(a->rs2),
+                        tcg_constant_tl(a->rd));
+    return true;
+}
+
+static bool trans_th_crc32c_w(DisasContext *ctx, arg_r *a)
+{
+    REQUIRE_XTHEADCRC(ctx);
+    TCGv dest = dest_gpr(ctx, a->rd);
+    TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    TCGv src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    gen_helper_crc32_w(dest, src1, src2);
+    gen_set_gpr(ctx, a->rd, dest);
+    return true;
+}
+
+static bool trans_th_crc32c_d(DisasContext *ctx, arg_r *a)
+{
+    REQUIRE_XTHEADCRC(ctx);
+    TCGv dest = dest_gpr(ctx, a->rd);
+    TCGv src1 = get_gpr(ctx, a->rs1, EXT_NONE);
+    TCGv src2 = get_gpr(ctx, a->rs2, EXT_NONE);
+    gen_helper_crc32_d(dest, src1, src2);
+    gen_set_gpr(ctx, a->rd, dest);
     return true;
 }

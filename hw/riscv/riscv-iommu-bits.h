@@ -75,6 +75,7 @@ struct riscv_iommu_pq_record {
 #define RISCV_IOMMU_CAP_SV39            BIT_ULL(9)
 #define RISCV_IOMMU_CAP_SV48            BIT_ULL(10)
 #define RISCV_IOMMU_CAP_SV57            BIT_ULL(11)
+#define RISCV_IOMMU_CAP_SVRSW60T59B     BIT_ULL(14)
 #define RISCV_IOMMU_CAP_SV32X4          BIT_ULL(16)
 #define RISCV_IOMMU_CAP_SV39X4          BIT_ULL(17)
 #define RISCV_IOMMU_CAP_SV48X4          BIT_ULL(18)
@@ -89,6 +90,10 @@ struct riscv_iommu_pq_record {
 #define RISCV_IOMMU_CAP_PD8             BIT_ULL(38)
 #define RISCV_IOMMU_CAP_PD17            BIT_ULL(39)
 #define RISCV_IOMMU_CAP_PD20            BIT_ULL(40)
+#define RISCV_IOMMU_CAP_NL              BIT_ULL(42)
+#define RISCV_IOMMU_CAP_S               BIT_ULL(43)
+
+#define RISCV_IOMMU_CAP_GIPC            BIT_ULL(56)
 
 /* 5.4 Features control register (32bits) */
 #define RISCV_IOMMU_REG_FCTL            0x0008
@@ -238,6 +243,7 @@ struct riscv_iommu_dc {
 #define RISCV_IOMMU_DC_TC_DPE           BIT_ULL(9)
 #define RISCV_IOMMU_DC_TC_SBE           BIT_ULL(10)
 #define RISCV_IOMMU_DC_TC_SXL           BIT_ULL(11)
+#define RISCV_IOMMU_DC_TC_GIPC          BIT_ULL(24)
 
 /* Second-stage (aka G-stage) context fields */
 #define RISCV_IOMMU_DC_IOHGATP_PPN      RISCV_IOMMU_ATP_PPN_FIELD
@@ -276,6 +282,8 @@ struct riscv_iommu_command {
 #define RISCV_IOMMU_CMD_IOTINVAL_PSCV   BIT_ULL(32)
 #define RISCV_IOMMU_CMD_IOTINVAL_GV     BIT_ULL(33)
 #define RISCV_IOMMU_CMD_IOTINVAL_GSCID  GENMASK_ULL(59, 44)
+/* Define bit mask for second command word */
+#define RISCV_IOMMU_CMD_IOTINVAL_S      BIT_ULL(9)
 
 #define RISCV_IOMMU_CMD_IOFENCE_OPCODE          2
 #define RISCV_IOMMU_CMD_IOFENCE_FUNC_C          0

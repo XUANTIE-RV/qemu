@@ -33,3 +33,9 @@ config XLNX_CSU_DMA
 
 config CSKY_DMA
     bool
+
+config DW_DMA_SW_AXI
+    bool
+
+config DW_DMA_SW_AHB
+    bool

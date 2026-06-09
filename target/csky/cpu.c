@@ -120,6 +120,7 @@ static void csky_cpu_handle_opts(CPUCSKYState *env)
     bool b;
     char *str;
     uint32_t n;
+    CPUState *cs = env_cpu(env);
 
     env->hbreak = true;
 
@@ -261,19 +262,12 @@ static void csky_cpu_handle_opts(CPUCSKYState *env)
     if (ret) {
         opts = qemu_opts_find(ret, NULL);
         if (opts) {
-            str = qemu_opt_get_del(opts, "start");
-            if (str != NULL) {
-                tfilter.stsp_range[0].start = strtoull(str, NULL, 0);
-                tfilter.stsp_range[0].end = UINT64_MAX;
-                str = qemu_opt_get_del(opts, "exit");
-                if (str != NULL) {
-                    tfilter.stsp_range[0].end = strtoull(str, NULL, 0);
-                }
-                tfilter.stsp_num = 1;
-                tfilter.sstsp = STSP_EXIT;
-            }
+            cs->csky_trace_features |= CSKY_TRACE;
+            cs->csky_trace_features |= TB_TRACE;
+            cs->csky_trace_features |= MEM_TRACE;
+            cs->csky_trace_features |= X_VF_TRACE;
+            cs->csky_trace_features |= X_LMUL_TRACE;
 
-            tfilter.proxy = qemu_opt_get_bool(opts, "proxy_trace", false);
         }
     }
 }
@@ -363,9 +357,9 @@ static void csky_cpu_reset(DeviceState *dev)
 
     env->trace_info = g_malloc0(sizeof(struct csky_trace_info) * TB_TRACE_NUM);
     env->trace_index = 0;
+    csky_cpu_handle_opts(env);
     if (csky_handle_opts == 0) {
-        csky_cpu_handle_opts(env);
-        csky_trace_handle_opts(cs, env->cpuid);
+        csky_trace_handle_opts(env->cpuid);
         csky_handle_opts = 1;
     }
 }

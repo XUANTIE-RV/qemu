@@ -1,7 +1,9 @@
 /*
  * QEMU RISC-V IOPMP (Input Output Physical Memory Protection)
  *
- * Copyright (c) 2023 Andes Tech. Corp.
+ * Copyright (c) 2023-2025 Andes Tech. Corp.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -22,70 +24,45 @@
 #include "hw/sysbus.h"
 #include "qemu/typedefs.h"
 #include "memory.h"
-#include "hw/pci/pci_bus.h"
+#include "exec/hwaddr.h"
+#include "hw/stream.h"
 
-#define TYPE_IOPMP "iopmp"
-#define IOPMP(obj) OBJECT_CHECK(IopmpState, (obj), TYPE_IOPMP)
+#define TYPE_RISCV_IOPMP "riscv-iopmp"
+OBJECT_DECLARE_SIMPLE_TYPE(RISCVIOPMPState, RISCV_IOPMP)
 
-#define IOPMP_MAX_MD_NUM            63
-#define IOPMP_MAX_RRID_NUM          65535
-#define IOPMP_MAX_ENTRY_NUM         65535
-
-#define VENDER_VIRT                 0
-#define SPECVER_0_9_1               91
-#define IMPID_0_9_1                 91
-
-#define RRE_ERROR                   0
-#define RRE_SUCCESS_VALUE           1
-
-#define RWE_ERROR                   0
-#define RWE_SUCCESS                 1
-
-#define ERR_REQINFO_TTYPE_READ      1
-#define ERR_REQINFO_TTYPE_WRITE     2
-#define ERR_REQINFO_TTYPE_FETCH     3
-#define ERR_REQINFO_ETYPE_NOERROR   0
-#define ERR_REQINFO_ETYPE_READ      1
-#define ERR_REQINFO_ETYPE_WRITE     2
-#define ERR_REQINFO_ETYPE_FETCH     3
-#define ERR_REQINFO_ETYPE_PARHIT    4
-#define ERR_REQINFO_ETYPE_NOHIT     5
-#define ERR_REQINFO_ETYPE_RRID      6
-#define ERR_REQINFO_ETYPE_USER      7
-
-#define IOPMP_MODEL_FULL            0
-#define IOPMP_MODEL_RAPIDK          0x1
-#define IOPMP_MODEL_DYNAMICK        0x2
-#define IOPMP_MODEL_ISOLATION       0x3
-#define IOPMP_MODEL_COMPACTK        0x4
-
-#define ENTRY_NO_HIT                0
-#define ENTRY_PAR_HIT               1
-#define ENTRY_HIT                   2
-
-typedef enum {
-    IOPMP_AMATCH_OFF,  /* Null (off)                            */
-    IOPMP_AMATCH_TOR,  /* Top of Range                          */
-    IOPMP_AMATCH_NA4,  /* Naturally aligned four-byte region    */
-    IOPMP_AMATCH_NAPOT /* Naturally aligned power-of-two region */
-} iopmp_am_t;
-
+typedef struct RISCVIOPMPStreamSink {
+    Object parent;
+} RISCVIOPMPStreamSink;
+#define TYPE_RISCV_IOPMP_STREAMSINK \
+        "riscv-iopmp-streamsink"
+DECLARE_INSTANCE_CHECKER(RISCVIOPMPStreamSink, RISCV_IOPMP_STREAMSINK,
+                         TYPE_RISCV_IOPMP_STREAMSINK)
 typedef struct {
     uint32_t addr_reg;
     uint32_t addrh_reg;
-    uint32_t  cfg_reg;
-} iopmp_entry_t;
+    uint32_t cfg_reg;
+} RISCVIOPMPEntryRegs;
 
 typedef struct {
     uint64_t sa;
     uint64_t ea;
-} iopmp_addr_t;
+} RISCVIOPMPEntryAddr;
 
 typedef struct {
-    uint32_t *srcmd_en;
-    uint32_t *srcmd_enh;
+    union {
+        uint32_t *srcmd_en;
+        uint32_t *srcmd_perm;
+    };
+    union {
+        uint32_t *srcmd_enh;
+        uint32_t *srcmd_permh;
+    };
+    uint32_t *srcmd_r;
+    uint32_t *srcmd_rh;
+    uint32_t *srcmd_w;
+    uint32_t *srcmd_wh;
     uint32_t *mdcfg;
-    iopmp_entry_t *entry;
+    RISCVIOPMPEntryRegs *entry;
     uint32_t mdlck;
     uint32_t mdlckh;
     uint32_t entrylck;
@@ -96,57 +73,129 @@ typedef struct {
     uint32_t err_cfg;
     uint64_t err_reqaddr;
     uint32_t err_reqid;
-    uint32_t err_reqinfo;
-} iopmp_regs;
+    uint32_t err_info;
+    uint32_t err_msiaddr;
+    uint32_t err_msiaddrh;
+} RISCVIOPMPRegs;
 
-
-typedef struct iopmp_error_info {
-    uint32_t reqinfo;
+/*
+ * Transaction(txn) information to identify whole transaction length, enabling
+ * IOPMP to detect partially hit error
+ */
+typedef struct RISCVIOPMPTrasaction {
+    bool running;
+    bool error_reported;
+    bool supported;
+    uint32_t stage;
     hwaddr start_addr;
     hwaddr end_addr;
-} iopmp_error_info;
+} RISCVIOPMPTrasaction;
 
-typedef struct iopmp_pci_as {
-    void *iopmp;
-    IOMMUMemoryRegion iommu;
-    AddressSpace as;
-} iopmp_pci_addressspcace;
-
-typedef struct IopmpState {
+typedef struct RISCVIOPMPState {
     SysBusDevice parent_obj;
-    iopmp_addr_t *entry_addr;
+    RISCVIOPMPEntryAddr *entry_addr;
     MemoryRegion mmio;
     IOMMUMemoryRegion iommu;
-    IOMMUMemoryRegion *next_iommu;
-    iopmp_regs regs;
+    RISCVIOPMPRegs regs;
     MemoryRegion *downstream;
-    MemoryRegion blocked_io;
-    MemoryRegion stall_io;
-    uint32_t model;
-    uint32_t k;
-    bool rrid_transl_prog;
-    bool prient_prog;
-    bool default_rrid_transl_prog;
+    MemoryRegion blocked_r, blocked_w, blocked_x, blocked_rw, blocked_rx,
+                 blocked_wx, blocked_rwx;
+    MemoryRegion full_mr;
+
+    /*
+     * AddressSpace for full permission and no requirements forward transaction
+     * information to next IOPMP stage
+     */
+    AddressSpace downstream_as;
+    /* AddressSpace for limited permssion in current IOPMP stage */
+    AddressSpace blocked_r_as, blocked_w_as, blocked_x_as, blocked_rw_as,
+                 blocked_rx_as, blocked_wx_as, blocked_rwx_as;
+    /* AddressSpace for full permssion in current IOPMP stage */
+    AddressSpace full_as;
+    qemu_irq irq;
+    qemu_irq clic_irq;
+
+    /* Receive txn info */
+    RISCVIOPMPStreamSink txn_info_sink;
+    /* Send txn info for next stage iopmp */
+    StreamSink *send_ss;
+    RISCVIOPMPTrasaction *transaction_state;
+    QemuMutex iopmp_transaction_mutex;
+
+    /*
+     * Stall:
+     * a while loop to check stall flags if stall_violation is not enabled
+     */
+    volatile bool is_stalled;
+    volatile bool *rrid_stall;
+
+    /* MFR extenstion */
+    uint16_t *svw;
+    uint16_t svi;
+
+    /* Properties */
+    /*
+     * MDCFG Format 0: MDCFG table is implemented
+     *              1: HWCFG.md_entry_num is fixed
+     *              2: HWCFG.md_entry_num is programmable
+     */
+    uint32_t mdcfg_fmt;
+    /*
+     * SRCMD Format 0: SRCMD_EN is implemented
+     *              1: 1 to 1 SRCMD mapping
+     *              2: SRCMD_PERM is implemented
+     */
+    uint32_t srcmd_fmt;
+    bool tor_en;
+    /* SPS is only supported in srcmd_fmt0 */
+    bool sps_en;
+    /* Indicate prio_entry is programmable or not */
     bool default_prient_prog;
     bool rrid_transl_en;
-    uint32_t rrid_transl;
-
-    AddressSpace iopmp_sysbus_as;
-    iopmp_pci_addressspcace **iopmp_pci;
-    AddressSpace downstream_as;
-    AddressSpace blocked_io_as;
-    qemu_irq irq;
-    bool enable;
-    uint32_t prio_entry;
-
-    uint32_t rrid_num;
+    bool default_rrid_transl_prog;
+    bool chk_x;
+    bool no_x;
+    bool no_w;
+    bool stall_en;
+    bool default_stall_violation_en;
+    bool peis;
+    bool pees;
+    bool mfr_en;
+    /* Indicate md_entry_num for mdcfg_fmt1/2 */
+    uint32_t default_md_entry_num;
     uint32_t md_num;
+    uint32_t rrid_num;
     uint32_t entry_num;
-    uint32_t entry_offset;
-    uint32_t fabricated_v;
-} IopmpState;
+    /* Indicate number of priority entry */
+    uint32_t default_prio_entry;
+    uint32_t default_rrid_transl;
+    /* MSI */
+    bool default_msi_en;
+    uint32_t default_msidata;
+    uint32_t default_err_msiaddr;
+    uint32_t default_err_msiaddrh;
+    uint32_t msi_rrid;
+    /* Note: entry_offset < 0 is not support in QEMU */
+    int32_t entry_offset;
+    /*
+     * Data value to be returned for all read accesses that violate the security
+     * check
+     */
+    uint32_t err_rdata;
 
-void cascade_iopmp(DeviceState *cur_dev, DeviceState *next_dev);
-void iopmp_setup_pci(DeviceState *iopmp_dev, PCIBus *bus);
+    /* Current status for programmable parameters */
+    bool prient_prog;
+    bool rrid_transl_prog;
+    uint32_t md_entry_num;
+    uint32_t prio_entry;
+    uint32_t rrid_transl;
+    bool enable;
+} RISCVIOPMPState;
+
+DeviceState *iopmp_create(hwaddr addr, qemu_irq irq, qemu_irq clic_irq,
+                          uint32_t rrid_num);
+void iopmp_setup_system_memory(DeviceState *dev, const MemMapEntry *memmap,
+                               uint32_t mapentry_num, uint32_t stage);
+void iopmp_setup_sink(DeviceState *dev, StreamSink * ss);
 
 #endif

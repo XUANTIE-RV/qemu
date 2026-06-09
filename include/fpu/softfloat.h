@@ -760,6 +760,7 @@ float8e5 float4e2_to_float8e5(float4e2, float_status *status);
 float8e4 float4e2_to_float8e4(float4e2, float_status *status);
 float4e2 float8e4_to_float4e2(float8e4, float_status *status);
 float4e2 float8e5_to_float4e2(float8e5, float_status *status);
+float4e2 bfloat16_to_float4e2(bfloat16, float_status *s);
 
 /*----------------------------------------------------------------------------
 | Software float6e2 conversion routines.
@@ -1784,4 +1785,13 @@ static inline bool float128_unordered_quiet(float128 a, float128 b,
 *----------------------------------------------------------------------------*/
 float128 float128_default_nan(float_status *status);
 
+/* Floor and ceil */
+float16 float16_floor(float16 a, float_status *status);
+bfloat16 bfloat16_floor(bfloat16 a, float_status *status);
+float32 float32_floor(float32 a, float_status *status);
+float64 float64_floor(float64 a, float_status *status);
+float16 float16_ceil(float16 a, float_status *status);
+bfloat16 bfloat16_ceil(bfloat16 a, float_status *status);
+float32 float32_ceil(float32 a, float_status *status);
+float64 float64_ceil(float64 a, float_status *status);
 #endif /* SOFTFLOAT_H */

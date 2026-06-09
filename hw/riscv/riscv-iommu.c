@@ -76,6 +76,7 @@ struct RISCVIOMMUEntry {
     uint64_t gscid:16;          /* Guest Soft-Context identifier */
     uint64_t perm:2;            /* IOMMU_RW flags */
     uint64_t __rfu:2;
+    uint32_t s_pos;
 };
 
 /* IOMMU index for transactions without PASID specified. */
@@ -225,6 +226,8 @@ static int riscv_iommu_spa_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx,
     dma_addr_t addr, base;
     uint64_t satp, gatp, pte;
     bool en_s, en_g;
+    int napot_bits = 0;
+    target_ulong napot_mask = 0;
     struct {
         unsigned char step;
         unsigned char levels;
@@ -389,8 +392,17 @@ static int riscv_iommu_spa_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx,
             break;                /* Dirty bit not set */
         } else {
             /* Leaf PTE, translation completed. */
+            if (pte & PTE_N) {
+                napot_bits = ctzl(ppn) + 1;
+                if ((napot_bits != 4)) {
+                    break;
+                }
+                napot_mask = (1 << napot_bits) - 1;
+            }
+
             sc[pass].step = sc[pass].levels;
-            base = PPN_PHYS(ppn) | (addr & ((1ULL << va_skip) - 1));
+            base = PPN_PHYS((ppn & ~napot_mask)) | (addr & ((1ULL << (va_skip + napot_bits)) - 1));
+
             /* Update address mask based on smallest translation granularity */
             iotlb->addr_mask &= (1ULL << va_skip) - 1;
             /* Continue with S-Stage translation? */
@@ -750,6 +762,147 @@ static bool riscv_iommu_validate_device_ctx(RISCVIOMMUState *s,
 }
 
 /*
+ * pdt_memory_read: PDT wrapper of dma_memory_read.
+ *
+ * @s: IOMMU Device State
+ * @ctx: Device Translation Context with devid and pasid set
+ * @addr: address within that address space
+ * @buf: buffer with the data transferred
+ * @len: length of the data transferred
+ * @attrs: memory transaction attributes
+ */
+static MemTxResult pdt_memory_read(RISCVIOMMUState *s,
+                                   RISCVIOMMUContext *ctx,
+                                   dma_addr_t addr,
+                                   void *buf, dma_addr_t len,
+                                   MemTxAttrs attrs)
+{
+    uint64_t gatp_mode, pte;
+    struct {
+        unsigned char step;
+        unsigned char levels;
+        unsigned char ptidxbits;
+        unsigned char ptesize;
+    } sc;
+    MemTxResult ret;
+    dma_addr_t base = addr;
+
+    if ((ctx->tc & RISCV_IOMMU_DC_TC_GIPC) && (s->cap & RISCV_IOMMU_CAP_GIPC)) {
+        goto out;
+    }
+
+    /* G stages translation mode */
+    gatp_mode = get_field(ctx->gatp, RISCV_IOMMU_ATP_MODE_FIELD);
+    if (gatp_mode == RISCV_IOMMU_DC_IOHGATP_MODE_BARE)
+        goto out;
+
+    /* G stages translation tables root pointer */
+    base = PPN_PHYS(get_field(ctx->gatp, RISCV_IOMMU_ATP_PPN_FIELD));
+
+    /* Start at step 0 */
+    sc.step = 0;
+
+    if (s->fctl & RISCV_IOMMU_FCTL_GXL) {
+        /* 32bit mode for GXL == 1 */
+        switch (gatp_mode) {
+        case RISCV_IOMMU_DC_IOHGATP_MODE_SV32X4:
+            if (!(s->cap & RISCV_IOMMU_CAP_SV32X4)) {
+                return MEMTX_ACCESS_ERROR;
+            }
+            sc.levels    = 2;
+            sc.ptidxbits = 10;
+            sc.ptesize   = 4;
+            break;
+        default:
+            return MEMTX_ACCESS_ERROR;
+        }
+    } else {
+        /* 64bit mode for GXL == 0 */
+        switch (gatp_mode) {
+        case RISCV_IOMMU_DC_IOHGATP_MODE_SV39X4:
+            if (!(s->cap & RISCV_IOMMU_CAP_SV39X4)) {
+                return MEMTX_ACCESS_ERROR;
+            }
+            sc.levels    = 3;
+            sc.ptidxbits = 9;
+            sc.ptesize   = 8;
+            break;
+        case RISCV_IOMMU_DC_IOHGATP_MODE_SV48X4:
+            if (!(s->cap & RISCV_IOMMU_CAP_SV48X4)) {
+                return MEMTX_ACCESS_ERROR;
+            }
+            sc.levels    = 4;
+            sc.ptidxbits = 9;
+            sc.ptesize   = 8;
+            break;
+        case RISCV_IOMMU_DC_IOHGATP_MODE_SV57X4:
+            if (!(s->cap & RISCV_IOMMU_CAP_SV57X4)) {
+                return MEMTX_ACCESS_ERROR;
+            }
+            sc.levels    = 5;
+            sc.ptidxbits = 9;
+            sc.ptesize   = 8;
+            break;
+        default:
+            return MEMTX_ACCESS_ERROR;
+        }
+    }
+
+    do {
+        const unsigned va_bits = (sc.step ? 0 : 2) + sc.ptidxbits;
+        const unsigned va_skip = TARGET_PAGE_BITS + sc.ptidxbits *
+                                 (sc.levels - 1 - sc.step);
+        const unsigned idx = (addr >> va_skip) & ((1 << va_bits) - 1);
+        const dma_addr_t pte_addr = base + idx * sc.ptesize;
+
+        /* Address range check before first level lookup */
+        if (!sc.step) {
+            const uint64_t va_mask = (1ULL << (va_skip + va_bits)) - 1;
+            if ((addr & va_mask) != addr) {
+                return MEMTX_ACCESS_ERROR;
+            }
+        }
+
+        /* Read page table entry */
+        if (sc.ptesize == 4) {
+            uint32_t pte32 = 0;
+            ret = ldl_le_dma(s->target_as, pte_addr, &pte32, attrs);
+            pte = pte32;
+        } else {
+            ret = ldq_le_dma(s->target_as, pte_addr, &pte, attrs);
+        }
+        if (ret != MEMTX_OK)
+            return ret;
+
+        sc.step++;
+        hwaddr ppn = pte >> PTE_PPN_SHIFT;
+
+        if (!(pte & PTE_V)) {
+            return MEMTX_ACCESS_ERROR; /* Invalid PTE */
+        } else if (!(pte & (PTE_R | PTE_W | PTE_X))) {
+            base = PPN_PHYS(ppn); /* Inner PTE, continue walking */
+        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_W) {
+            return MEMTX_ACCESS_ERROR; /* Reserved leaf PTE flags: PTE_W */
+        } else if ((pte & (PTE_R | PTE_W | PTE_X)) == (PTE_W | PTE_X)) {
+            return MEMTX_ACCESS_ERROR; /* Reserved leaf PTE flags: PTE_W + PTE_X */
+        } else if (ppn & ((1ULL << (va_skip - TARGET_PAGE_BITS)) - 1)) {
+            return MEMTX_ACCESS_ERROR; /* Misaligned PPN */
+        } else {
+            /* Leaf PTE, translation completed. */
+            base = PPN_PHYS(ppn) | (addr & ((1ULL << va_skip) - 1));
+            break;
+        }
+
+        if (sc.step == sc.levels) {
+            return MEMTX_ACCESS_ERROR; /* Can't find leaf PTE */
+        }
+    } while (1);
+
+out:
+    return dma_memory_read(s->target_as, base, buf, len, attrs);
+}
+
+/*
  * RISC-V IOMMU Device Context Loopkup - Device Directory Tree Walk
  *
  * @s         : IOMMU Device State
@@ -767,6 +920,7 @@ static int riscv_iommu_ctx_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx)
     const size_t dc_len = sizeof(dc) >> dc_fmt;
     unsigned depth;
     uint64_t de;
+    bool gipc = false;
 
     switch (mode) {
     case RISCV_IOMMU_DDTP_MODE_OFF:
@@ -909,14 +1063,18 @@ static int riscv_iommu_ctx_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx)
         return RISCV_IOMMU_FQ_CAUSE_PDT_MISCONFIGURED;
     }
 
+    if ((ctx->tc & RISCV_IOMMU_DC_TC_GIPC) && (s->cap & RISCV_IOMMU_CAP_GIPC)) {
+        gipc = true;
+    }
+
     for (depth = mode - RISCV_IOMMU_DC_FSC_PDTP_MODE_PD8; depth-- > 0; ) {
         /*
          * Select process id index bits based on process directory tree
          * level. See IOMMU Specification, 2.2. Process-Directory-Table.
          */
-        const int split = depth * 9 + 8;
+        const int split = depth * 9 + (gipc ? 7 : 8);
         addr |= ((ctx->pasid >> split) << 3) & ~TARGET_PAGE_MASK;
-        if (dma_memory_read(s->target_as, addr, &de, sizeof(de),
+        if (pdt_memory_read(s, ctx, addr, &de, sizeof(de),
                             MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
             return RISCV_IOMMU_FQ_CAUSE_PDT_LOAD_FAULT;
         }
@@ -928,8 +1086,9 @@ static int riscv_iommu_ctx_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx)
     }
 
     /* Leaf entry in PDT */
-    addr |= (ctx->pasid << 4) & ~TARGET_PAGE_MASK;
-    if (dma_memory_read(s->target_as, addr, &dc.ta, sizeof(uint64_t) * 2,
+    addr |= (ctx->pasid << (gipc ? 5 : 4)) & ~TARGET_PAGE_MASK;
+    if (pdt_memory_read(s, ctx, addr, &dc.ta,
+                        gipc ? sizeof(uint64_t) * 4 : sizeof(uint64_t) * 2,
                         MEMTXATTRS_UNSPECIFIED) != MEMTX_OK) {
         return RISCV_IOMMU_FQ_CAUSE_PDT_LOAD_FAULT;
     }
@@ -937,6 +1096,10 @@ static int riscv_iommu_ctx_fetch(RISCVIOMMUState *s, RISCVIOMMUContext *ctx)
     /* Use FSC and TA from process directory entry. */
     ctx->ta = le64_to_cpu(dc.ta);
     ctx->satp = le64_to_cpu(dc.fsc);
+
+    if (gipc) {
+        ctx->gatp = le64_to_cpu(dc.msiptp);
+    }
 
     return 0;
 }
@@ -1116,9 +1279,11 @@ static void __iot_inval_pscid_iova(gpointer key, gpointer value, gpointer data)
 {
     RISCVIOMMUEntry *iot = (RISCVIOMMUEntry *) value;
     RISCVIOMMUEntry *arg = (RISCVIOMMUEntry *) data;
+    uint64_t size = (1 << arg->s_pos) * TARGET_PAGE_SIZE;
+
     if (iot->gscid == arg->gscid &&
         iot->pscid == arg->pscid &&
-        iot->iova == arg->iova) {
+        ((iot->iova >= arg->iova) && (iot->iova < (arg->iova + size)))) {
         iot->perm = IOMMU_NONE;
     }
 }
@@ -1191,13 +1356,14 @@ static void riscv_iommu_iot_update(RISCVIOMMUState *s,
 }
 
 static void riscv_iommu_iot_inval(RISCVIOMMUState *s, GHFunc func,
-    uint32_t gscid, uint32_t pscid, hwaddr iova)
+    uint32_t gscid, uint32_t pscid, hwaddr iova, uint32_t pos)
 {
     GHashTable *iot_cache;
     RISCVIOMMUEntry key = {
         .gscid = gscid,
         .pscid = pscid,
         .iova  = PPN_DOWN(iova),
+        .s_pos = pos,
     };
 
     iot_cache = g_hash_table_ref(s->iot_cache);
@@ -1340,7 +1506,9 @@ static void riscv_iommu_ats(RISCVIOMMUState *s,
         }
 
         if (as->devid == devid) {
-            as->pasid = pasid;
+            if (!as->pasid || pasid) {
+                as->pasid = pasid;
+            }
             break;
         }
     }
@@ -1428,6 +1596,9 @@ static void riscv_iommu_process_cq_tail(RISCVIOMMUState *s)
     dma_addr_t addr;
     uint32_t tail, head, ctrl;
     uint64_t cmd_opcode;
+    hwaddr iova;
+    bool s_bit;
+    uint32_t s_pos;
     GHFunc func;
 
     ctrl = riscv_iommu_reg_get32(s, RISCV_IOMMU_REG_CQCSR);
@@ -1455,7 +1626,8 @@ static void riscv_iommu_process_cq_tail(RISCVIOMMUState *s)
 
         cmd_opcode = get_field(cmd.dword0,
                                RISCV_IOMMU_CMD_OPCODE | RISCV_IOMMU_CMD_FUNC);
-
+        s_bit = cmd.dword1 & RISCV_IOMMU_CMD_IOTINVAL_S;
+        iova = (cmd.dword1 << 2) & TARGET_PAGE_MASK;
         switch (cmd_opcode) {
         case RISCV_IOMMU_CMD(RISCV_IOMMU_CMD_IOFENCE_FUNC_C,
                              RISCV_IOMMU_CMD_IOFENCE_OPCODE):
@@ -1487,11 +1659,12 @@ static void riscv_iommu_process_cq_tail(RISCVIOMMUState *s)
             }
             riscv_iommu_iot_inval(s, func,
                 get_field(cmd.dword0, RISCV_IOMMU_CMD_IOTINVAL_GSCID), 0,
-                cmd.dword1 & TARGET_PAGE_MASK);
+                iova, 0);
             break;
 
         case RISCV_IOMMU_CMD(RISCV_IOMMU_CMD_IOTINVAL_FUNC_VMA,
                              RISCV_IOMMU_CMD_IOTINVAL_OPCODE):
+            s_pos = 0;
             if (!(cmd.dword0 & RISCV_IOMMU_CMD_IOTINVAL_GV)) {
                 /* invalidate all cache mappings, simplified model */
                 func = __iot_inval_all;
@@ -1504,11 +1677,18 @@ static void riscv_iommu_process_cq_tail(RISCVIOMMUState *s)
             } else {
                 /* invalidate cache matching GSCID and PSCID and ADDR (IOVA) */
                 func = __iot_inval_pscid_iova;
+                if (s_bit) {
+                    if (cto64(iova) >= 63) {
+                        func = __iot_inval_pscid;
+                    } else {
+                        s_pos = cto64(iova) + 1;
+                    }
+                }
             }
             riscv_iommu_iot_inval(s, func,
                 get_field(cmd.dword0, RISCV_IOMMU_CMD_IOTINVAL_GSCID),
                 get_field(cmd.dword0, RISCV_IOMMU_CMD_IOTINVAL_PSCID),
-                cmd.dword1 & TARGET_PAGE_MASK);
+                iova, s_pos);
             break;
 
         case RISCV_IOMMU_CMD(RISCV_IOMMU_CMD_IODIR_FUNC_INVAL_DDT,
@@ -2010,10 +2190,20 @@ static void riscv_iommu_realize(DeviceState *dev, Error **errp)
     }
     if (s->enable_g_stage) {
         s->cap |= RISCV_IOMMU_CAP_SV32X4 | RISCV_IOMMU_CAP_SV39X4 |
-                  RISCV_IOMMU_CAP_SV48X4 | RISCV_IOMMU_CAP_SV57X4;
+                  RISCV_IOMMU_CAP_SV48X4 | RISCV_IOMMU_CAP_SV57X4 |
+                  RISCV_IOMMU_CAP_SVRSW60T59B;
     }
+    if (s->enable_gipc) {
+        s->cap |= RISCV_IOMMU_CAP_GIPC;
+    }
+
     /* Enable translation debug interface */
     s->cap |= RISCV_IOMMU_CAP_DBG;
+
+    /* Enable non-leaf PTE invalidation extension */
+    s->cap |= RISCV_IOMMU_CAP_NL;
+    /* Enable address range invalidation extension */
+    s->cap |= RISCV_IOMMU_CAP_S;
 
     /* Report QEMU target physical address space limits */
     s->cap = set_field(s->cap, RISCV_IOMMU_CAP_PAS,
@@ -2121,6 +2311,7 @@ static Property riscv_iommu_properties[] = {
         LIMIT_CACHE_IOT),
     DEFINE_PROP_BOOL("intremap", RISCVIOMMUState, enable_msi, TRUE),
     DEFINE_PROP_BOOL("ats", RISCVIOMMUState, enable_ats, TRUE),
+    DEFINE_PROP_BOOL("gipc", RISCVIOMMUState, enable_gipc, TRUE),
     DEFINE_PROP_BOOL("off", RISCVIOMMUState, enable_off, TRUE),
     DEFINE_PROP_BOOL("s-stage", RISCVIOMMUState, enable_s_stage, TRUE),
     DEFINE_PROP_BOOL("g-stage", RISCVIOMMUState, enable_g_stage, TRUE),

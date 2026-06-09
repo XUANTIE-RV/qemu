@@ -19,16 +19,6 @@
 #include "qemu/osdep.h"
 #include "cpu.h"
 
-#define PN_3_64  0xFFC00000000000ULL
-#define PN_2_64  0x3FFFFE000000ULL
-#define PN_1_64  0x1FF0000ULL
-#define PN_0_64  0xF000ULL
-#define PN_2_32  0x3FE000000ULL
-#define PN_1_32  0x1FF8000ULL
-#define PN_0_32  0x7000ULL
-#define PA_2M_L2_OFFSET 0x1E00000ULL
-#define PA_4M_L2_OFFSET 0x1C00000ULL
-
 typedef uint64_t load_entry_fn(AddressSpace *, hwaddr,
                                MemTxAttrs, MemTxResult *);
 
@@ -44,189 +34,207 @@ static uint64_t load_entry_64(AddressSpace *as, hwaddr addr,
     return address_space_ldq(as, addr, attrs, result);
 }
 
+typedef union {
+    uint64_t raw;
+    struct {
+        uint32_t v:1;
+        uint32_t l:1;
+        uint32_t rsv1:5;
+        uint32_t perms:24;
+        uint32_t n:1;
+    } leaf32;
+    struct {
+        uint32_t v:1;
+        uint32_t l:1;
+        uint32_t rsv1:8;
+        uint32_t ppn:22;
+    } nonleaf32;
+    struct {
+        uint64_t v:1;
+        uint64_t l:1;
+        uint64_t rsv1:8;
+        uint64_t perms:48;
+        uint64_t rsv2:5;
+        uint64_t n:1;
+    } leaf64;
+    struct {
+        uint64_t v:1;
+        uint64_t l:1;
+        uint64_t rsv1:8;
+        uint64_t ppn:52;
+        uint64_t rsv2:1;
+        uint64_t n:1;
+    } nonleaf64;
+} mpte_union_t;
+
+static inline bool mpte_is_leaf(uint64_t mpte)
+{
+   return mpte & 0x2;
+}
+
+static inline bool mpte_is_valid(uint64_t mpte)
+{
+    return mpte & 0x1;
+}
+
+static uint64_t mpte_get_rsv(CPURISCVState *env, uint64_t mpte)
+{
+    RISCVMXL mxl = riscv_cpu_mxl(env);
+    bool leaf = mpte_is_leaf(mpte);
+    mpte_union_t *u = (mpte_union_t *)&mpte;
+
+    return (mxl == MXL_RV32)
+        ? (leaf ? u->leaf32.rsv1 : u->nonleaf32.rsv1)
+        : (leaf ? (u->leaf64.rsv1 << 5) | u->leaf64.rsv2
+                : (u->nonleaf64.rsv1 << 1) | u->nonleaf64.rsv2);
+}
+
+static uint64_t mpte_get_perms(CPURISCVState *env, uint64_t mpte)
+{
+    RISCVMXL mxl = riscv_cpu_mxl(env);
+    mpte_union_t *u = (mpte_union_t *)&mpte;
+
+    return (mxl == MXL_RV32) ? u->leaf32.perms : u->leaf64.perms;
+}
+
+static bool mpte_check_nlnapot(CPURISCVState *env, uint64_t mpte, bool *nlnapot)
+{
+    RISCVMXL mxl = riscv_cpu_mxl(env);
+    mpte_union_t *u = (mpte_union_t *)&mpte;
+    if (mxl == MXL_RV32) {
+        *nlnapot = false;
+        return true;
+    }
+    *nlnapot = u->nonleaf64.n;
+    return u->nonleaf64.n ? (u->nonleaf64.ppn & 0x1ff) == 0x100 : true;
+}
+
+static uint64_t mpte_get_ppn(CPURISCVState *env, uint64_t mpte, int pn,
+                             bool nlnapot)
+{
+    RISCVMXL mxl = riscv_cpu_mxl(env);
+    mpte_union_t *u = (mpte_union_t *)&mpte;
+
+    if (nlnapot) {
+        return deposit64(u->nonleaf64.ppn, 0, 9, pn & 0x1ff);
+    }
+    return (mxl == MXL_RV32) ? u->nonleaf32.ppn : u->nonleaf64.ppn;
+}
+
+/* Caller should assert i before call this interface */
+static int mpt_get_pn(hwaddr addr, int i, mtt_mode_t mode)
+{
+    if (mode == SMMTT34) {
+        return i == 0
+            ? extract64(addr, 15, 10)
+            : extract64(addr, 25, 9);
+    } else {
+        int offset = 16 + i * 9;
+        if ((mode == SMMTT64) && (i == 4)) {
+            return extract64(addr, offset, 12);
+        } else {
+            return extract64(addr, offset, 9);
+        }
+    }
+}
+
+/* Caller should assert i before call this interface */
+static int mpt_get_pi(hwaddr addr, int i, mtt_mode_t mode)
+{
+    if (mode == SMMTT34) {
+        return i == 0
+            ? extract64(addr, 12, 3)
+            : extract64(addr, 22, 3);
+    } else {
+        int offset = 16 + i * 9;
+        return extract64(addr, offset - 4, 4);
+    }
+}
+
 static bool mtt_lookup(CPURISCVState *env, hwaddr addr, mtt_mode_t mode,
                        mtt_access_t *allowed_access,
                        MMUAccessType access_type)
 {
     MemTxResult res;
     MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
-    hwaddr base;
-    hwaddr L3_addr, L2_addr, L1_addr;
-    uint64_t L3_entry, L2_entry, L1_entry;
-    int access, index, pmp_prot, pmp_ret;
-    int pte_size, xlen;
-    uint64_t pn[4];
-    uint64_t l2_type_mask, l2_type_shift, l2_info_mask, l2_reserved_mask;
-    uint64_t l1_reserved_mask;
-    load_entry_fn *load_entry;
-    RISCVMXL mxl = riscv_cpu_mxl(env);
-
     CPUState *cs = env_cpu(env);
-    base = (hwaddr)env->mttppn << PGSHIFT;
-
-    switch (mxl) {
-    case MXL_RV32:
-        l2_type_mask = 0x1C00000ULL;
-        l2_type_shift = 22;
-        l2_info_mask = 0x3FFFFFULL;
-        l2_reserved_mask = MPTE_L2_RESERVED_32;
-        l1_reserved_mask = MPTE_L1_RESERVED_32;
-        load_entry = &load_entry_32;
-        pte_size = 2;
-        xlen = 32;
-        break;
-    case MXL_RV64:
-        l2_type_mask = 0x700000000000ULL;
-        l2_type_shift = 44;
-        l2_info_mask = 0xFFFFFFFFFFFULL;
-        l2_reserved_mask = MPTE_L2_RESERVED_64;
-        l1_reserved_mask = MPTE_L1_RESERVED_64;
-        load_entry = &load_entry_64;
-        pte_size = 3;
-        xlen = 64;
-        break;
-    default:
-        g_assert_not_reached();
-        break;
-    }
+    hwaddr mpte_addr, base = (hwaddr)env->mttppn << PGSHIFT;
+    load_entry_fn *load_entry;
+    uint32_t mptesize, levels, xwr;
+    int pn, pi, pmp_prot, pmp_ret;
+    uint64_t mpte, perms;
 
     switch (mode) {
     case SMMTT34:
-    case SMMTT46:
-        pn[2] = (addr & PN_2_32) >> 25;
-        pn[1] = (addr & PN_1_32) >> 15;
-        pn[0] = (addr & PN_0_32) >> 12;
+        load_entry = &load_entry_32; levels = 2; mptesize = 4; break;
+    case SMMTT43:
+        load_entry = &load_entry_64; levels = 3; mptesize = 8; break;
         break;
-    case SMMTT56:
-        pn[3] = (addr & PN_3_64) >> 46;
-        pn[2] = (addr & PN_2_64) >> 25;
-        pn[1] = (addr & PN_1_64) >> 16;
-        pn[0] = (addr & PN_0_64) >> 12;
-        break;
+    case SMMTT52:
+        load_entry = &load_entry_64; levels = 4; mptesize = 8; break;
+    case SMMTT64:
+        load_entry = &load_entry_64; levels = 5; mptesize = 8; break;
+    case SMMTTBARE:
+        *allowed_access = ACCESS_ALLOW_RWX;
+        return true;
     default:
         g_assert_not_reached();
         break;
     }
-    /* PAW = 56, lookup MTTL3 */
-    if (mode == SMMTT56) {
-        L3_addr = base + (pn[3] << pte_size);
-        /*
-         * MTT structure accesses are to be treated as implicit M-mode accesses
-         * and are subject to PMP/Smepmp and IOPMP checks.
-         */
-        pmp_ret = get_physical_address_pmp(env, &pmp_prot, L3_addr,
-                                           sizeof(uint64_t),
-                                           MMU_DATA_LOAD, PRV_M);
+    for (int i = levels - 1; i >= 0 ; i--) {
+        /* 1. Get pn[i] as the mpt index */
+        pn = mpt_get_pn(addr, i, mode);
+        /* 2. Get mpte address and get mpte */
+        mpte_addr = base + pn * mptesize;
+        pmp_ret = get_physical_address_pmp(env, &pmp_prot, mpte_addr,
+                                           mptesize, MMU_DATA_LOAD, PRV_M);
         if (pmp_ret != TRANSLATE_SUCCESS) {
             return false;
         }
-        L3_entry = load_entry(cs->as, L3_addr, attrs, &res);
-        base = (hwaddr)(L3_entry & MTTP_PPN_MASK_64) << PGSHIFT;
-        if ((L3_entry & MPTE_L3_VALID) == 0) {
+        mpte = load_entry(cs->as, mpte_addr, attrs, &res);
+        /* 3. Check valid bit and reserve bits of mpte */
+        if (!mpte_is_valid(mpte) || mpte_get_rsv(env, mpte)) {
             return false;
         }
-        g_assert((L3_entry & MPTE_L3_RESERVED) == 0);
-    }
 
-    /* lookup MTTL2 */
-    L2_addr = base + (pn[2] << pte_size);
-    pmp_ret = get_physical_address_pmp(env, &pmp_prot, L2_addr,
-                                       xlen / 8,
-                                       MMU_DATA_LOAD, PRV_M);
-    if (pmp_ret != TRANSLATE_SUCCESS) {
-        return false;
-    }
-    L2_entry = load_entry(cs->as, L2_addr, attrs, &res);
-    g_assert((L2_entry & l2_reserved_mask) == 0);
+        /* 4. Process non-leaf node */
+        if (!mpte_is_leaf(mpte)) {
+            bool nlnapot = false;
+            if (i == 0) {
+                return false;
+            }
+            if (!mpte_check_nlnapot(env, mpte, &nlnapot)) {
+                return false;
+            }
+            base = mpte_get_ppn(env, mpte, pn, nlnapot) << PGSHIFT;
+            continue;
+        }
 
-    int L2_type = (L2_entry & l2_type_mask) >> l2_type_shift;
-    switch (L2_type) {
-    case 0b000:
-        /* 1G_disallow */
-        *allowed_access = ACCESS_DISALLOW;
-        return false;
-    case 0b001:
-        /* 1G_allow_rx */
-        *allowed_access = ACCESS_ALLOW_RX;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_INST_FETCH);
-    case 0b010:
-        /* 1G_allow_rw */
-        *allowed_access = ACCESS_ALLOW_RW;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_DATA_STORE);
-    case 0b011:
-        /* 1G_allow_rwx */
-        *allowed_access = ACCESS_ALLOW_RWX;
-        return true;
-    case 0b100:
-        /* MTT_L1_DIR */
-        break;
-    case 0b0101:
-        if (mxl == MXL_RV32) {
-            /* 4M_PAGES */
-            index = (addr & PA_4M_L2_OFFSET) >> 22;
-         } else {
-            /* 2M_PAGES */
-            index = (addr & PA_2M_L2_OFFSET) >> 21;
-         }
-        access = (L2_entry & (0b11ULL << (index * 2))) >> (index * 2);
-        switch (access) {
-        case 0b00:
-            *allowed_access = ACCESS_DISALLOW;
-            return false;
-        case 0b01:
-            *allowed_access = ACCESS_ALLOW_RX;
+        /* 5. Process leaf node */
+        pi = mpt_get_pi(addr, i, mode);
+        perms = mpte_get_perms(env, mpte);
+        xwr = (perms >> (pi * 3)) & 0x7;
+        switch (xwr) {
+        case ACCESS_ALLOW_R:
+            *allowed_access = ACCESS_ALLOW_R;
+            return access_type == MMU_DATA_LOAD;
+        case ACCESS_ALLOW_X:
+            *allowed_access = ACCESS_ALLOW_X;
+            return access_type == MMU_INST_FETCH;
+        case ACCESS_ALLOW_RX:
+            *allowed_access = ACCESS_ALLOW_R;
             return (access_type == MMU_DATA_LOAD ||
                     access_type == MMU_INST_FETCH);
-        case 0b10:
+        case ACCESS_ALLOW_RW:
             *allowed_access = ACCESS_ALLOW_RW;
             return (access_type == MMU_DATA_LOAD ||
                     access_type == MMU_DATA_STORE);
-        case 0b11:
+        case ACCESS_ALLOW_RWX:
             *allowed_access = ACCESS_ALLOW_RWX;
             return true;
         default:
-            g_assert_not_reached();
-            break;
+            return false;
         }
-        break;
-    default:
-        /* Reserved for future use and causes an access violation if used. */
-        return false;
-    }
-
-    /* Lookup MTTL1 */
-    base = (hwaddr)(L2_entry & l2_info_mask) << PGSHIFT;
-    L1_addr = base + (pn[1] << pte_size);
-    pmp_ret = get_physical_address_pmp(env, &pmp_prot, L1_addr,
-                                       xlen / 8,
-                                       MMU_DATA_LOAD, PRV_M);
-    if (pmp_ret != TRANSLATE_SUCCESS) {
-        return false;
-    }
-    L1_entry = load_entry(cs->as, L1_addr, attrs, &res);
-    g_assert((L1_entry & l1_reserved_mask) == 0);
-    index = pn[0];
-    access = (L1_entry & (0b11ULL << (index * 2))) >> (index * 2);
-    switch (access & 0b11ULL) {
-    case 0b00:
-        *allowed_access = ACCESS_DISALLOW;
-        return false;
-    case 0b01:
-        *allowed_access = ACCESS_ALLOW_RX;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_INST_FETCH);
-    case 0b10:
-        *allowed_access = ACCESS_ALLOW_RW;
-        return (access_type == MMU_DATA_LOAD ||
-                access_type == MMU_DATA_STORE);
-    case 0b11:
-        *allowed_access = ACCESS_ALLOW_RWX;
-        return true;
-    default:
-        g_assert_not_reached();
-        break;
     }
     return false;
 }
@@ -249,6 +257,12 @@ int mtt_access_to_page_prot(mtt_access_t mtt_access)
 {
     int prot;
     switch (mtt_access) {
+    case ACCESS_ALLOW_R:
+        prot = PAGE_READ;
+        break;
+    case ACCESS_ALLOW_X:
+        prot = PAGE_EXEC;
+        break;
     case ACCESS_ALLOW_RX:
         prot = PAGE_READ | PAGE_EXEC;
         break;

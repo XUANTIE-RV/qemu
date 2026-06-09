@@ -129,14 +129,14 @@ static void smartl_init(MachineState *machine)
         pirq[3] = irqs[SMARTL_CLIC_IRQ_NUMS + 7];
     }
     thead_clint_create(smartl_memmap[SMARTL_CLINT].base, pirq,
-                       machine->smp.cpus);
+                       machine->smp.cpus, 20000000);
 
     /* Create CSKY UART */
     csky_uart_create(smartl_memmap[SMARTL_UART].base, irqs[0x10], NULL,
                      serial_hd(0));
 
     /* Create CSKY timer */
-    csky_timer_set_freq(1000000000ll);
+    csky_timer_set_freq(20000000);
     csky_timer_create(smartl_memmap[SMARTL_TIMER].base, &irqs[0x12], NULL,
                       machine->smp.cpus, 0);
     if (machine->smp.cpus > 1) {
@@ -157,6 +157,8 @@ static void smartl_init(MachineState *machine)
     if (machine->kernel_filename) {
         load_kernel(env, machine->kernel_filename);
     }
+    g_free(irqs);
+    g_free(pirq);
 }
 
 static void smartl_class_init(ObjectClass *oc, void *data)

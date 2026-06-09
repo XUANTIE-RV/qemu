@@ -24,16 +24,18 @@
 typedef enum {
     SMMTTBARE = 0,
     SMMTT34   = 1,
-    SMMTT46   = 2,
-    SMMTT56   = 3,
+    SMMTT43   = 2,
+    SMMTT52   = 3,
+    SMMTT64   = 4,
     SMMTTMAX
 } mtt_mode_t;
 
 typedef enum {
-    ACCESS_DISALLOW = 0,
-    ACCESS_ALLOW_RX,
-    ACCESS_ALLOW_RW,
-    ACCESS_ALLOW_RWX,
+    ACCESS_ALLOW_R = 0b001,
+    ACCESS_ALLOW_X = 0b100,
+    ACCESS_ALLOW_RX = 0b101 ,
+    ACCESS_ALLOW_RW = 0b011,
+    ACCESS_ALLOW_RWX = 0b111,
 } mtt_access_t;
 
 

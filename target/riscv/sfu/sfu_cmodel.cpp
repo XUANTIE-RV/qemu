@@ -7,9 +7,7 @@
     #include <jasperc.h>
     #include <assert.h>
 #endif
-typedef unsigned long int ulong;
-typedef unsigned short int ushort;
-typedef unsigned int uint;
+
 uint64_t to_uint64(double x) {
     uint64_t a = 0;
     ::memcpy(&a,&x,sizeof(x));
@@ -26,18 +24,6 @@ unsigned int to_unsigned_int(float x) {
     unsigned int a = 0;
     ::memcpy(&a,&x,sizeof(x));
     return a;
-}
-
-float double_to_float(float64_t result_double, uint_fast8_t round_mode){
-    float64_t result_double_softfloat = {0};
-    float32_t result_softfloat = {0};
-    float result = 0;
-    softfloat_roundingMode = round_mode;
-    result_double_softfloat.v = (result_double.v);
-    result_softfloat = f64_to_f32(result_double_softfloat);
-    result = to_float(result_softfloat.v);
-
-    return result;
 }
 
 union ui64_f64 { uint64_t ui; float64_t f; };
@@ -74,7 +60,7 @@ uint_fast32_t softfloat_commonNaNToF32UI( const struct commonNaN *aPtr )
 #define expF64UI( a ) ((int_fast16_t) ((a)>>52) & 0x7FF)
 #define fracF64UI( a ) ((a) & UINT64_C( 0x000FFFFFFFFFFFFF ))
 
-THREAD_LOCAL  uint_fast8_t softfloat_roundingMode;
+THREAD_LOCAL  uint_fast8_t softfloat_roundingMode_sfu;
 
 float32_t
 softfloat_roundPackToF32( bool sign, int_fast16_t exp, uint_fast32_t sig )
@@ -87,7 +73,7 @@ softfloat_roundPackToF32( bool sign, int_fast16_t exp, uint_fast32_t sig )
 
     /*------------------------------------------------------------------------
      *------------------------------------------------------------------------*/
-    roundingMode = softfloat_roundingMode;
+    roundingMode = softfloat_roundingMode_sfu;
     roundNearEven = (roundingMode == softfloat_round_near_even);
     roundIncrement = 0x40;
     if ( ! roundNearEven && (roundingMode != softfloat_round_near_maxMag) ) {
@@ -180,11 +166,25 @@ float32_t f64_to_f32( float64_t a )
     uZ.ui = uiZ;
     return uZ.f;
 }
+
+
+
+float double_to_float(float64_t result_double, uint_fast8_t round_mode){
+    float64_t result_double_softfloat = {0};
+    float32_t result_softfloat = {0};
+    float result = 0;
+    softfloat_roundingMode_sfu = round_mode;
+    result_double_softfloat.v = (result_double.v);
+    result_softfloat = f64_to_f32(result_double_softfloat);
+    result = to_float(result_softfloat.v);
+
+    return result;
+}
 float double_to_float_softfloat(double result_double, uint_fast8_t round_mode){
     float64_t result_double_softfloat = {0};
     float32_t result_softfloat = {0};
     float result = 0;
-    softfloat_roundingMode = round_mode;
+    softfloat_roundingMode_sfu = round_mode;
     result_double_softfloat.v = to_uint64(result_double);
     result_softfloat = f64_to_f32(result_double_softfloat);
     result = to_float(result_softfloat.v);
@@ -226,7 +226,7 @@ int PP(int x_3){
 int *booth_transform_c1(unsigned long long mul){
     long *p=(long *)&mul;
     long mul_0 = 0;
-
+    
     mul_0 = (long)(*p);
     long mul_0_0 = (mul_0 & 0b11) << 1;
     *PP_out_c1 = PP(mul_0_0);
@@ -243,14 +243,14 @@ int *booth_transform_c1(unsigned long long mul){
 int *booth_transform_c2(unsigned long long mul){
     long *p=(long *)&mul;
     long mul_0 = 0;
-
+    
     mul_0 = (long)(*p);
     long mul_0_0 = (mul_0 & 0b11) << 1;
     *PP_out_c2 = PP(mul_0_0);
     long int a = 0b1110;
     long b = 0;
     //for (int i = 0; i < sizeof(long)*8/2; i++){
-    for (int i = 0; i < 18; i++){
+    for (int i = 0; i < 18; i++){   
         b = (mul_0 & (a << (i*2))) >> (i*2+1);
 	    *(PP_out_c2 + i+1) = (PP(b));
     }
@@ -292,7 +292,7 @@ long int booth_mul_c1(long mul_0, int *mul_1, int weight, int pos_c){
 
             position = -(weight_first + 2*i) + P - P_N_D - MAX_POS;
             position_com = position+booth_cut_num;
-
+			
 
 	if (pos_c*booth_pos >=0){
 	//if (mul_1_now * mul_0 > 0 || ( mul_0 > 0 && mul_1_now == 0)||(mul_0 == 0 && mul_1_now < 0) ){
@@ -307,15 +307,15 @@ long int booth_mul_c1(long mul_0, int *mul_1, int weight, int pos_c){
 		    *(ex3_c1x2_pp_A_sign + i) = 63;
 		    *(ex3_c1x2_pp_sign + i) = 1;
             if (position > 0){
-                result = result - result_1;
+                result = result - result_1; 
             }
             else{
                 if (position_com > 0 ){
                     result = result - result_1;
                 } else{
-                    result = result - (cut_bit((mul_0 << (2*i)) * (-booth), position_first));
+                    result = result - (cut_bit((mul_0 << (2*i)) * (-booth), position_first)); 
                 }
-            }
+            }               
         }
     }
     return result;
@@ -356,7 +356,7 @@ long int booth_mul_c2(long mul_0, int *mul_1, int weight, int pos_c){
                 booth = mul_1_now;
             position = -(weight_first + 2*i) + Q - Q_N_D - MAX_POS;
             position_com = position+booth_cut_num;
-
+			
 
 	if (pos_c*booth_pos >=0){
 	//if (mul_1_now * mul_0 > 0 || ( mul_0 > 0 && mul_1_now == 0)||(mul_0 == 0 && mul_1_now < 0) ){
@@ -371,15 +371,15 @@ long int booth_mul_c2(long mul_0, int *mul_1, int weight, int pos_c){
 		    *(ex3_c2x2x2_pp_A_sign + i) = 63;
 		    *(ex3_c2x2x2_pp_sign + i) = 1;
             if (position > 0){
-                result = result - result_1;
+                result = result - result_1; 
             }
             else{
                 if (position_com > 0 ){
                     result = result - result_1;
                 } else{
-                    result = result - (cut_bit((mul_0 << (2*i)) * (-booth), position_first));
+                    result = result - (cut_bit((mul_0 << (2*i)) * (-booth), position_first)); 
                 }
-            }
+            }               
         }
         }
     return result;
@@ -421,7 +421,7 @@ int64_t booth_mul(int64_t mul_0, int *mul_1, int weight, int pos_c, int c1_or_c2
     }
 	//printf("The position_first is %d\n", position_first);
     #ifdef HECTOR
-        uint position_first_sign = 0;
+        unsigned int position_first_sign = 0;
         if (position_first < 0)
             position_first_sign = 1;
         Hector::show("position_first_sign",position_first_sign);
@@ -447,43 +447,43 @@ int64_t booth_mul(int64_t mul_0, int *mul_1, int weight, int pos_c, int c1_or_c2
 
     result_base_temp = (mul_0 << (i<<1)) * booth;
     result_base_temp_neg = -result_base_temp;
-
+			
     //result_base =  cut_bit((mul_0 << (i<<1)) * booth, position_first);
     //result_base_neg =  cut_bit((mul_0 << (i<<1)) * (-booth), position_first);
 
     result_base =  cut_bit(result_base_temp, position_first);
     result_base_neg =  cut_bit(result_base_temp_neg, position_first);
-    //ex3_base = (mul_0 * booth) << booth_cut_num;
+    ex3_base = (mul_0 * booth) << booth_cut_num;
 	//if (pos_c*booth_pos >=0){
- 	if (((pos_c >=0) && (booth_pos >=0)) || ((pos_c <0) && (booth_pos <0))){
+ 	if (((pos_c >=0) && (booth_pos >=0)) || ((pos_c <0) && (booth_pos <0))){       
             result_temp[i] = result_base;
-            /*
-            if (c1_or_c2 == C1){
+            if (c1_or_c2 ==_C1){
 			    *(ex3_c1x2_pp + i) = ex3_base;
 			    *(ex3_c1x2_pp_A_sign + i) = 0;
 			    *(ex3_c1x2_pp_sign + i) = 0;
+			//printf("ex3_c1x2_pp is %X\n", ex3_base);
 		    }else{
 			    *(ex3_c2x2x2_pp + i) = ex3_base;
 			    *(ex3_c2x2x2_pp_A_sign + i) = 0;
 			    *(ex3_c2x2x2_pp_sign + i) = 0;
+			//printf("ex3_c2x2x2_pp is %X\n", ex3_base);
 		    }
-            */
         } else{
             //result_1 = ((long int)1  << position_first) +(cut_bit((mul_0 << (i<<1)) * (-booth), position_first));
             result_1 = ((long int)1  << position_first) + result_base_neg;
-            /*
-            if (c1_or_c2 == C1){
+            if (c1_or_c2 == _C1){
 		    	//*(ex3_c1x2_pp + i) = ((mul_0 * booth) << booth_cut_num)-1;
                 *(ex3_c1x2_pp + i) = ex3_base -1;
 		    	*(ex3_c1x2_pp_A_sign + i) = 63;
 		    	*(ex3_c1x2_pp_sign + i) = 1;
+			//printf("ex3_c1x2_pp is %X\n", ex3_base-1);
 		    }
 		    else{
 		    	*(ex3_c2x2x2_pp + i) = ex3_base -1;
 		    	*(ex3_c2x2x2_pp_A_sign + i) = 63;
 		    	*(ex3_c2x2x2_pp_sign + i) = 1;
+			//printf("ex3_c2x2x2_pp is %X\n", ex3_base-1);
 		    }
-            */
             if (position > 0){
                  result_temp[i] = -result_1;
             }
@@ -493,10 +493,13 @@ int64_t booth_mul(int64_t mul_0, int *mul_1, int weight, int pos_c, int c1_or_c2
                 } else{
                     result_temp[i] = -result_base_neg;
                 }
-            }
+            }               
         }
         result += result_temp[i];
     }
+    if (c1_or_c2 == _C2)
+        c2_x2_x2_16_17 = result_temp[16]+result_temp[17];
+
     return result;
 }
 //Generate square of input with 6 bits truncation
@@ -504,6 +507,7 @@ unsigned long long square_cut_6_bit(unsigned long int x2){
 //double square_cut_6_bit(unsigned long int x2){
     unsigned long long x2_square = 0;
     x2_square = x2 * x2;
+    //printf("x2x2 in square is %llu\n", x2_square);
 
     unsigned long long x2_square_cut_6_bit = 0;
     char *p=(char *)&x2_square;
@@ -512,7 +516,7 @@ unsigned long long square_cut_6_bit(unsigned long int x2){
     x2_square_cut_6_bit = x2_square >> 6;
     return (x2_square_cut_6_bit);
     //return double(x2_square_cut_6_bit);
-
+   
 }
 //Generate responding output of input with cut_num truncation
 int64_t cut_bit(int64_t x, int cut_num){
@@ -521,7 +525,7 @@ int64_t cut_bit(int64_t x, int cut_num){
     int64_t a = ~0b0;
     int64_t result = 0;
     #ifdef HECTOR
-        uint cut_num_sign = 0;
+        unsigned int cut_num_sign = 0;
         if(cut_num<0) {
             cut_num_sign = 1;
         }
@@ -535,9 +539,9 @@ int64_t cut_bit(int64_t x, int cut_num){
     return (result);
 }
 //Main function of SFU cmodel
-//sfu_output sfu_cmodel(int a_int,int opcode, bool debug){
-sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
-	unsigned int a_int = to_unsigned_int(a_float);
+sfu_output sfu_cmodel(int a_int,int opcode, bool debug){
+//sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
+    //unsigned int a_int = to_unsigned_int(a_float);
     int ex1_src0 = a_int;
     float *a_pointer =(float *)&a_int;
     float a = *a_pointer;
@@ -546,9 +550,9 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     int special_sig = 0;
     int opcode_new = SIGMOID;
     float a_new = 0;
-    //double err = 0;
-    //double golden = 0;
-	//float golden_fp32 = 0;
+    double err = 0;
+    double golden = 0;
+    float golden_fp32 = 0;
     unsigned char float_745_1_input = 0;
     unsigned char float_745_2_input = 0;
     unsigned char float_745_3_input = 0;
@@ -558,10 +562,49 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     float_745_2_input = (unsigned char)(*(input_p+1));
     float_745_3_input = (unsigned char)(*(input_p+2));
     float_745_4_input = (unsigned char)(*(input_p+3));
-
-
+/*
+    if (opcode == EXP2){
+        golden = pow(2,double(a));
+    }   
+    else if (opcode == RCP){
+        golden = 1/double(a);
+    }   
+    else if (opcode == TANH){
+        golden = tanh(double(a));
+    }   
+    else if (opcode == SIGMOID){
+        golden = 1/(1+exp(-(double(a))));
+    }   
+    else if (opcode == LOG2){
+        golden = log2(double(a));
+    }   
+    else if (opcode == SIN){
+//printf("The input golden is %X\n",to_unsigned_int(float(double(a)*(0.5*M_PI))));
+        golden = sin(double(a)*(2*M_PI));
+        //golden = sin(double(a));
+    }   
+    else if (opcode == COS){
+        golden = cos(double(a));
+    }   
+    else if (opcode == RSQRT){
+        golden = 1/sqrt(double(a));
+    }   
+    else if (opcode == SQRT){
+        golden = sqrt(double(a));
+    }   
+*/
+    if (opcode == LOG2){
+        golden = log2(double(a));
+    }  
+    if (opcode == SQRT){
+        golden = sqrt(double(a));
+    }
+    
+	
     //golden_fp32 = double_to_float_softfloat(golden,softfloat_round_max);
-    //char *q = (char *)&golden_fp32;
+    //printf("The golden is %X    ",to_unsigned_int(golden_fp32));
+    //printf("The golden is %32.32f    ",(golden_fp32));
+    char *q = (char *)&golden_fp32;
     unsigned char golden_3 = 0;
     unsigned char golden_4 = 0;
     int golden_exp = 0;
@@ -573,9 +616,9 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     int fflags = 0;
     int exp_8 = (((float_745_4_input) & 0b1111111) << 1)  + ((float_745_3_input >> 7) & 0b1);
     int ex1_exponent = exp_8;
-    int mantissa = (float_745_1_input) + (float_745_2_input << (8)) + (uint(float_745_3_input & 0b1111111) << (8+8));
+    int mantissa = (float_745_1_input) + (float_745_2_input << (8)) + ((unsigned int)(float_745_3_input & 0b1111111) << (8+8));
     int ex1_mantissa = mantissa;
-    int nan = (exp_8 == 255 && mantissa != 0);
+    int nan = (exp_8 == 255 && mantissa != 0); 
     int qnan = (nan == 1) && (mantissa >= pow(2,22));
     int snan = (nan == 1) && (mantissa < pow(2,22));
     int cnan = (nan == 1) && (mantissa == pow(2,22));
@@ -583,7 +626,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 	// sigmoid, y = x/4 + 1/2
 	unsigned int mantissa_sig_pos = 0;
     unsigned int mantissa_sig_neg = 0;
-
+    
     if (exp_8 > 96){
         mantissa_sig_pos = ((unsigned int)(mantissa+ pow(2,23)) >> (128 - exp_8)) + pow(2,23);
         mantissa_sig_neg = pow(2,24) - 1 - ((unsigned int)(mantissa+ pow(2,23)) >> (127 - exp_8));
@@ -592,11 +635,14 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         mantissa_sig_pos = pow(2,23);
         mantissa_sig_neg = pow(2,24)-1;
     }
+    //printf("The mantiss_sig_pos is %X\n", mantissa_sig_pos);
+    //printf("The mantiss_sig_neg is %X\n", mantissa_sig_neg);
     if (a >= 0)
         a_sig = mantissa_sig_pos / pow(2,23) * pow(2, -1);
     else
-        a_sig = mantissa_sig_neg / pow(2,23) * pow(2, -2);
-
+        a_sig = (mantissa_sig_neg / pow(2,23) * pow(2, -2));
+        //a_sig = -(mantissa_sig_neg / pow(2,23) * pow(2, -2));
+    
 
     // For formal input
     int ex1_is_inf = 0;
@@ -607,7 +653,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 
     float sig_range;
     sig_range = double_to_float_softfloat(double(23.0/16.0*a), softfloat_round_max);
-
+    
     if (a_int == _NINF || a_int == _INF)
 	ex1_is_inf = 1;
     if (a_int == _ZERO || a_int == _NZERO)
@@ -615,11 +661,12 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     ex1_is_denorm = denorm;
     ex1_is_qnan = qnan;
     ex1_is_snan = snan;
-
+    
     #ifdef HECTOR
         Hector::show("ex1_src0",ex1_src0);
         Hector::show("a_int",a_int);
         Hector::show("a_float",a);
+        Hector::show("opcode",opcode);
         Hector::show("ex1_exponent",ex1_exponent);
         Hector::show("ex1_mantissa",ex1_mantissa);
         Hector::show("ex1_is_inf",ex1_is_inf);
@@ -639,7 +686,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 	    JG_OUTPUT(ex1_is_qnan);
 	    JG_OUTPUT(ex1_is_snan);
     #endif
-
+    
     if (opcode == EXP2){
         if ( a_int == _NINF){
             special_output = _ZERO;
@@ -717,7 +764,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             fflags = 0;
         }
     }
-    if (opcode == RCP){
+    else if (opcode == RCP){
         if ( a_int == _NINF){
             special_output = _NZERO;
             special = 1;
@@ -830,6 +877,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             fflags = 0;
         }
         else if (a > -pow(2,-10) && a < 0){
+            //special_output = a_int - 0x80000000;
             special_output = a_int;
             special = 1;
             denormal = 0;
@@ -983,27 +1031,320 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             denormal = 0;
             fflags = 0;
         }
+}
+    else if (opcode == LOG2){
+	if ( a_int == _NINF){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if ( a <= 0){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+        else if ( a <= pow(2,-126) && a > 0 ){
+            special = 0;
+            denormal = __builtin_clz(mantissa) - 8;
+            fflags = 0;
+        }
+        else if (a > pow(2,-126) && a_int != _INF ){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+	else if ( a_int == _INF ){
+	    special_output = _INF;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+	else if (snan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if (qnan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+    }
+    else if (opcode == RSQRT){
+	if ( a_int == _NINF){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if ( a < 0 || a_int == _NZERO){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if ( a_int == _ZERO){
+	    special_output = _INF;
+	    special = 1;
+	    denormal = 0;
+	    fflags = DZ;
+	}
+        else if ( a <= pow(2,-126) && a > 0 ){
+            special = 0;
+            denormal = __builtin_clz(mantissa) - 8;
+            fflags = 0;
+        }
+        else if (a > pow(2,-126) && a_int != _INF){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+	else if ( a_int == _INF ){
+	    special_output = _ZERO;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+	else if (snan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if (qnan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+    }
+    else if (opcode == SQRT){
+	if ( a_int == _NINF){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if ( a < 0 ){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if ( a_int == _NZERO){
+	    special_output = _NZERO;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+	else if ( a_int == _ZERO){
+	    special_output = _ZERO;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+        else if ( a <= pow(2,-126) && a > 0 ){
+            special = 0;
+            denormal = __builtin_clz(mantissa) - 8;
+            fflags = 0;
+        }
+        else if (a > pow(2,-126) && a_int != _INF){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+	else if ( a_int == _INF ){
+	    special_output = _INF;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+	else if (snan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if (qnan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+    }
+    else if (opcode == SIN){
+        if (a_int == _NINF ){
+	    special_output = CNAN;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+	else if (a <= _NINF_NEAR && a_int != _NINF){
+            special_output = _NZERO;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a <= _SIN_LOW_LIMIT && a > _NINF_NEAR){
+            special = 0;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a < -(pow(2,-126))  && a > _SIN_LOW_LIMIT){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if ( a >= -(pow(2,-126)) && a < 0 ){
+	    special_output = _NZERO;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a_int == _NZERO ){
+	    special_output = _NZERO;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a_int == _ZERO ){
+	    special_output = _ZERO;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if ( a <= (pow(2,-126)) && a > 0 ){
+	    special_output = _ZERO;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a > (pow(2,-126)) && a < _SIN_HIGH_LIMIT){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+	else if (a >= _SIN_HIGH_LIMIT && a < _INF_NEAR){
+            special = 0;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a >= _INF_NEAR && a_int != _INF){
+            special_output = _ZERO;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a_int == _INF ){
+	    special_output = CNAN;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+	else if (snan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if (qnan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
+    }
+    else if (opcode == COS){
+        if (a_int == _NINF ){
+	    special_output = CNAN;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+	else if (a <= _NINF_NEAR && a_int != _NINF){
+            special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a <= _SIN_LOW_LIMIT && a > _NINF_NEAR){
+            special = 0;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a < -(pow(2,-126))  && a > _SIN_LOW_LIMIT){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if ( a >= -(pow(2,-126)) && a < 0 ){
+	    special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a_int == _NZERO ){
+	    special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a_int == _ZERO ){
+	    special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if ( a <= (pow(2,-126)) && a > 0 ){
+	    special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = 0;
+        }
+        else if (a > (pow(2,-126)) && a < _SIN_HIGH_LIMIT){
+            special = 0;
+            denormal = 0;
+            fflags = 0;
+        }
+	else if (a >= _SIN_HIGH_LIMIT && a < _INF_NEAR){
+            special = 0;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a >= _INF_NEAR && a_int != _INF){
+            special_output = ONE;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+        else if (a_int == _INF ){
+	    special_output = CNAN;
+            special = 1;
+            denormal = 0;
+            fflags = NV;
+        }
+	else if (snan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = NV;
+	}
+	else if (qnan == 1){
+	    special_output = CNAN;
+	    special = 1;
+	    denormal = 0;
+	    fflags = 0;
+	}
     }
 
-    sfu_output sfu_output_value = {0,0,0,0};
-    float *special_pointer =(float *)&special_output;
-    float special_output_float = *special_pointer;
-    #ifdef HECTOR
-        Hector::show("special",special);
-    #endif
-    #ifdef JASPER_C
-	    JG_OUTPUT(special);
-    #endif
-    if (special == 1){
-        if (special_sig == 0)
-            sfu_output_value.sfu_data_output = special_output_float;
-        else
-            sfu_output_value.sfu_data_output = special_sig_float;
-        sfu_output_value.sfu_exception_output = fflags;;
-        return sfu_output_value;
-    }
 
 
+
+    int pos = 0;
 //Transform one function to another function
     if (opcode == TANH){
         if ( a >= 0.5 && a < 8){
@@ -1058,12 +1399,70 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         opcode_new = opcode;
         a_new = a;
     }
+    else if (opcode == LOG2){
+	if (denormal != 0){
+        opcode_new = opcode;
+        a_new = a*pow(2,denormal);
+	}
+	else{
+        opcode_new = opcode;
+        a_new = a;
+	}
+    }
+    else if (opcode == RSQRT){
+	if (denormal != 0){
+        opcode_new = opcode;
+        a_new = a*pow(2,denormal);
+	}
+	else{
+        opcode_new = opcode;
+        a_new = a;
+	}
+    }
+    else if (opcode == SQRT){
+	if (denormal != 0){
+        opcode_new = opcode;
+        a_new = a*pow(2,denormal);
+	}
+	else{
+        opcode_new = opcode;
+        a_new = a;
+	}
+    }
+    else if (opcode == SIN ){
+        opcode_new = opcode;
+	if (a >= 0 && a_int != _NZERO){
+		pos = 1;
+        	a_new = (4*a);
+	}
+	else{
+		pos = -1;
+        	a_new = -(4*a);
+	}
+    }
+    else if (opcode == COS){
+        opcode_new = opcode;
+	if (a >= 0){
+		pos = 1;
+        	a_new = (4*a);
+	}
+	else{
+		pos = 1;
+        	a_new = -(4*a);
+	}
+    }
 //Input reduction of exp2
-	int b = 0;
+	long int b = 0;
     float exp_rro_mx = 0;
     float exp_rro_ex = 0;
-    if (opcode_new == EXP2){
-        if (a_new >= 0){
+        int pos_sin = 0;
+    float rem_by_4 = 0;
+    if (opcode_new == EXP2||opcode_new == SIN || opcode_new == COS){    
+        if(a_new>= pow(2,23)) {
+            exp_rro_mx = 1;
+            exp_rro_ex = a_new;
+        }
+        else if (a_new >= 0) {
             b = floor(a_new);
             exp_rro_mx = double_to_float_softfloat(double(a_new) - b +1, softfloat_round_min);
             exp_rro_ex = b;
@@ -1077,6 +1476,152 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         	exp_rro_ex = -(b+1);
         }
     }
+    rem_by_4 = exp_rro_ex - 4.0* floor(exp_rro_ex/4.0);
+    #ifdef HECTOR
+        Hector::show("exp_rro_mx_init",exp_rro_mx);
+        Hector::show("exp_rro_ex",exp_rro_ex);
+        Hector::show("fmod_exp_rro_ex",rem_by_4);
+        Hector::show("floor_res",rem_by_4);
+    #endif
+
+   if (opcode_new == SIN){
+   if (rem_by_4==0)
+	exp_rro_mx = exp_rro_mx;
+   else if (rem_by_4==1)
+        exp_rro_mx = 3 - exp_rro_mx;
+   else if (rem_by_4==2)
+        exp_rro_mx = exp_rro_mx;
+   else if (rem_by_4==3)
+        exp_rro_mx = 3 - exp_rro_mx;
+
+   if (rem_by_4==0)
+	pos_sin = 1;
+   else if (rem_by_4==1)
+	pos_sin = 1;
+   else if (rem_by_4==2)
+	pos_sin = -1;
+   else if (rem_by_4==3)
+	pos_sin = -1;
+}
+   if (opcode_new == COS){
+   if (rem_by_4==0)
+	exp_rro_mx = 3 - exp_rro_mx;
+   else if (rem_by_4==1)
+        exp_rro_mx = exp_rro_mx;
+   else if (rem_by_4==2)
+        exp_rro_mx = 3 - exp_rro_mx;
+   else if (rem_by_4==3)
+        exp_rro_mx =  exp_rro_mx;
+
+   if (rem_by_4==0)
+	pos_sin = 1;
+   else if (rem_by_4==1)
+	pos_sin = -1;
+   else if (rem_by_4==2)
+	pos_sin = -1;
+   else if (rem_by_4==3)
+	pos_sin = 1;
+}
+if (special == 0){
+if (opcode_new == SIN){
+        if (exp_rro_mx == 1){
+            if ((rem_by_4 == 0  || rem_by_4 == 2) && pos == 1)
+                special_output = _ZERO;
+            else
+                special_output = _NZERO;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+        else if (exp_rro_mx == 2 && pos_sin == 1){
+            if (pos == 1)
+                special_output = ONE;
+            else if (pos == -1)
+                special_output = _NONE;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+        else if (exp_rro_mx == 2 && pos_sin == -1){
+            if (pos == 1)
+                special_output = _NONE;
+            else if (pos == -1)
+                special_output = ONE;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+}
+    if (opcode_new == COS){
+        if (exp_rro_mx == 1){
+            if (rem_by_4 == 1 )
+                special_output = _ZERO;
+            else
+                special_output = _NZERO;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+        else if (exp_rro_mx == 2 && pos_sin == 1){
+                special_output = ONE;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+        else if (exp_rro_mx == 2 && pos_sin == -1){
+                special_output = _NONE;
+            special = 1;
+            denormal = 0;
+            //fflags = 0;
+        }
+}
+}
+
+   //exp_rro_mx = 1-(exp_rro_mx-1)+1;
+
+   //printf("exp2 input is %64.128f\n", (a));
+   //printf("exp2 input is %64.128f\n", (a_new));
+   //printf("exp2 input is %32.32f\n", (exp_rro_mx));
+   //printf("exp2 input is %32.32f\n", (exp_rro_ex));
+    sfu_output sfu_output_value = {0,0,0,0};
+    float *special_pointer =(float *)&special_output;
+    float special_output_float = *special_pointer;
+    #ifdef HECTOR
+        Hector::show("special",special);
+        Hector::show("exp_rro_mx",exp_rro_mx);
+        Hector::show("pos_sin",pos_sin);
+        Hector::show("special_out",special_output);
+        Hector::show("special_sig",special_sig);
+        Hector::show("special_output_float",special_output_float);
+        Hector::show("special_sig_float",special_sig_float);
+    #endif
+    #ifdef JASPER_C
+	    JG_OUTPUT(special);
+    #endif
+//printf("The goldden is %32.32f\n",(golden_fp32));
+//printf("The goldden is %X\n",to_unsigned_int(golden_fp32));
+    if (special == 1){
+        if (special_sig == 0)
+            sfu_output_value.sfu_data_output = special_output_float;
+        else
+            sfu_output_value.sfu_data_output = special_sig_float;
+	if (((snan == 1 | qnan == 1)&special_output == CNAN) | (sfu_output_value.sfu_data_output== golden_fp32 && (signbit(sfu_output_value.sfu_data_output) == signbit(golden_fp32))))
+                err = 0;
+        else {
+            err = (sfu_output_value.sfu_data_output- golden_fp32);
+/*
+            if (signbit(sfu_output_value.sfu_data_output) == signbit(golden_fp32))
+                err = (sfu_output_value.sfu_data_output - golden_fp32) / (pow(2,((golden_exp)-23)));
+            else
+            	err = 100000;
+*/
+                                                                }
+        
+        sfu_output_value.sfu_exception_output = fflags;
+        sfu_output_value.sfu_err_output = abs(err);
+	//printf("The result is %X\n",to_unsigned_int(sfu_output_value.sfu_data_output));
+        return sfu_output_value;
+    }
 
 //Transform float number to corresponding hex number
     unsigned char float_745_1 = 0;
@@ -1084,8 +1629,9 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     unsigned char float_745_3 = 0;
     unsigned char float_745_4 = 0;
     unsigned long int float_745_5 = 0;
-
-    if (opcode_new == EXP2){
+    unsigned long int float_745_mantissa = 0;
+    
+    if (opcode_new == EXP2||opcode_new == SIN||opcode_new == COS){
         char *m=(char *)&exp_rro_mx;
         float_745_1 = (unsigned char)(*m);
         float_745_2 = (unsigned char)(*(m+1));
@@ -1102,17 +1648,45 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     unsigned int lut_index = 0;
     unsigned long int unsignedfixbin = 0;
     int x_exp = 0;
-    int pos = 0;
     int x2_slide = 0;
     float_745_5 = (float_745_1) + (float_745_2 << (8));
+    /*float_745_mantissa = (float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b1111111) << (8+8));
+    if (denormal == 1)
+	denormal = __builtin_clz(float_745_mantissa) - 8;
+    else
+	denormal == denormal;
+    float a_new_denormal = a_new * pow(2, denormal);
+    if (opcode_new == EXP2||opcode_new == SIN||opcode_new == COS){
+        char *m=(char *)&exp_rro_mx;
+        float_745_1 = (unsigned char)(*m);
+        float_745_2 = (unsigned char)(*(m+1));
+        float_745_3 = (unsigned char)(*(m+2));
+        float_745_4 = (unsigned char)(*(m+3));
+    } else{
+        char *p=(char *)&a_new_denormal;
+        float_745_1 = (unsigned char)(*p);
+        float_745_2 = (unsigned char)(*(p+1));
+        float_745_3 = (unsigned char)(*(p+2));
+        float_745_4 = (unsigned char)(*(p+3));
+    }
+    float_745_5 = (float_745_1) + (float_745_2 << (8));
+*/
+    //printf("float_754_1 is %X\n", float_745_1);
+    //printf("float_754_2 is %X\n", float_745_2);
+    //printf("float_754_3 is %X\n", float_745_3);
+    //printf("float_754_4 is %X\n", float_745_4);
+    //printf("float_754_5 is %X\n", float_745_5);
 //Generate input of LUT and booth mul
     // exp, m = 5
     if (opcode_new == EXP2){
-        lut_index = float_745_3 >> 2 & 0b11111;
+        //lut_index = float_745_3 >> 2 & 0b11111;
+        lut_index = float_745_3 >> 1 & 0b111111;
         src_exp = exp_rro_ex;
         x2_slide = 2;
-        //unsignedfixbin = ((float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b11) << (8+8)))<<x2_slide;
-        unsignedfixbin = (float_745_5 + (uint(float_745_3 & 0b11) << (8+8)))<<x2_slide;
+        //x2_slide = 2;
+        //unsignedfixbin = ((float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b11) << (8+8)))<<x2_slide;   
+        //unsignedfixbin = (float_745_5 + (uint(float_745_3 & 0b11) << (8+8)))<<x2_slide;    
+        unsignedfixbin = (float_745_5 + ((unsigned int)(float_745_3 & 0b1) << (8+8)))<<x2_slide;    
         x_exp = 0;
     }
     // rcp, m = 7
@@ -1130,7 +1704,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         src_exp = 0;
         x2_slide = 0;
         //unsignedfixbin = (float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b1111) << (8+8)) << x2_slide;
-        unsignedfixbin = float_745_5 + (uint(float_745_3 & 0b1111) << (8+8)) << x2_slide;
+        unsignedfixbin = float_745_5 + ((unsigned int)(float_745_3 & 0b1111) << (8+8)) << x2_slide;
         x_exp = (((((float_745_4) & 0b1111111) << 1)  + (((float_745_3 >> 7) & 0b1))))-127;
     }
     else if (opcode_new == SIGMOID){
@@ -1147,27 +1721,78 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             src_exp = 0;
             x2_slide = 0;
             //unsignedfixbin = (float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b1111) << (8+8)) << x2_slide;
-            unsignedfixbin =  float_745_5 + (uint(float_745_3 & 0b1111) << (8+8)) << x2_slide;
+            unsignedfixbin =  float_745_5 + ((unsigned int)(float_745_3 & 0b1111) << (8+8)) << x2_slide;
         }
         else if ( a_new < pow(2,3) && a_new >= pow(2,1)){
             lut_index = float_745_3 >> 3 & 0b1111;
             src_exp = 0;
             x2_slide = 1;
             //unsignedfixbin = (float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b111) << (8+8)) << x2_slide;
-            unsignedfixbin = float_745_5 + (uint(float_745_3 & 0b111) << (8+8)) << x2_slide;
+            unsignedfixbin = float_745_5 + ((unsigned int)(float_745_3 & 0b111) << (8+8)) << x2_slide;
         }
         else if ( a_new < pow(2,4) && a_new >= pow(2,3)){
             lut_index = float_745_3 >> 2 & 0b11111;
             src_exp = 0;
             x2_slide = 2;
             //unsignedfixbin = (float_745_1) + (float_745_2 << (8)) + (uint(float_745_3 & 0b11) << (8+8)) << x2_slide;
-            unsignedfixbin =  float_745_5 + (uint(float_745_3 & 0b11) << (8+8)) << x2_slide;
+            unsignedfixbin =  float_745_5 + ((unsigned int)(float_745_3 & 0b11) << (8+8)) << x2_slide;
         }
         x_exp = (((((float_745_4) & 0b1111111) << 1)  + (((float_745_3 >> 7) & 0b1))))-127;
+    }
+    if (opcode_new == LOG2){
+        lut_index = float_745_3 >> 1 & 0b111111;
+        src_exp = 127 - (((((float_745_4) & 0b1111111) << 1)  + (((float_745_3 >> 7) & 0b1))));
+	src_exp = src_exp+denormal;
+        x2_slide = 3;
+        unsignedfixbin = (float_745_5 + ((unsigned int)(float_745_3 & 0b1) << (8+8)))<<x2_slide;    
+        x_exp = 0;
+    }
+    if (opcode_new == SIN||opcode_new == COS){
+        lut_index = float_745_3 >> 1 & 0b111111;
+        src_exp = 0;
+        x2_slide = 3;
+        unsignedfixbin = (float_745_5 + ((unsigned int)(float_745_3 & 0b1) << (8+8)))<<x2_slide;    
+        x_exp = 0;
+    }
+    if (opcode_new == RSQRT){
+        lut_index = float_745_3 >> 1 & 0b111111;
+        src_exp = 127 - (((((float_745_4) & 0b1111111) << 1)  + (((float_745_3 >> 7) & 0b1))));
+	src_exp = src_exp+denormal;
+	if (src_exp % 2 == 0){
+		opcode_new = RSQRT_EVEN;
+		src_exp = src_exp / 2;
+	}
+	else{
+		opcode_new = RSQRT_ODD;
+		src_exp = (src_exp+1) / 2;
+	}
+        x2_slide = 3;
+        unsignedfixbin = (float_745_5 + ((unsigned int)(float_745_3 & 0b1) << (8+8)))<<x2_slide;    
+        x_exp = 0;
+    }
+    if (opcode_new == SQRT){
+        lut_index = float_745_3 >> 1 & 0b111111;
+        src_exp = 127 - (((((float_745_4) & 0b1111111) << 1)  + (((float_745_3 >> 7) & 0b1))));
+	src_exp = src_exp+denormal;
+    	//printf("src_exp is %d\n", src_exp);
+	if (src_exp % 2 == 0){
+		opcode_new = SQRT_EVEN;
+		src_exp = src_exp / 2;
+	}
+	else{
+		opcode_new = SQRT_ODD;
+		src_exp = (src_exp+1) / 2;
+	}
+        x2_slide = 3;
+        unsignedfixbin = (float_745_5 + ((unsigned int)(float_745_3 & 0b1) << (8+8)))<<x2_slide;    
+        x_exp = 0;
     }
 
     int ex2_x1 = lut_index;
     int ex2_x2 = unsignedfixbin;
+    //printf("src_exp is %d\n", src_exp);
+    //printf("ex2_x1 is %X\n", ex2_x1);
+    //printf("ex2_x2 is %X\n", ex2_x2);
 
     #ifdef HECTOR
         Hector::show("ex2_x1",ex2_x1);
@@ -1197,7 +1822,55 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         c2_lut = (c2_exp);
         pos = 1;
         c2_p17 = -10;
-		c1_p10 = -5;
+	c1_p10 = -5;
+    }
+    else if (opcode_new == LOG2){
+        c0_lut = (c0_log2);
+        c1_lut = (c1_log2);
+        c2_lut = (c2_log2);
+        pos = 1;
+        c2_p17 = -12;
+	c1_p10 = -6;
+    }
+    else if (opcode_new == RSQRT_EVEN){
+        c0_lut = (c0_rsqrt_1_2);
+        c1_lut = (c1_rsqrt_1_2);
+        c2_lut = (c2_rsqrt_1_2);
+        pos = 1;
+        c2_p17 = -12;
+	c1_p10 = -6;
+    }
+    else if (opcode_new == RSQRT_ODD){
+        c0_lut = (c0_rsqrt_2_4);
+        c1_lut = (c1_rsqrt_2_4);
+        c2_lut = (c2_rsqrt_2_4);
+        pos = 1;
+        c2_p17 = -12;
+	c1_p10 = -6;
+    }
+    else if (opcode_new == SQRT_EVEN){
+        c0_lut = (c0_sqrt_1_2);
+        c1_lut = (c1_sqrt_1_2);
+        c2_lut = (c2_sqrt_1_2);
+        pos = 1;
+        c2_p17 = -12;
+	c1_p10 = -6;
+    }
+    else if (opcode_new == SQRT_ODD){
+        c0_lut = (c0_sqrt_2_4);
+        c1_lut = (c1_sqrt_2_4);
+        c2_lut = (c2_sqrt_2_4);
+        pos = 1;
+        c2_p17 = -12;
+	c1_p10 = -6;
+    }
+    else if (opcode_new == SIN||opcode_new == COS){
+        c0_lut = (c0_sin_new);
+        c1_lut = (c1_sin_new);
+        c2_lut = (c2_sin_new);
+        pos = pos_sin*pos;
+        c2_p17 = -12;
+	c1_p10 = -6;
     }
     // rcp, m = 7
     else if (opcode_new == RCP){
@@ -1216,7 +1889,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     // tanh, m = 3
     else if (opcode_new == TANH){
         #ifdef HECTOR
-            Hector::show("a_new",a_new);
+            Hector::show("a_new",a_new);                      
         #endif
         if (a_new < 0){
             a_new = -a_new;
@@ -1320,11 +1993,20 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 			c1_p10 = -2;
         }
     }
-    double x1 = 0;
+    double x1 = 0; 
     long int y0 = *(c0_lut + lut_index);
     //double y0 = c0_tanh_2_3_2_4[3];
     long int y1 = *(c1_lut + lut_index);
-    long int y2 = *(c2_lut + lut_index);
+    long int y2 = *(c2_lut + lut_index); 
+    long int y2_c2 = y2;
+    if (y2_c2 < 0){
+        if (opcode_new == SIN || opcode_new == COS) {
+            y2_c2 = ((-y2_c2) >> 1) + 16384;
+        } else {
+            y2_c2 = ((-y2_c2)) + 16384;
+        }
+    }
+   //printf("The y0 y1 y2 is %X, %X, %X\n",y0,y1,y2);
 /*
     double y0 = c0_lut[lut_index];
     double y1 = c1_lut[lut_index];
@@ -1336,7 +2018,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 
     //long int ex2_c0_formal = (lon;
     //long int ex2_c1_formal = (long int)ex2_c1;
-    //long int ex2_c2_formal = (long int)ex2_c2;
+    //long int ex2_c2_formal = (long int)ex2_c2;     
 
     int y1_pos = 0;
     int y2_pos = 0;
@@ -1348,7 +2030,13 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         y2_pos = -1;
     else
         y2_pos = 1;
-//Booth mul
+
+    if(opcode_new == TANH || opcode_new == SIGMOID) {
+        if (y2_pos == -1 && y2_c2==0) {
+            y2_c2 |= 0x4000;
+        }
+    }
+//Booth mul    
     /*
     double c0 = 0;
     double c1 = 0;
@@ -1360,39 +2048,55 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     long int c2 = 0;
     long int c = 0;
     //long int ex2_x2x2 = (long int)square_cut_6_bit(unsignedfixbin);
-
+    //printf("ex2_x2x2 is %llu\n", ex2_x2x2);
+    //printf("ex2_x2x2 is %X\n", ex2_x2x2);
+    unsigned long long ex2_x2x2 = (unsigned long long)(square_cut_6_bit(unsignedfixbin));
      #ifdef HECTOR
-        //Hector::show("ex2_x2x2",ex2_x2x2);
-        Hector::show("ex2_c0",y0);
-        Hector::show("ex2_c1",y1);
-        Hector::show("ex2_c2",y2);
-        Hector::show("c2_p17",c2_p17);
-        Hector::show("c1_p10",c1_p10);
+        Hector::show("ex2_x2x2",ex2_x2x2);
+        Hector::show("ex2_c0",y0);   
+        Hector::show("ex2_c1",y1);   
+        Hector::show("ex2_c2",y2_c2);        
+        Hector::show("c2_p17",c2_p17);  
+        Hector::show("c1_p10",c1_p10);      
     #endif
     #ifdef JASPER_C
-	    //JG_SHOW(ex2_x2x2);
+	    //JG_SHOW(ex2_x2x2); 
     	JG_SHOW(y0);
 	    JG_SHOW(y1);
-	    JG_SHOW(y2);
+	    JG_SHOW(y2_c2);
 	    JG_SHOW(c2_p17);
 	    JG_SHOW(c1_p10);
     #endif
     int *unsignedfixbin_booth = booth_transform_c1(unsignedfixbin);
-    int *unsignedfixbin_2_booth = booth_transform_c2((unsigned long long)(square_cut_6_bit(unsignedfixbin)));
+    //int *unsignedfixbin_2_booth = booth_transform_c2((unsigned long long)(square_cut_6_bit(unsignedfixbin)));
+    int *unsignedfixbin_2_booth = booth_transform_c2(ex2_x2x2);
 
-    if (opcode_new == EXP2 || opcode_new == RCP){
+    int64_t c1_shift_index,c2_shift_index;
+    
+    if (opcode_new == EXP2 || opcode_new == RCP || opcode_new == LOG2 || opcode_new == SIN || opcode_new == COS || opcode_new == RSQRT_EVEN || opcode_new == RSQRT_ODD || opcode_new == SQRT_EVEN || opcode_new == SQRT_ODD){
         c0 = (long int)y0 << (MAX_POS-T_D+T_N_D);
-	    c1 = booth_mul(y1,unsignedfixbin_booth,c1_p10,y1_pos,_C1) >> -(MAX_POS-P_D+P_N_D-DEC_FP32);
-        c2 = booth_mul(y2,unsignedfixbin_2_booth,c2_p17,y2_pos,_C2) >> -(MAX_POS-Q_D+Q_N_D-X2_2);
-        c = c0 + c1 + c2;
+	    //c1 = booth_mul(y1,unsignedfixbin_booth,c1_p10,y1_pos,_C1) >> -(MAX_POS-P_D+P_N_D-DEC_FP32);
+        //c2 = booth_mul(y2,unsignedfixbin_2_booth,c2_p17,y2_pos,_C2) >> -(MAX_POS-Q_D+Q_N_D-X2_2);       
+        //c = c0 + c1 + c2;
+        c1_shift_index = -(MAX_POS-P_D+P_N_D-DEC_FP32);
+        c2_shift_index = -(MAX_POS-Q_D+Q_N_D-X2_2);   
     } else if (opcode_new == TANH || opcode_new == SIGMOID){
         c0 = (long int)y0 << (MAX_POS-T_D+T_N_D);
-	    c1 = booth_mul(y1,unsignedfixbin_booth,c1_p10,y1_pos,_C1) >>  (-x_exp -(MAX_POS-P_D+P_N_D-DEC_FP32));
-        c2 = booth_mul(y2,unsignedfixbin_2_booth,c2_p17,y2_pos,_C2) >> (-(MAX_POS-Q_D+Q_N_D-X2_2) - x_exp - x_exp);
-        c = c0 + c1 + c2;
+	    //c1 = booth_mul(y1,unsignedfixbin_booth,c1_p10,y1_pos,_C1) >>  (-x_exp -(MAX_POS-P_D+P_N_D-DEC_FP32));
+        //c2 = booth_mul(y2,unsignedfixbin_2_booth,c2_p17,y2_pos,_C2) >> (-(MAX_POS-Q_D+Q_N_D-X2_2) - x_exp - x_exp);
+        c1_shift_index = (-x_exp -(MAX_POS-P_D+P_N_D-DEC_FP32));
+        c2_shift_index = (-(MAX_POS-Q_D+Q_N_D-X2_2) - x_exp - x_exp);
+        //c = c0 + c1 + c2;
     }
-    //Generate final result
-    /*
+
+    c0 = (long int)y0 << (MAX_POS-T_D+T_N_D);
+	c1 = booth_mul(y1,unsignedfixbin_booth,c1_p10,y1_pos,_C1) >> c1_shift_index;
+    c2 = booth_mul(y2,unsignedfixbin_2_booth,c2_p17,y2_pos,_C2) >>  c2_shift_index; 
+
+
+
+    //Generate final result 
+    /*       
        #ifdef HECTOR
         for (size_t i = 0; i < 11; i++)
         {
@@ -1401,30 +2105,57 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             Hector::show("ex3_c1x2_pp_A_sign_%1",i,*(ex3_c1x2_pp_A_sign + i));
         }
         for (size_t i = 0; i < 18; i++)
-        {
+        {       
             Hector::show("ex3_c2x2x2_pp_%1",i,*(ex3_c2x2x2_pp + i));
             Hector::show("ex3_c2x2x2_pp_sign_%1",i,*(ex3_c2x2x2_pp_sign + i));
             Hector::show("ex3_c2x2x2_pp_A_sign_%1",i,*(ex3_c2x2x2_pp_A_sign + i));
 
         }
         #endif
-    */
+    */ 
 
     long int res_0 = c0;
+    //long int res_1 = c1 >> 2;
+    //long int res_2 = c2 >> (2<<1);
     long int res_1 = c1 >> x2_slide;
     long int res_2 = c2 >> (x2_slide<<1);
-    //printf("res_0 = %ld\nres_1 = %ld\nres_2 = %ld\n",res_0,res_1,res_2);
-
-
-    //long double res = 0;
+    //long int c2_x2_x2_16_17_real = ((c2_x2_x2_16_17>> -(MAX_POS-Q_D+Q_N_D-X2_2)>>(x2_slide<<1)));
     long int res = 0;
+    res = (res_0 + res_1 + res_2);
+    #ifdef HECTOR
+        Hector::show("res_fianl",res);  
+
+    #endif
+    //long int res_part_1 = (res_2 - c2_x2_x2_16_17_real) & 0xfffffffff;
+    //long int res_part_0 = res - res_part_1;
+    //res_part_0 &= 0x7ffffffffff;
+
+    //long int res_part_0 = (res_0 + res_1 + c2_x2_x2_16_17_real) & 0xffffefffffffff;
+    //long int res_part_1 = (res - res_part_0) & 0xfffffffff;
+    //printf("res_0 = %ld\nres_1 = %ld\nres_2 = %ld\n",res_0,res_1,res_2);
+    #ifdef HECTOR
+        Hector::show("res_0",res_0);   
+        Hector::show("res_1",res_1);
+        Hector::show("res_2",res_2);
+        //Hector::show("res_part_0",res_part_0);
+        //Hector::show("res_part_1",res_part_1);
+    #endif
+    
+    //long double res = 0;
     //double res = 0;
     long int res_int = 0;
     long int res_int_large = 0;
     int res_int_large_num = 0;
-    int res_int_large_try = (MAX_POS - src_exp);
+    int res_int_large_try = 0;
+    if (opcode_new == LOG2)
+    	res_int_large_try = (MAX_POS);
+    else
+	if (opcode == SQRT)
+    		res_int_large_try = (MAX_POS + src_exp);
+	else
+    		res_int_large_try = (MAX_POS - src_exp);
     //res_int_large = (long int)1 << (MAX_POS - src_exp);
-
+    
     if (res_int_large_try >= 128){
     	res_int_large = (long int)1 << (res_int_large_try - 128);
 	    res_int_large_num = 2;
@@ -1449,22 +2180,23 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     //	res_int_large = (long int)1 << (-MAX_POS + src_exp - 128);
 	//    res_int_large_num = 2;
     //}
-
+    
     //printf("The num is %d, the large is %ld, the pos is %d\n", MAX_POS - src_exp, res_int_large, res_int_large_num);
 
-    res = (res_0 + res_1 + res_2);
+    
+
     //long int res_int = res_0 + res_1 + res_2;
     if (opcode == TANH){
         //if ( a < pow(2,-10) && a > (-1*pow(2,-10))){
         //    res = a_int ;
         //}
-        //else
+        //else 
         if ( a >= 0.5 && a < 8 ){
             res =(res<<1) - res_int_large;
         }
         else if ( a <= -0.5 && a > -8 ){
             res = -(res << 1) + res_int_large;
-        }
+        }   
 
     } else if (opcode == SIGMOID){
         if ( a >= pow(2,-9) && a < 1){
@@ -1482,39 +2214,54 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
         //}
     }
     else if (opcode == RCP){
-        //if (denormal == 1)
-        //    res = res * 2;
         if (denormal == 2)
             res = res * 4;
         else
             res = res;
     }
-    uint res_sign;
+    else if (opcode == SQRT){
+            res = res;
+    }
+    unsigned int res_sign;
     if (res >= 0) {
         res_sign = 1;
 	    if (opcode == RCP)
     		res_int = res / ((long int)1 << denormal);
-        else
+        else	
     		res_int = res;
     } else {
         res_sign = 0;
 	    if (opcode == RCP)
     		res_int = -res / ((long int)1 << denormal);
-	    else
+	    else	
     		res_int = -res;
     }
-    long ex4_add_result;
+    long long ex4_add_result;
+    //long ex4_add_result;
+    long int log2_exp_shift = 0;
     if (opcode == SIGMOID){
-	if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))
+	if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))	
     		ex4_add_result = res_int;
 	else
     		ex4_add_result = res_int << 1;
     }
     else{
-    	ex4_add_result = res_int << 1;
+    	if (opcode == LOG2) {
+            log2_exp_shift = (-src_exp)*2199023255552;
+    		ex4_add_result = (res_int << 1)+log2_exp_shift;
+        }
+	else
+    		ex4_add_result = (res_int << 1);
 
     }
-    //printf("%lx\n", ex4_add_result);
+
+    //printf("ex4_add_result is %lx\n", ex4_add_result);
+    char *pppp=(char *)&ex4_add_result;
+    if (opcode == LOG2){
+    	*pppp = *pppp & 0b110000000;
+    	ex4_add_result = ex4_add_result >> 7;
+    }
+    //printf("ex4_add_result is %lx\n", ex4_add_result);
     //printf("%ld\n", res);
     #ifdef CUT_EX4
         uint res_sign_temp;
@@ -1523,21 +2270,25 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
 
     #ifdef HECTOR
         Hector::show("ex4_add_res",res);
+        Hector::show("log2_exp_shift",log2_exp_shift);
         #ifdef CUT_EX4
             Hector::cutpoint("ex4_add_sign_cut",res_sign_temp);
-            Hector::cutpoint("ex4_add_result_cut",ex4_add_result_temp);
-            Hector::show("ex4_add_sign",res_sign_temp);
+            Hector::cutpoint("ex4_add_result_cut",ex4_add_result_temp);  
+            Hector::show("ex4_add_sign",res_sign_temp); 
             Hector::show("ex4_add_result",ex4_add_result_temp);
         #endif
-        Hector::show("ex4_add_sign",res_sign);
-        Hector::show("ex4_add_result",ex4_add_result);
+        Hector::show("ex4_add_sign",res_sign); 
+        Hector::show("ex4_add_result",ex4_add_result);                 
     #endif
-
+    
     #ifdef JASPER_C
 	    JG_SHOW(res);
 	    JG_SHOW(res_sign);
 	    JG_SHOW(ex4_add_result);
-    #endif
+    #endif 
+
+    if (opcode == LOG2)
+        ex4_add_result = ex4_add_result << 7;
 
     long int res_back;
     #ifdef CUT_EX4
@@ -1545,7 +2296,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
             ex4_add_result_temp =  ex4_add_result_temp << denormal;
         }
          if (opcode == SIGMOID){
-            if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))
+            if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))	
                 res_back = ex4_add_result_temp;
             else
                 res_back = ex4_add_result_temp >> 1;
@@ -1554,14 +2305,14 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
          }
     #else
         if (opcode == RCP) {
-            ex4_add_result =  ex4_add_result << denormal;
+            ex4_add_result =  (ex4_add_result) << denormal;
         }
 
         if (res_sign == 1) {
             if (opcode == SIGMOID){
-                if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))
+                if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))	
                     res_back = ex4_add_result;
-                else
+                else 
                 res_back = ex4_add_result >> 1;
             } else {
                 res_back = ex4_add_result >> 1;
@@ -1572,20 +2323,20 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     #endif
 
     #ifdef HECTOR
-        Hector::show("res_back",res_back);
-        Hector::show("pos",pos);
-    #endif
+        Hector::show("res_back",res_back); 
+        Hector::show("pos",pos); 
+    #endif   
 
 //Golden check
     //res = res / res_int_large;
     //q=(char *)&golden_fp32;
     //golden_3 = (unsigned char)(*(q+2));
     //golden_4 = (unsigned char)(*(q+3));
-    //golden_exp = (((((golden_4) & 0b1111111) << 1)  + (((golden_3 >> 7) & 0b1))))-127;
+   // golden_exp = (((((golden_4) & 0b1111111) << 1)  + (((golden_3 >> 7) & 0b1))))-127;
     //double result_double = double(res);
+    
 
-
-    union ui64_f64 res_64;
+    union ui64_f64 res_64;    
     float64_t res_64_t;
     res_64_t.v = to_uint64(res_back);
     res_64.f = res_64_t;
@@ -1597,7 +2348,7 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     res_64.ui = res_temp;
 
     #ifdef HECTOR
-        Hector::show("res_final",res_64.ui);
+        Hector::show("res_final",res_64.ui);                     
     #endif
     #ifdef JASPER_C
 	    JG_SHOW(res_temp);
@@ -1620,108 +2371,183 @@ sfu_output sfu_cmodel(float a_float,int opcode, bool debug){
     //printf("The res_64 is %ld\n", res_64.ui);
     //printf("The res_64 is %f\n", res_64.f);
     //int mantissa = (float_745_1_input) + (float_745_2_input << (8)) + (uint(float_745_3_input & 0b1111111) << (8+8));
-
+    
     float result = 0;
 /*
     //double result_double = 0;
 	//printf("The res is %ld\n", res);
 	if ( MAX_POS - src_exp <= 0 )
     	result_double = double(res)*((double)(res_int_large));
-	else
+	else 
     	result_double = double(res)/((double)(res_int_large));
 	//printf("The result double is %32.32f\n", result_double);
     for(int i = 0; i < res_int_large_num; i++){
 	if ( MAX_POS - src_exp <= 0 )
 	result_double = result_double * (double)((long int)1 << 62) * 4;
-	else
+	else 
 	result_double = result_double / (double)((long int)1 << 62) / 4;
     }
 */
     if (opcode == SIGMOID){
-        if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))
+        if ( (a >= pow(2,-9) && a < 1) || (a <= -1*pow(2,-9) && a > -1))	
     	    result = double_to_float(res_64.f,softfloat_round_max)/2;
-        else
+        else 
             result = double_to_float(res_64.f,softfloat_round_max);
-    }
+    }   
     else{
         #ifdef CUT_EX4
             if(res_sign_temp == 0)
 		        result = double_to_float((res_64.f),softfloat_round_max);
 	        else
                 result = -double_to_float((res_64.f),softfloat_round_min);
-        #else
-            if(pos >= 0)
+        #else 
+            if(pos >= 0){
+		if (opcode == LOG2)	
 		        result = double_to_float((res_64.f),softfloat_round_max);
-	        else
-                result = -double_to_float((res_64.f),softfloat_round_min);
+		        //result = double_to_float((res_64.f),softfloat_round_max)-src_exp;
+/*
+		else if (opcode == SIN||opcode == COS){
+			if (exp_rro_mx == 2)
+				//result = 1;
+				;
+			else
+		        	result = double_to_float((res_64.f),softfloat_round_max);
+		}
+*/
+		else
+		        result = double_to_float((res_64.f),softfloat_round_max);
+		}
+	        else{
+/*
+			if (opcode == SIN||opcode == COS){
+			if (exp_rro_mx == 2)
+				result = -1;
+			else
+		        result = -double_to_float((res_64.f),softfloat_round_max);
+			}
+			else
+*/
+		        	result = -double_to_float((res_64.f),softfloat_round_min);
+		}
+                //result = -double_to_float((res_64.f),softfloat_round_min)*(to_float(a_int)-1)/2;
         #endif
     }
-	//printf("The result double is %32.32f\n", result_double);
+	//printf("The result double is %32.32f\n", double_to_float((res_64.f),softfloat_round_max));
 // softfloat round up
 	//result = float(result_double);
 //	result = double_to_float(res_64.f,softfloat_round_max);
 	//result = double_to_float_softfloat(result_double,softfloat_round_max);
 // softfloat round up
     //result = float(result_double);
-    //if (result == golden_fp32)
-	//	err = 0;
-	//else
-    //	err = (result - golden_fp32) / (pow(2,((golden_exp)-23)));
+	//printf("The result double is %32.32f\n", golden_fp32);
+//printf("The goldden is %32.32f\n",(golden_fp32));
+//printf("The goldden is %X\n",to_unsigned_int(golden_fp32));
+/*
+    if (result == golden_fp32 && (signbit(result) == signbit(golden_fp32)))
+		err = 0;
+	else {
+    	err = abs(result - golden_fp32);
+*/
+        /*
+        if (signbit(result) == signbit(golden_fp32))
+    		err = (result - golden_fp32) / (pow(2,((golden_exp)-23)));
+	else
+		err = 100000;
+*/
+	//}
     #ifdef JASPER_C
 	    JG_SHOW(result);
     #endif
-    sfu_output_value.sfu_err_output = 0;
+    //sfu_output_value.sfu_err_output = abs(err);
     sfu_output_value.sfu_data_output = result;
     sfu_output_value.sfu_exception_output = fflags;
     sfu_output_value.sfu_booth_output = 0;
     return sfu_output_value;
 }
-
 extern "C" {
     sfu_output sfu_exp2(uint32_t a)
     {
-        return sfu_cmodel(*(float *)&a, EXP2, false);
+        return sfu_cmodel(a, EXP2, false);
     }
 
     sfu_output sfu_tanh(uint32_t a)
     {
-        return sfu_cmodel(*(float *)&a, TANH, false);
+        return sfu_cmodel(a, TANH, false);
     }
 
     sfu_output sfu_sigmoid(uint32_t a)
     {
-        return sfu_cmodel(*(float *)&a, SIGMOID, false);
+        return sfu_cmodel(a, SIGMOID, false);
     }
 
     sfu_output sfu_rcp(uint32_t a)
     {
-        return sfu_cmodel(*(float *)&a, RCP, false);
+        return sfu_cmodel(a, RCP, false);
+    }
+
+    sfu_output sfu_sin(uint32_t a)
+    {
+        return sfu_cmodel(a, SIN, false);
+    }
+
+    sfu_output sfu_cos(uint32_t a)
+    {
+        return sfu_cmodel(a, COS, false);
+    }
+
+    sfu_output sfu_log2(uint32_t a)
+    {
+        return sfu_cmodel(a, LOG2, false);
+    }
+
+    sfu_output sfu_sqrt(uint32_t a)
+    {
+        return sfu_cmodel(a, SQRT, false);
+    }
+
+    sfu_output sfu_rsqrt(uint32_t a)
+    {
+        return sfu_cmodel(a, RSQRT, false);
     }
 }
-//int main(){
-////float f1 = 0;
-////sfu_output result;
-////unsigned int f1_int = to_unsigned_int(f1);
-////
-////for (unsigned long int i = 0; i < pow(2,31); i++){
-////	result = sfu_cmodel(f1_int, EXP2, false);
-////	if (result.sfu_err_output <= 2 && result.sfu_err_output >= -2){
-////		f1_int = f1_int + 1;
-////    	printf("Success! The %d num is %X, the result is %X, the fflags is %X, the error is %f\n", i, f1_int, to_unsigned_int(result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
-////	}
-////	else{
-////    	printf("Fail! The %d num is %X, the result is %X, the fflags is %X, the error is %f\n", i, f1_int, to_unsigned_int(result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
-////		break;
-////	}
-////}
-////
-////}
-////}
-////float a = sfu_cmodel(0x3D9F6952, EXP2, false).sfu_data_outputn;
-//unsigned int data = 0xa0463981;
-//float a = sfu_cmodel(*(float *)&data, SIGMOID, false).sfu_data_output;
-////float a = sfu_cmodel(0x3bc00000, TANH, false).sfu_data_output;
-//printf("The number is %f\n",(a));
-//printf("The number is %X\n",to_unsigned_int(a));
-//return 0;
-//}
+/*
+int main(){
+//float f1 = 0;
+sfu_output result;
+float err_max = 0;
+//unsigned int f1_int = 0x34000000;
+unsigned int f1_int = 0xc0000004;
+//unsigned int f1_int = to_unsigned_int(f1);
+for (unsigned long int i = 0; i < 1; i++){ 
+//for (unsigned long int i = 0; i < 1065353216; i++){ 
+//for (unsigned long int i = 0; i < pow(2,32); i++){ 
+	result = sfu_cmodel(f1_int, SIN, false);
+	if (result.sfu_err_output > err_max){
+	//if (result.sfu_err_output <= 1 && result.sfu_err_output >= -1){
+    	//printf("Success! The %d num is %X, the result is %32.32f, the fflags is %X, the error is %f\n", i, f1_int, (result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
+    	err_max = result.sfu_err_output;
+    	//printf("Success! The %d num is %X, the result is %X, the error is %X\n", i, f1_int, to_unsigned_int(result.sfu_data_output), to_unsigned_int(err_max));
+    	//printf("Success! The %d num is %X, the result is %X, the fflags is %X, the error is %f\n", i, f1_int, to_unsigned_int(result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
+	f1_int = f1_int + 1;
+	}
+	else{
+    	//printf("Fail! The %d num is %X, the result is %32.32f, the fflags is %X, the error is %f\n", i, f1_int, (result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
+    	//printf("Fail! The %d num is %X, the result is %X, the fflags is %X, the error is %f\n", i, f1_int, to_unsigned_int(result.sfu_data_output), result.sfu_exception_output, result.sfu_err_output);
+    	//printf("Fail! the error is %32.32f\n", err_max);
+		f1_int = f1_int + 1;
+		//break;
+	}
+}
+    	printf("Success! the error is %X\n", to_unsigned_int(err_max));
+//int a_int = 0x3F9DEFFF;
+//int a_int = _INF;
+int a_int = 0x47bb1113;
+float a = sfu_cmodel(a_int, LOG2, false).sfu_data_output;
+//int b = sfu_cmodel(a_int, EXP2, false).sfu_exception_output;
+printf("The input is %X\n",(a_int));
+//printf("The input is %f\n",to_float(a_int));
+printf("The number is %32.32f and %X\n",a, to_unsigned_int(a));
+//printf("The fflags is %d\n",b);
+return 0;
+}
+*/

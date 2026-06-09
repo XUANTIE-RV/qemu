@@ -220,6 +220,9 @@ typedef struct CPUTLBEntryFull {
      */
     hwaddr xlat_section;
 
+    /* @section contains physical section. */
+    MemoryRegionSection *section;
+
     /*
      * @phys_addr contains the physical address in the address space
      * given by cpu_asidx_from_attrs(cpu, @attrs).

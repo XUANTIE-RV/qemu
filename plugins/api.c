@@ -173,18 +173,6 @@ void qemu_plugin_register_vcpu_tb_trans_cb(qemu_plugin_id_t id,
     plugin_register_cb(id, QEMU_PLUGIN_EV_VCPU_TB_TRANS, cb);
 }
 
-void qemu_plugin_register_monitor_process_cb(qemu_plugin_id_t id,
-                                             qemu_plugin_monitor_process_cb_t cb)
-{
-    plugin_register_cb(id, QEMU_PLUGIN_EV_MONITOR_PROCESS, cb);
-}
-
-void qemu_plugin_register_other_process_cb(qemu_plugin_id_t id,
-                                           qemu_plugin_other_process_cb_t cb)
-{
-    plugin_register_cb(id, QEMU_PLUGIN_EV_OTHER_PROCESS, cb);
-}
-
 void qemu_plugin_register_vcpu_syscall_cb(qemu_plugin_id_t id,
                                           qemu_plugin_vcpu_syscall_cb_t cb)
 {

@@ -14,6 +14,7 @@ check-help:
 	@echo " $(MAKE) check-block            Run block tests"
 ifneq ($(filter $(all-check-targets), check-softfloat),)
 	@echo " $(MAKE) check-tcg              Run TCG tests"
+	@echo " $(MAKE) check-riscv-semihost   Run RISC-V semihosting tests"
 	@echo " $(MAKE) check-softfloat        Run FPU emulation tests"
 endif
 	@echo " $(MAKE) check-avocado          Run avocado (integration) tests for currently configured targets"
@@ -81,6 +82,38 @@ clean-tcg: $(CLEAN_TCG_TARGET_RULES)
 
 .PHONY: distclean-tcg
 distclean-tcg: $(DISTCLEAN_TCG_TARGET_RULES)
+
+# Per-suite RISC-V semihosting tests (XThead extensions)
+BUILD_RISCV_SEMIHOST_RULES=$(patsubst %,build-riscv-semihost-%, $(RISCV_SEMIHOST_TARGETS))
+RUN_RISCV_SEMIHOST_RULES=$(patsubst %,run-riscv-semihost-%, $(RISCV_SEMIHOST_TARGETS))
+CLEAN_RISCV_SEMIHOST_RULES=$(patsubst %,clean-riscv-semihost-%, $(RISCV_SEMIHOST_TARGETS))
+
+.PHONY: $(RISCV_SEMIHOST_TARGETS:%=build-riscv-semihost-%)
+$(RISCV_SEMIHOST_TARGETS:%=build-riscv-semihost-%): build-riscv-semihost-%:
+	$(call quiet-command, \
+            $(MAKE) -C tests/riscv/semihost/$* $(SUBDIR_MAKEFLAGS), \
+        "BUILD","riscv-semihost/$* tests")
+
+.PHONY: $(RISCV_SEMIHOST_TARGETS:%=run-riscv-semihost-%)
+$(RISCV_SEMIHOST_TARGETS:%=run-riscv-semihost-%): run-riscv-semihost-%: build-riscv-semihost-%
+	$(call quiet-command, \
+           $(MAKE) -C tests/riscv/semihost/$* $(SUBDIR_MAKEFLAGS) run, \
+        "RUN", "riscv-semihost/$* tests")
+
+.PHONY: $(RISCV_SEMIHOST_TARGETS:%=clean-riscv-semihost-%)
+$(RISCV_SEMIHOST_TARGETS:%=clean-riscv-semihost-%): clean-riscv-semihost-%:
+	$(call quiet-command, \
+           $(MAKE) -C tests/riscv/semihost/$* $(SUBDIR_MAKEFLAGS) clean, \
+        "CLEAN", "riscv-semihost/$* tests")
+
+.PHONY: build-riscv-semihost
+build-riscv-semihost: $(BUILD_RISCV_SEMIHOST_RULES)
+
+.PHONY: check-riscv-semihost
+check-riscv-semihost: $(RUN_RISCV_SEMIHOST_RULES)
+
+.PHONY: clean-riscv-semihost
+clean-riscv-semihost: $(CLEAN_RISCV_SEMIHOST_RULES)
 
 # Python venv for running tests
 
@@ -162,7 +195,7 @@ check-build: run-ninja
 check-clean:
 	rm -rf $(TESTS_RESULTS_DIR)
 
-clean: check-clean clean-tcg
+clean: check-clean clean-tcg clean-riscv-semihost
 distclean: distclean-tcg
 
 endif

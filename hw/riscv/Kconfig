@@ -10,6 +10,9 @@ config RISCV_NUMA
 config IBEX
     bool
 
+config RISCV_TPE
+    bool
+
 # RISC-V machines in alphabetical order
 
 config MICROCHIP_PFSOC
@@ -57,6 +60,7 @@ config RISCV_VIRT
     imply CBQRI_EXAMPLE_SOC
     select ACPI_PCI
     select RISCV_IOPMP
+    select RISCV_TPE
 
 config SERVER_PLATFORM_REF
     bool
@@ -153,10 +157,18 @@ config RISCV_DUMMYH
 config RISCV_XIAOHUI
     bool
     select XT_CLIC
+    select XT_CLIC_V0P10
     select CSKY_TIMER
     select CSKY_UART
     select CSKY_EXIT
     select XIAOHUI_CPR
+    select XIAOHUI_PCU
+    select DW_DMA_SW_AXI
+    select DW_DMA_SW_AHB
+    select RISCV_ACLINT
+    select RISCV_APLIC
+    select RISCV_IMSIC
+    select SIFIVE_TEST
 
 config CBQRI_EXAMPLE_SOC
     bool

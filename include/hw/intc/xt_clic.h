@@ -21,31 +21,11 @@
 
 #include "hw/irq.h"
 #include "hw/sysbus.h"
+#include "hw/intc/xt_clic_internal.h"
 
 #define TYPE_XT_CLIC "csky_xt_clic"
 #define XT_CLIC(obj) \
     OBJECT_CHECK(XTCLICState, (obj), TYPE_XT_CLIC)
-
-/*
- * CLIC per hart active interrupts
- *
- * We maintain per hart lists of enabled interrupts sorted by
- * mode+level+priority. The sorting is done on the configuration path
- * so that the interrupt delivery fastpath can linear scan enabled
- * interrupts in priority order.
- */
-typedef struct CLICActiveInterrupt {
-    uint16_t intcfg;
-    uint16_t irq;
-} CLICActiveInterrupt;
-
-typedef enum TRIG_TYPE {
-    POSITIVE_LEVEL,
-    POSITIVE_EDGE,
-    NEG_LEVEL,
-    NEG_EDGE,
-} TRIG_TYPE;
-
 typedef struct XTCLICState {
     /*< private >*/
     SysBusDevice parent_obj;
@@ -84,10 +64,11 @@ DeviceState *xt_clic_create(hwaddr addr, bool vector,
                             uint32_t num_harts, uint32_t num_sources,
                             uint8_t clicintctlbits);
 
-void xt_clic_decode_exccode(uint32_t exccode, int *mode, int *il, int *irq);
 void xt_clic_clean_pending(void *opaque, int irq);
 bool xt_clic_edge_triggered(void *opaque, int irq);
 bool xt_clic_shv_interrupt(void *opaque, int irq);
 void xt_clic_get_next_interrupt(void *opaque);
 bool xt_clic_is_clic_mode(CPURISCVState *env);
+void xt_clic_set_irq(void *opaque, int irq, int level);
+target_ulong xt_clic_find_suitable_interrupt(CPURISCVState *env, uint8_t write_mode);
 #endif

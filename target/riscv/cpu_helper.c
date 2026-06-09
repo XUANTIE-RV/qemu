@@ -34,13 +34,13 @@
 #include "debug.h"
 #include "tcg/oversized-guest.h"
 #if !defined(CONFIG_USER_ONLY)
-#include "hw/intc/xt_clic.h"
+#include "riscv_xt_clic.h"
 #endif
 #include "exec/tracestub.h"
 
 /* CLIC hacking */
 #ifndef CONFIG_USER_ONLY
-bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, int mode)
+bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, target_ulong mode)
 {
     switch (mode) {
     case PRV_M:
@@ -58,44 +58,49 @@ static target_ulong riscv_intr_pc(CPURISCVState *env, target_ulong tvec,
                                   target_ulong tvt, bool async, bool clic,
                                   int cause, int mode)
 {
-    int mode1 = tvec & 0b11, mode2 = tvec & 0b111111;
     target_ulong new_pc = 0;
 
     if (!async) {
         return tvec & ~0b11;
     }
+
+    /*
+     * CLIC mode is a global setting determined by mtvec, not by the
+     * individual tvec passed in. When clic is true, always use the
+     * CLIC interrupt delivery path regardless of tvec's low bits.
+     */
+    if (clic) {
+        /* Non-vectored, clicintattr[i].shv = 0 || cliccfg.nvbits = 0 */
+        if (!riscv_clic_shv_interrupt(env, cause)) {
+            /* NBASE = xtvec[XLEN-1:6]<<6 */
+            return tvec & ~0b111111;
+        } else {
+            /*
+             * pc := M[TBASE + XLEN/8 * exccode)] & ~1,
+             * TBASE = xtvt[XLEN-1:6]<<6
+             */
+            int size = 2 << env->xl;
+            target_ulong tbase = (tvt & ~0b111111) + size * cause;
+            void *host = tlb_vaddr_to_host(env, tbase, MMU_DATA_LOAD, mode);
+            if (host != NULL) {
+                new_pc = ldn_p(host, size);
+                if (tlb_vaddr_to_host(env, new_pc, MMU_INST_FETCH, mode)) {
+                    return new_pc;
+                }
+            }
+            qemu_log_mask(LOG_GUEST_ERROR,
+                          "CLIC: load trap handler error!\n");
+            exit(1);
+        }
+    }
+
     /* bits [1:0] encode mode; 0 = direct, 1 = vectored, 2 >= reserved */
-    switch (mode1) {
+    switch (tvec & 0b11) {
     case 0b00:
         return tvec & ~0b11;
     case 0b01:
         return (tvec & ~0b11) + cause * 4;
     default:
-        if (env->clic && (mode2 == 0b000011)) {
-            assert(mode == PRV_M);
-            /* Non-vectored, clicintattr[i].shv = 0 || cliccfg.nvbits = 0 */
-            if (!xt_clic_shv_interrupt(env->clic, cause)) {
-                /* NBASE = mtvec[XLEN-1:6]<<6 */
-                return tvec & ~0b111111;
-            } else {
-                /*
-                 * pc := M[TBASE + XLEN/8 * exccode)] & ~1,
-                 * TBASE = mtvt[XLEN-1:6]<<6
-                 */
-                int size = 2 << env->xl;
-                target_ulong tbase = (tvt & ~0b111111) + size * cause;
-                void *host = tlb_vaddr_to_host(env, tbase, MMU_DATA_LOAD, mode);
-                if (host != NULL) {
-                    new_pc = ldn_p(host, size);
-                    if (tlb_vaddr_to_host(env, new_pc, MMU_INST_FETCH, mode)) {
-                        return new_pc;
-                    }
-                }
-                qemu_log_mask(LOG_GUEST_ERROR,
-                              "CLIC: load trap handler error!\n");
-                exit(1);
-            }
-        }
         g_assert_not_reached();
     }
 }
@@ -176,42 +181,50 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
         DP_TBFLAGS_ANY(flags, VTA, FIELD_EX64(env->vtype, VTYPE, VTA));
         DP_TBFLAGS_ANY(flags, VMA, FIELD_EX64(env->vtype, VTYPE, VMA));
         DP_TBFLAGS_ANY(flags, VSTART_EQ_ZERO, env->vstart == 0);
+        DP_TBFLAGS_THEAD(flags, ALTFMT, FIELD_EX64(env->vtype, VTYPE, ALTFMT));
     } else {
         DP_TBFLAGS_ANY(flags, VILL, 1);
     }
     if (cpu->cfg.ext_matrix) {
-        DP_TBFLAGS_THEAD(flags, PWFP, !!(env->xmisa & MATRIX_PW_FLOAT));
-        DP_TBFLAGS_THEAD(flags, PWINT, !!(env->xmisa & MATRIX_PW_INT));
-        DP_TBFLAGS_THEAD(flags, SPARSITYFP,
-                         !!(env->xmisa & MATRIX_SPARSITY_FLOAT));
-        DP_TBFLAGS_THEAD(flags, SPARSITYINT,
-                         !!(env->xmisa & MATRIX_SPARSITY_INT));
-        DP_TBFLAGS_THEAD(flags, FPINTCVT,
-                         !!(env->xmisa & MATRIX_FLOAT_INT_CVT));
-        DP_TBFLAGS_THEAD(flags, F8F32, !!(env->xmisa & MATRIX_MULT_F8F32));
-        DP_TBFLAGS_THEAD(flags, F8F16, !!(env->xmisa & MATRIX_MULT_F8F16));
-        DP_TBFLAGS_THEAD(flags, I4I32, !!(env->xmisa & MATRIX_MULT_I4I32));
-        DP_TBFLAGS_THEAD(flags, I8I32, !!(env->xmisa & MATRIX_MULT_I8I32));
-        DP_TBFLAGS_THEAD(flags, I16I64, !!(env->xmisa & MATRIX_MULT_I16I64));
-        DP_TBFLAGS_THEAD(flags, F16F16, !!(env->xmisa & MATRIX_MULT_F16F16));
-        DP_TBFLAGS_THEAD(flags, F32F32, !!(env->xmisa & MATRIX_MULT_F32F32));
-        DP_TBFLAGS_THEAD(flags, F64F64, !!(env->xmisa & MATRIX_MULT_F64F64));
-        DP_TBFLAGS_THEAD(flags, F16F32, !!(env->xmisa & MATRIX_MULT_F16F32));
-        DP_TBFLAGS_THEAD(flags, F32F64, !!(env->xmisa & MATRIX_MULT_F32F64));
-        DP_TBFLAGS_THEAD(flags, MILL,
-                         env->sizem > get_mrows(env) || env->sizem == 0);
-        DP_TBFLAGS_THEAD(flags, NILL,
-                         env->sizen > get_mrows(env) || env->sizen == 0);
-        DP_TBFLAGS_THEAD(flags, KILL,
-                         env->sizek > get_rlenb(env) || env->sizek == 0);
-        DP_TBFLAGS_THEAD(flags, NPILL,
-                         env->sizen > 2 * get_mrows(env) || env->sizen == 0);
+        DP_TBFLAGS_THEAD(flags, MILL, env->sizem > get_mrows(env));
+        DP_TBFLAGS_THEAD(flags, ME0, env->sizem == 0);
+        DP_TBFLAGS_THEAD(flags, NILL, env->sizen > get_mrows(env));
+        DP_TBFLAGS_THEAD(flags, NX2, env->sizen > 2 * get_mrows(env));
+        DP_TBFLAGS_THEAD(flags, KILL, env->sizek > get_rlenb(env));
+        DP_TBFLAGS_THEAD(flags, KE0, env->sizek == 0);
+        DP_TBFLAGS_THEAD(flags, KM2, env->sizek % 2);
+        DP_TBFLAGS_THEAD(flags, KM4, env->sizek % 4);
+        DP_TBFLAGS_THEAD(flags, KM8, env->sizek % 8);
     }
     DP_TBFLAGS_THEAD(flags, BF16, env->bf16);
 #ifdef CONFIG_USER_ONLY
     fs = EXT_STATUS_DIRTY;
     vs = EXT_STATUS_DIRTY;
     DP_TBFLAGS_THEAD(flags, MS, EXT_STATUS_DIRTY);
+    DP_TBFLAGS_THEAD(flags, MSD, 0);
+
+    /* Xuantie Custom Extensions */
+    if (cpu->cfg.ext_xtheadaioe) {
+        DP_TBFLAGS_THEAD(flags, AIOE_EN, 1);
+    }
+    if (cpu->cfg.ext_xtheadcbop) {
+        DP_TBFLAGS_THEAD(flags, CBOP_EN, 1);
+    }
+    if (cpu->cfg.ext_xtheadcrc) {
+        DP_TBFLAGS_THEAD(flags, CRC_DIS, 0);
+    }
+    if (cpu->cfg.ext_xtheadvdot || cpu->cfg.ext_xtheadvcrypto ||
+        cpu->cfg.ext_xtheadvcoder || cpu->cfg.ext_xtheadvarith ||
+        cpu->cfg.ext_xtheadvfofp4min || cpu->cfg.ext_xtheadvfoe8m0min ||
+        cpu->cfg.ext_xtheadvfofp8min) {
+        DP_TBFLAGS_THEAD(flags, XTV_DIS, 0);
+    }
+    if (cpu->cfg.ext_xtheadcbi || cpu->cfg.ext_xtheadcei ||
+        cpu->cfg.ext_xtheadcef || cpu->cfg.ext_xtheadcev ||
+        cpu->cfg.ext_xtheadcvwn) {
+        DP_TBFLAGS_THEAD(flags, XTCP_EN, 1);
+    }
+    DP_TBFLAGS_THEAD(flags, MM, 1);
 #else
     DP_TBFLAGS_ANY(flags, PRIV, env->priv);
 
@@ -242,6 +255,35 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
     if (!(env->mxstatus & MXSTATUS_MSD) && cpu->cfg.ext_matrix) {
         DP_TBFLAGS_THEAD(flags, MS, get_field(env->mstatus, MSTATUS_TH_MS));
     }
+    if (cpu->cfg.ext_matrix) {
+        DP_TBFLAGS_THEAD(flags, TCM, get_field(env->xmtcmcsr, XMTCMCSR_MTCMEN_MASK));
+    }
+
+    /* Xuantie Custom Extensions */
+    if (cpu->cfg.ext_xtheadaioe) {
+        DP_TBFLAGS_THEAD(flags, AIOE_EN, !!(env->mnastatus & MNASTATUS_AIOE_EN));
+    }
+    if (cpu->cfg.ext_xtheadcbop) {
+        DP_TBFLAGS_THEAD(flags, CBOP_EN, !!((env->mnastatus & MNASTATUS_CBOP_EN)
+                                            && !!(env->mhint7 & MHINT7_CBOP_EN)));
+    }
+    if (cpu->cfg.ext_xtheadcrc) {
+        DP_TBFLAGS_THEAD(flags, CRC_DIS, !!(env->mhint3 & MHINT3_XTAIDIS));
+    }
+    if (cpu->cfg.ext_xtheadvdot || cpu->cfg.ext_xtheadvcrypto ||
+        cpu->cfg.ext_xtheadvcoder || cpu->cfg.ext_xtheadvarith ||
+        cpu->cfg.ext_xtheadvfofp4min || cpu->cfg.ext_xtheadvfoe8m0min ||
+        cpu->cfg.ext_xtheadvfofp8min) {
+        DP_TBFLAGS_THEAD(flags, XTV_DIS, !!(env->mhint3 & MHINT3_XTAIDIS));
+    }
+    if (cpu->cfg.ext_xtheadcei || cpu->cfg.ext_xtheadcef ||
+        cpu->cfg.ext_xtheadcev || cpu->cfg.ext_xtheadcvwn) {
+        DP_TBFLAGS_THEAD(flags, XTCP_EN, !!(env->mxstatus & MXSTATUS_CP_EN));
+    }
+
+    if (cpu->env.mxstatus & MXSTATUS_MM) {
+        DP_TBFLAGS_THEAD(flags, MM, !!(env->mxstatus & MXSTATUS_MM));
+    }
 #endif
 
     DP_TBFLAGS_ANY(flags, FS, fs);
@@ -257,30 +299,109 @@ void cpu_get_tb_cpu_state(CPURISCVState *env, vaddr *pc,
     *cs_base = flags.flags2;
 }
 
+/*
+ * Returns the effective PMM field.
+ *
+ * The PMM field selection logic for each effective privilege mode
+ * is as follows:
+ *
+ * - mstatus.MXR = 1: disabled
+ *
+ * - Smmpm + Smnpm + Ssnpm:
+ *     M-mode:  mseccfg.PMM
+ *     S-mode:  menvcfg.PMM
+ *     U-mode:  senvcfg.PMM
+ *     VS-mode: henvcfg.PMM
+ *     VU-mode: senvcfg.PMM
+ *
+ * - Smmpm + Smnpm (RVS implemented):
+ *     M-mode:  mseccfg.PMM
+ *     S-mode:  menvcfg.PMM
+ *     U/VS/VU: disabled (Ssnpm not present)
+ *
+ * - Smmpm + Smnpm (RVS not implemented):
+ *     M-mode:  mseccfg.PMM
+ *     U-mode:  menvcfg.PMM
+ *     S/VS/VU: disabled (no S-mode)
+ *
+ * - Smmpm only:
+ *     M-mode:  mseccfg.PMM
+ *     Other existing modes: disabled
+ */
 RISCVPmPmm riscv_pm_get_pmm(CPURISCVState *env)
 {
-    int pmm = 0;
 #ifndef CONFIG_USER_ONLY
-    int priv_mode = cpu_address_mode(env);
+    int priv_mode;
+    bool virt;
+
+    riscv_cpu_eff_priv(env, &priv_mode, &virt);
+
+    if ((priv_mode != PRV_M && get_field(env->mstatus, MSTATUS_MXR)) ||
+        (virt && get_field(env->vsstatus, MSTATUS_MXR))) {
+        return PMM_FIELD_DISABLED;
+    }
+
     /* Get current PMM field */
     switch (priv_mode) {
     case PRV_M:
-        pmm = riscv_cpu_cfg(env)->ext_smmpm ?
-                  get_field(env->mseccfg, MSECCFG_PMM) : PMM_FIELD_DISABLED;
+        if (riscv_cpu_cfg(env)->ext_smmpm) {
+            return get_field(env->mseccfg, MSECCFG_PMM);
+        }
         break;
     case PRV_S:
-        pmm = riscv_cpu_cfg(env)->ext_smnpm ?
-                  get_field(env->menvcfg, MENVCFG_PMM) : PMM_FIELD_DISABLED;
+        if (!virt) {
+            if (riscv_cpu_cfg(env)->ext_smnpm) {
+                return get_field(env->menvcfg, MENVCFG_PMM);
+            }
+        } else {
+            if (riscv_cpu_cfg(env)->ext_ssnpm) {
+                return get_field(env->henvcfg, HENVCFG_PMM);
+            }
+        }
         break;
     case PRV_U:
-        pmm = riscv_cpu_cfg(env)->ext_ssnpm ?
-                  get_field(env->senvcfg, SENVCFG_PMM) : PMM_FIELD_DISABLED;
+        if (!virt) {
+            if (riscv_cpu_cfg(env)->ext_ssnpm) {
+                return get_field(env->senvcfg, SENVCFG_PMM);
+            }
+            if (riscv_cpu_cfg(env)->ext_smnpm) {
+                if (!riscv_has_ext(env, RVS)) {
+                    return get_field(env->menvcfg, MENVCFG_PMM);
+                }
+            }
+        } else {
+            if (riscv_cpu_cfg(env)->ext_ssnpm) {
+                return get_field(env->senvcfg, SENVCFG_PMM);
+            }
+        }
         break;
     default:
         g_assert_not_reached();
     }
+
+    return PMM_FIELD_DISABLED;
+#else
+    return PMM_FIELD_DISABLED;
 #endif
-    return pmm;
+}
+
+RISCVPmPmm riscv_pm_get_virt_pmm(CPURISCVState *env)
+{
+#ifndef CONFIG_USER_ONLY
+    int priv_mode = cpu_address_mode(env);
+
+    if (priv_mode == PRV_U) {
+        return get_field(env->hstatus, HSTATUS_HUPMM);
+    } else {
+        if (get_field(env->hstatus, HSTATUS_SPVP)) {
+            return get_field(env->henvcfg, HENVCFG_PMM);
+        } else {
+            return get_field(env->senvcfg, SENVCFG_PMM);
+        }
+    }
+#else
+    return PMM_FIELD_DISABLED;
+#endif
 }
 
 bool riscv_cpu_virt_mem_enabled(CPURISCVState *env)
@@ -631,13 +752,14 @@ bool riscv_cpu_exec_interrupt(CPUState *cs, int interrupt_request)
     if (interrupt_request & CPU_INTERRUPT_CLIC) {
         RISCVCPU *cpu = RISCV_CPU(cs);
         CPURISCVState *env = &cpu->env;
-        int mode = (env->exccode >> 12) & 0b11;
+        target_ulong mode = 0;
+        riscv_clic_decode_exccode(env->exccode, &mode, NULL, NULL);
         bool enabled = riscv_cpu_local_irq_mode_enabled(env, mode);
         if (enabled) {
             cs->exception_index = RISCV_EXCP_INT_FLAG | RISCV_EXCP_INT_CLIC |
                                   env->exccode;
-            cs->interrupt_request = cs->interrupt_request & ~CPU_INTERRUPT_CLIC;
             riscv_cpu_do_interrupt(cs);
+            cpu_reset_interrupt(CPU(cpu), CPU_INTERRUPT_CLIC);
             return true;
         }
     }
@@ -819,7 +941,12 @@ uint64_t riscv_cpu_update_mip(CPURISCVState *env, uint64_t mask, uint64_t value)
 {
     uint64_t old = env->mip;
 
-    if (xt_clic_is_clic_mode(env)) {
+    if (riscv_clic_is_clic_mode(env)) {
+        /*
+         * When CLIC mode is enabled, the interrupt IDs remain
+         * compatible with CLINT mode.
+         */
+        riscv_clic_set_irq(env, ctzl(mask), value);
         return old;
     }
     /* No need to update mip for VSTIP */
@@ -1153,6 +1280,28 @@ int get_physical_address_pmp(CPURISCVState *env, int *prot, hwaddr addr,
     return TRANSLATE_SUCCESS;
 }
 
+static int get_physical_address_spmp(CPURISCVState *env, int *prot, hwaddr addr,
+                                     int size, MMUAccessType access_type,
+                                     int mmu_idx)
+{
+    pmp_priv_t spmp_priv;
+    int ret;
+
+    if (!riscv_cpu_cfg(env)->ext_smpmpdeleg) {
+        *prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+        return TRANSLATE_SUCCESS;
+    }
+
+    ret = spmp_lookup(env, addr, size, access_type, &spmp_priv, mmu_idx);
+    if (ret != TRANSLATE_SUCCESS) {
+        *prot = 0;
+        return ret;
+    }
+
+    *prot = pmp_priv_to_page_prot(spmp_priv);
+    return TRANSLATE_SUCCESS;
+}
+
 /*
  * get_physical_address_mtt - check mtt permission for this physical address
  *
@@ -1346,6 +1495,7 @@ static int get_physical_address(CPURISCVState *env, hwaddr *physical,
     bool svade = riscv_cpu_cfg(env)->ext_svade;
     bool svadu = riscv_cpu_cfg(env)->ext_svadu;
     bool adue = svadu ? env->menvcfg & MENVCFG_ADUE : !svade;
+    bool svrsw60t59b = riscv_cpu_cfg(env)->ext_svrsw60t59b;
 
     if (first_stage && two_stage && env->virt_enabled) {
         pbmte = pbmte && (env->henvcfg & HENVCFG_PBMTE);
@@ -1426,7 +1576,7 @@ restart:
             ppn = pte >> PTE_PPN_SHIFT;
         } else {
             if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
-                if (pte & PTE_RESERVED) {
+                if (pte & PTE_RESERVED(svrsw60t59b)) {
                     return TRANSLATE_FAIL;
                 }
 
@@ -1628,6 +1778,431 @@ restart:
         if ((i != (levels - 1)) || (napot_bits != 4)) {
             return TRANSLATE_FAIL;
         }
+    }
+
+    napot_mask = (1 << napot_bits) - 1;
+    *physical = (((ppn & ~napot_mask) | (vpn & napot_mask) |
+                  (vpn & (((target_ulong)1 << ptshift) - 1))
+                 ) << PGSHIFT) | (addr & ~TARGET_PAGE_MASK);
+
+    /*
+     * Remove write permission unless this is a store, or the page is
+     * already dirty, so that we TLB miss on later writes to update
+     * the dirty bit.
+     */
+    if (access_type != MMU_DATA_STORE && !(pte & PTE_D)) {
+        prot &= ~PAGE_WRITE;
+    }
+    *ret_prot = prot;
+
+    return TRANSLATE_SUCCESS;
+}
+
+/*
+ * This function is same to get_physical_address besizes it allows get page
+ * size of this virtual address
+ */
+static int get_physical_address_pagelen(CPURISCVState *env, hwaddr *physical,
+                                int *ret_prot, vaddr addr,
+                                target_ulong *fault_pte_addr,
+                                int access_type, int mmu_idx,
+                                bool first_stage, bool two_stage,
+                                bool is_debug, uint64_t *pagelen)
+{
+    /*
+     * NOTE: the env->pc value visible here will not be
+     * correct, but the value visible to the exception handler
+     * (riscv_cpu_do_interrupt) is correct
+     */
+    MemTxResult res;
+    MemTxAttrs attrs = MEMTXATTRS_UNSPECIFIED;
+    int mode = mmuidx_priv(mmu_idx);
+    bool use_background = false;
+    hwaddr ppn;
+    int napot_bits = 0;
+    target_ulong napot_mask;
+    bool sstack_inst = get_field(mmu_idx, MMU_IDX_SS_ACCESS);
+    bool sstack_page = false;
+
+    /*
+     * Check if we should use the background registers for the two
+     * stage translation. We don't need to check if we actually need
+     * two stage translation as that happened before this function
+     * was called. Background registers will be used if the guest has
+     * forced a two stage translation to be on (in HS or M mode).
+     */
+    if (!env->virt_enabled && two_stage) {
+        use_background = true;
+    }
+
+    if (mode == PRV_M || !riscv_cpu_cfg(env)->mmu) {
+        *physical = addr;
+        *ret_prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+        return TRANSLATE_SUCCESS;
+    }
+
+    *ret_prot = 0;
+
+    hwaddr base;
+    int levels, ptidxbits, ptesize, vm, widened;
+
+    if (first_stage == true) {
+        if (use_background) {
+            if (riscv_cpu_mxl(env) == MXL_RV32) {
+                base = (hwaddr)get_field(env->vsatp, SATP32_PPN) << PGSHIFT;
+                vm = get_field(env->vsatp, SATP32_MODE);
+            } else {
+                base = (hwaddr)get_field(env->vsatp, SATP64_PPN) << PGSHIFT;
+                vm = get_field(env->vsatp, SATP64_MODE);
+            }
+        } else {
+            if (riscv_cpu_mxl(env) == MXL_RV32) {
+                base = (hwaddr)get_field(env->satp, SATP32_PPN) << PGSHIFT;
+                vm = get_field(env->satp, SATP32_MODE);
+            } else {
+                base = (hwaddr)get_field(env->satp, SATP64_PPN) << PGSHIFT;
+                vm = get_field(env->satp, SATP64_MODE);
+            }
+        }
+        widened = 0;
+    } else {
+        if (riscv_cpu_mxl(env) == MXL_RV32) {
+            base = (hwaddr)get_field(env->hgatp, SATP32_PPN) << PGSHIFT;
+            vm = get_field(env->hgatp, SATP32_MODE);
+        } else {
+            base = (hwaddr)get_field(env->hgatp, SATP64_PPN) << PGSHIFT;
+            vm = get_field(env->hgatp, SATP64_MODE);
+        }
+        widened = 2;
+    }
+
+    switch (vm) {
+    case VM_1_10_SV32:
+      levels = 2; ptidxbits = 10; ptesize = 4; break;
+    case VM_1_10_SV39:
+      levels = 3; ptidxbits = 9; ptesize = 8; break;
+    case VM_1_10_SV48:
+      levels = 4; ptidxbits = 9; ptesize = 8; break;
+    case VM_1_10_SV57:
+      levels = 5; ptidxbits = 9; ptesize = 8; break;
+    case VM_1_10_MBARE:
+        *physical = addr;
+        *ret_prot = PAGE_READ | PAGE_WRITE | PAGE_EXEC;
+        return TRANSLATE_SUCCESS;
+    default:
+      g_assert_not_reached();
+    }
+
+    CPUState *cs = env_cpu(env);
+    int va_bits = PGSHIFT + levels * ptidxbits + widened;
+
+    if (first_stage == true) {
+        target_ulong mask, masked_msbs;
+
+        if (TARGET_LONG_BITS > (va_bits - 1)) {
+            mask = (1L << (TARGET_LONG_BITS - (va_bits - 1))) - 1;
+        } else {
+            mask = 0;
+        }
+        masked_msbs = (addr >> (va_bits - 1)) & mask;
+
+        if (masked_msbs != 0 && masked_msbs != mask) {
+            return TRANSLATE_FAIL;
+        }
+    } else {
+        if (vm != VM_1_10_SV32 && addr >> va_bits != 0) {
+            return TRANSLATE_FAIL;
+        }
+    }
+
+    bool pbmte = env->menvcfg & MENVCFG_PBMTE;
+    bool svade = riscv_cpu_cfg(env)->ext_svade;
+    bool svadu = riscv_cpu_cfg(env)->ext_svadu;
+    bool adue = svadu ? env->menvcfg & MENVCFG_ADUE : !svade;
+    bool svrsw60t59b = riscv_cpu_cfg(env)->ext_svrsw60t59b;
+
+    if (first_stage && two_stage && env->virt_enabled) {
+        pbmte = pbmte && (env->henvcfg & HENVCFG_PBMTE);
+        adue = adue && (env->henvcfg & HENVCFG_ADUE);
+    }
+
+    int ptshift = (levels - 1) * ptidxbits;
+    target_ulong pte;
+    hwaddr pte_addr;
+    int i;
+
+#if !TCG_OVERSIZED_GUEST
+restart:
+#endif
+    for (i = 0; i < levels; i++, ptshift -= ptidxbits) {
+        target_ulong idx;
+        if (i == 0) {
+            idx = (addr >> (PGSHIFT + ptshift)) &
+                           ((1 << (ptidxbits + widened)) - 1);
+        } else {
+            idx = (addr >> (PGSHIFT + ptshift)) &
+                           ((1 << ptidxbits) - 1);
+        }
+
+        /* check that physical address of PTE is legal */
+
+        if (two_stage && first_stage) {
+            int vbase_prot;
+            hwaddr vbase;
+
+            /* Do the second stage translation on the base PTE address. */
+            int vbase_ret = get_physical_address(env, &vbase, &vbase_prot,
+                                                 base, NULL, MMU_DATA_LOAD,
+                                                 MMUIdx_U, false, true,
+                                                 is_debug);
+
+            if (vbase_ret != TRANSLATE_SUCCESS) {
+                if (fault_pte_addr) {
+                    *fault_pte_addr = (base + idx * ptesize) >> 2;
+                }
+                return TRANSLATE_G_STAGE_FAIL;
+            }
+
+            pte_addr = vbase + idx * ptesize;
+        } else {
+            pte_addr = base + idx * ptesize;
+        }
+
+        int pmp_prot;
+        int pmp_ret = get_physical_address_pmp(env, &pmp_prot, pte_addr,
+                                               sizeof(target_ulong),
+                                               MMU_DATA_LOAD, PRV_S);
+        if (pmp_ret != TRANSLATE_SUCCESS) {
+            return TRANSLATE_PMP_FAIL;
+        }
+
+        int mtt_prot;
+        int mtt_ret = get_physical_address_mtt(env, &mtt_prot, pte_addr,
+                                               MMU_DATA_LOAD, PRV_S);
+        if (mtt_ret != TRANSLATE_SUCCESS) {
+            return TRANSLATE_MTT_FAIL;
+        }
+
+        if (riscv_cpu_mxl(env) == MXL_RV32) {
+            pte = address_space_ldl(cs->as, pte_addr, attrs, &res);
+        } else {
+            pte = address_space_ldq(cs->as, pte_addr, attrs, &res);
+        }
+
+        if (res != MEMTX_OK) {
+            return TRANSLATE_FAIL;
+        }
+
+        if (riscv_cpu_sxl(env) == MXL_RV32) {
+            if (pbmte && riscv_cpu_cfg(env)->ext_xtheadpbmt) {
+                pte &= ~0xC0000000;
+            }
+            ppn = pte >> PTE_PPN_SHIFT;
+        } else {
+            if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
+                if (pte & PTE_RESERVED(svrsw60t59b)) {
+                    return TRANSLATE_FAIL;
+                }
+
+                if ((!pbmte && (pte & PTE_PBMT)) ||
+                    (pbmte && ((pte & PTE_PBMT) == PTE_PBMT))) {
+                    return TRANSLATE_FAIL;
+                }
+
+                if (!riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
+                    return TRANSLATE_FAIL;
+                }
+            }
+            ppn = (pte & (target_ulong)PTE_PPN_MASK) >> PTE_PPN_SHIFT;
+        }
+
+        /*
+         * When backward CFI is enabled, the R=0, W=1, X=0 reserved encoding
+         * is used to mark Shadow Stack (SS) pages. If back CFI enabled, allow
+         * normal loads on SS pages, regular stores raise store access fault
+         * and avoid hitting the reserved-encoding case. Only shadow stack
+         * stores are allowed on SS pages. Shadow stack loads and stores on
+         * regular memory (non-SS) raise load and store/AMO access fault.
+         * Second stage translations don't participate in Shadow Stack.
+         */
+        sstack_page = (riscv_cpu_get_xsse(env) && first_stage &&
+                       ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_W));
+
+        if (!(pte & PTE_V)) {
+            /* Invalid PTE */
+            return TRANSLATE_FAIL;
+        }
+        if (pte & (PTE_R | PTE_W | PTE_X)) {
+            goto leaf;
+        }
+
+        /* Inner PTE, continue walking */
+        if (pte & (PTE_D | PTE_A | PTE_U)) {
+            return TRANSLATE_FAIL;
+        }
+        if ((pte & PTE_ATTR) && !riscv_cpu_cfg(env)->ext_xtheadmaee) {
+            return TRANSLATE_FAIL;
+        }
+        base = ppn << PGSHIFT;
+    }
+
+    /* No leaf pte at any translation level. */
+    return TRANSLATE_FAIL;
+
+ leaf:
+    if (ppn & ((1ULL << ptshift) - 1)) {
+        /* Misaligned PPN */
+        return TRANSLATE_FAIL;
+    }
+    if (!riscv_cpu_cfg(env)->ext_xtheadmaee) {
+        if (!pbmte && (pte & PTE_PBMT)) {
+            /* Reserved without Svpbmt. */
+            return TRANSLATE_FAIL;
+        }
+    }
+
+    /* Check for reserved combinations of RWX flags. */
+    switch (pte & (PTE_R | PTE_W | PTE_X)) {
+    case PTE_W:
+    /* If shadow stack page, then only PTE_W is no more reserved */
+        if (sstack_page) {
+            break;
+        }
+        return TRANSLATE_FAIL;
+    case PTE_W | PTE_X:
+        return TRANSLATE_FAIL;
+    }
+
+    /* Illegal combo of instruction type and page attribute */
+    if (!legal_sstack_access(access_type, sstack_inst, sstack_page)) {
+        /* shadow stack instruction and RO page then it's a page fault */
+        if (sstack_inst && ((pte & (PTE_R | PTE_W | PTE_X)) == PTE_R)) {
+            return TRANSLATE_FAIL;
+        }
+        /* In all other cases it's an access fault, so raise PMP_FAIL */
+        return TRANSLATE_PMP_FAIL;
+    }
+
+    int prot = 0;
+    if (pte & PTE_R) {
+        prot |= PAGE_READ;
+    }
+    if (pte & PTE_W) {
+        prot |= PAGE_WRITE;
+    }
+    if (pte & PTE_X) {
+        bool mxr = false;
+
+        /*
+         * Use mstatus for first stage or for the second stage without
+         * virt_enabled (MPRV+MPV)
+         */
+        if (first_stage || !env->virt_enabled) {
+            mxr = get_field(env->mstatus, MSTATUS_MXR);
+        }
+
+        /* MPRV+MPV case, check VSSTATUS */
+        if (first_stage && two_stage && !env->virt_enabled) {
+            mxr |= get_field(env->vsstatus, MSTATUS_MXR);
+        }
+
+        /*
+         * Setting MXR at HS-level overrides both VS-stage and G-stage
+         * execute-only permissions
+         */
+        if (env->virt_enabled) {
+            mxr |= get_field(env->mstatus_hs, MSTATUS_MXR);
+        }
+
+        if (mxr) {
+            prot |= PAGE_READ;
+        }
+        prot |= PAGE_EXEC;
+    }
+
+    if (pte & PTE_U) {
+        if (mode != PRV_U) {
+            if (!mmuidx_sum(mmu_idx)) {
+                return TRANSLATE_FAIL;
+            }
+            /* SUM allows only read+write, not execute. */
+            prot &= PAGE_READ | PAGE_WRITE;
+        }
+    } else if (mode != PRV_S) {
+        /* Supervisor PTE flags when not S mode */
+        return TRANSLATE_FAIL;
+    }
+
+    if (!((prot >> access_type) & 1)) {
+        /* Access check failed */
+        return TRANSLATE_FAIL;
+    }
+
+    target_ulong updated_pte = pte;
+
+    /*
+     * If ADUE is enabled, set accessed and dirty bits.
+     * Otherwise raise an exception if necessary.
+     */
+    if (adue) {
+        updated_pte |= PTE_A | (access_type == MMU_DATA_STORE ? PTE_D : 0);
+    } else if (!(pte & PTE_A) ||
+               (access_type == MMU_DATA_STORE && !(pte & PTE_D))) {
+        return TRANSLATE_FAIL;
+    }
+
+    /* Page table updates need to be atomic with MTTCG enabled */
+    if (updated_pte != pte && !is_debug) {
+        if (!adue) {
+            return TRANSLATE_FAIL;
+        }
+
+        /*
+         * - if accessed or dirty bits need updating, and the PTE is
+         *   in RAM, then we do so atomically with a compare and swap.
+         * - if the PTE is in IO space or ROM, then it can't be updated
+         *   and we return TRANSLATE_FAIL.
+         * - if the PTE changed by the time we went to update it, then
+         *   it is no longer valid and we must re-walk the page table.
+         */
+        MemoryRegion *mr;
+        hwaddr l = sizeof(target_ulong), addr1;
+        mr = address_space_translate(cs->as, pte_addr, &addr1, &l,
+                                     false, MEMTXATTRS_UNSPECIFIED);
+        if (memory_region_is_ram(mr)) {
+            target_ulong *pte_pa = qemu_map_ram_ptr(mr->ram_block, addr1);
+#if TCG_OVERSIZED_GUEST
+            /*
+             * MTTCG is not enabled on oversized TCG guests so
+             * page table updates do not need to be atomic
+             */
+            *pte_pa = pte = updated_pte;
+#else
+            target_ulong old_pte = qatomic_cmpxchg(pte_pa, pte, updated_pte);
+            if (old_pte != pte) {
+                goto restart;
+            }
+            pte = updated_pte;
+#endif
+        } else {
+            /*
+             * Misconfigured PTE in ROM (AD bits are not preset) or
+             * PTE is in IO space and can't be updated atomically.
+             */
+            return TRANSLATE_FAIL;
+        }
+    }
+
+    /* For superpage mappings, make a fake leaf PTE for the TLB's benefit. */
+    target_ulong vpn = addr >> PGSHIFT;
+    *pagelen = 1ULL << ((levels - 1 - i) * ptidxbits + PGSHIFT);
+    if (!riscv_cpu_cfg(env)->ext_xtheadmaee &&
+        riscv_cpu_cfg(env)->ext_svnapot && (pte & PTE_N)) {
+        napot_bits = ctzl(ppn) + 1;
+        if ((i != (levels - 1)) || (napot_bits != 4)) {
+            return TRANSLATE_FAIL;
+        }
+        *pagelen = 64 * 1024;
     }
 
     napot_mask = (1 << napot_bits) - 1;
@@ -1902,22 +2477,35 @@ bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
                       __func__, address, ret, pa, prot);
 
         if (ret == TRANSLATE_SUCCESS) {
-            ret = get_physical_address_mtt(env, &mtt_prot, pa,
-                                           access_type, mode);
+            ret = get_physical_address_spmp(env, &prot_pmp, pa,
+                                            size, access_type, mmu_idx);
             qemu_log_mask(CPU_LOG_MMU,
-                          "%s MTT address=" HWADDR_FMT_plx " ret %d prot %d\n",
-                          __func__, pa, ret, mtt_prot);
-            prot &= mtt_prot;
-            if (ret != TRANSLATE_MTT_FAIL) {
-                ret = get_physical_address_pmp(env, &prot_pmp, pa,
-                                               size, access_type, mode);
-                tlb_size = pmp_get_tlb_size(env, pa);
-
-                qemu_log_mask(CPU_LOG_MMU,
-                              "%s PMP address=" HWADDR_FMT_plx " ret %d prot"
-                              " %d tlb_size " TARGET_FMT_lu "\n",
-                              __func__, pa, ret, prot_pmp, tlb_size);
+                        "%s SPMP address=" HWADDR_FMT_plx " ret %d prot %d\n",
+                        __func__, pa, ret, prot_pmp);
+            if (ret == TRANSLATE_PMP_FAIL) {
+                pmp_violation = true;
+            } else if (ret == TRANSLATE_SUCCESS) {
                 prot &= prot_pmp;
+                tlb_size = spmp_get_tlb_size(env, pa);
+                ret = get_physical_address_mtt(env, &mtt_prot, pa,
+                                            access_type, mode);
+                qemu_log_mask(CPU_LOG_MMU,
+                            "%s MTT address=" HWADDR_FMT_plx " ret %d prot %d\n",
+                            __func__, pa, ret, mtt_prot);
+                prot &= mtt_prot;
+                if (ret != TRANSLATE_MTT_FAIL) {
+                    ret = get_physical_address_pmp(env, &prot_pmp, pa,
+                                                size, access_type, mode);
+                    if (tlb_size != 1) {
+                        tlb_size = pmp_get_tlb_size(env, pa);
+                    }
+
+                    qemu_log_mask(CPU_LOG_MMU,
+                                "%s PMP address=" HWADDR_FMT_plx " ret %d prot"
+                                " %d tlb_size " TARGET_FMT_lu "\n",
+                                __func__, pa, ret, prot_pmp, tlb_size);
+                    prot &= prot_pmp;
+                }
             }
         }
     }
@@ -1931,10 +2519,24 @@ bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
     }
 
     if (ret == TRANSLATE_SUCCESS) {
-        tlb_set_page(cs, address & ~(tlb_size - 1), pa & ~(tlb_size - 1),
-                     sstack ? (PAGE_READ | PAGE_WRITE) : prot,
-                     mmu_idx, tlb_size);
-        return true;
+        if (cpu->cfg.iopmp) {
+            /*
+             * Do not align address on early stage because IOPMP needs origin
+             * address for permission check.
+             */
+            tlb_set_page_with_attrs(cs, address, pa,
+                                    (MemTxAttrs)
+                                        {
+                                          .requester_id = cpu->cfg.iopmp_xtvmid_en ?
+                                            env->xt_vmid : cpu->cfg.iopmp_rrid,
+                                        },
+                                    sstack ? (PAGE_READ | PAGE_WRITE) : prot,
+				    mmu_idx, tlb_size);
+        } else {
+            tlb_set_page(cs, address & ~(tlb_size - 1), pa & ~(tlb_size - 1),
+                         sstack ? (PAGE_READ | PAGE_WRITE) : prot,
+                         mmu_idx, tlb_size);
+        }
     } else if (probe) {
         return false;
     } else {
@@ -1945,6 +2547,53 @@ bool riscv_cpu_tlb_fill(CPUState *cs, vaddr address, int size,
     }
 
     return true;
+}
+
+bool riscv_get_pagelen(CPUState *cs, vaddr address, int size,
+                       MMUAccessType access_type, int mmu_idx,
+                       uint64_t *pagelen)
+{
+    RISCVCPU *cpu = RISCV_CPU(cs);
+    CPURISCVState *env = &cpu->env;
+    hwaddr pa = 0;
+    int prot, prot_pmp;
+    int ret = TRANSLATE_FAIL;
+    int mode = mmuidx_priv(mmu_idx);
+    /* default TLB page size */
+    uint64_t tlb_size = TARGET_PAGE_SIZE;
+    bool sstack = get_field(mmu_idx, MMU_IDX_SS_ACCESS);
+    if (sstack) {
+        access_type = MMU_DATA_STORE;
+    }
+
+    /* Only process single stage lookup */
+    ret = get_physical_address_pagelen(env, &pa, &prot, address, NULL,
+                               access_type, mmu_idx, true, false, false,
+                               &tlb_size);
+
+    qemu_log_mask(CPU_LOG_MMU,
+                  "%s address=%" VADDR_PRIx " ret %d physical "
+                  HWADDR_FMT_plx " prot %d\n",
+                  __func__, address, ret, pa, prot);
+
+    if (ret == TRANSLATE_SUCCESS) {
+        ret = get_physical_address_pmp(env, &prot_pmp, pa,
+                                       tlb_size, access_type, mode);
+        qemu_log_mask(CPU_LOG_MMU,
+                      "%s PMP address=" HWADDR_FMT_plx " ret %d prot"
+                      " %d tlb_size %" PRIu64 "\n",
+                      __func__, pa, ret, prot_pmp, tlb_size);
+    } else {
+        *pagelen = 0;
+        return false;
+    }
+    if (ret == TRANSLATE_PMP_FAIL) {
+        *pagelen = 0;
+        return false;
+    } else {
+        *pagelen = tlb_size;
+        return true;
+    }
 }
 
 static target_ulong riscv_transformed_insn(CPURISCVState *env,
@@ -2171,12 +2820,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     bool smode_exception;
     bool vsmode_exception;
     uint64_t s;
-    int mode, level;
-#ifndef _WIN32
-    if (env->priv == PRV_U && is_bbv_tb_trans_registered()) {
-        qemu_plugin_other_process_cb();
-    }
-#endif
+    target_ulong exccode, mode, level;
 
     /*
      * cs->exception is 32-bits wide unlike mcause which is XLEN-bits wide
@@ -2185,7 +2829,6 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     bool async = !!(cs->exception_index & RISCV_EXCP_INT_FLAG);
     bool clic = !!(cs->exception_index & RISCV_EXCP_INT_CLIC);
     target_ulong cause = cs->exception_index & RISCV_EXCP_INT_MASK;
-    target_ulong exccode = clic ? cause & 0xfff : cause;
     uint64_t deleg = async ? env->mideleg : env->medeleg;
     bool s_injected = env->mvip & (1 << cause) & env->mvien &&
         !(env->mip & (1 << cause));
@@ -2281,8 +2924,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     }
 
     if (clic) {
-        mode = (cause >> 12) & 3;
-        level = (cause >> 14) & 0xff;
+        riscv_clic_decode_exccode(cause, &mode, &level, &exccode);
         cause &= 0xfff;
         cause |= get_field(env->mstatus, MSTATUS_MPP) << 28;
         switch (mode) {
@@ -2300,6 +2942,7 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     } else {
         mode = env->priv <= PRV_S &&
          (((deleg >> cause) & 1) || s_injected || vs_injected) ? PRV_S : PRV_M;
+        exccode = cause;
     }
 
     trace_riscv_trap(env->mhartid, async, exccode, env->pc, tval,
@@ -2311,8 +2954,13 @@ void riscv_cpu_do_interrupt(CPUState *cs)
                   __func__, env->mhartid, async, exccode, env->pc, tval,
                   riscv_cpu_get_trap_name(exccode, async, clic));
 
-    smode_exception = env->priv <= PRV_S && cause < 64 &&
-                      (((deleg >> cause) & 1) || s_injected || vs_injected);
+    /* In CLIC mode, use decoded mode directly; otherwise use delegation */
+    if (clic) {
+        smode_exception = (mode == PRV_S) && (env->priv <= PRV_S);
+    } else {
+        smode_exception = env->priv <= PRV_S && cause < 64 &&
+                          (((deleg >> cause) & 1) || s_injected || vs_injected);
+    }
     vsmode_exception = env->virt_enabled &&
                        (((hdeleg >> cause) & 1) || vs_injected);
     /* Check S-mode double trap condition */
@@ -2391,8 +3039,16 @@ void riscv_cpu_do_interrupt(CPUState *cs)
         env->stval = tval;
         env->htval = htval;
         env->htinst = tinst;
+        cause = cause & 0xfff;
+        if (clic) {
+            /* Automatically clear pending for edge and vector interrupt */
+            if (riscv_clic_shv_interrupt(env, cause) &&
+                riscv_clic_edge_triggered(env, cause)) {
+                riscv_clic_clean_pending(env, cause);
+            }
+        }
         env->pc = riscv_intr_pc(env, env->stvec, env->stvt, async,
-                                clic, cause & 0xfff, PRV_S);
+                                clic, cause, PRV_S);
         riscv_cpu_set_mode(env, PRV_S, virt);
 
         src = env->sepc;
@@ -2458,9 +3114,9 @@ void riscv_cpu_do_interrupt(CPUState *cs)
                 env->gpr[2] = tmp;
             }
             /* Automatically clear pending for edge and vector interrupt */
-            if (xt_clic_shv_interrupt(env->clic, cause) &&
-                xt_clic_edge_triggered(env->clic, cause)) {
-                xt_clic_clean_pending(env->clic, cause);
+            if (riscv_clic_shv_interrupt(env, cause) &&
+                riscv_clic_edge_triggered(env, cause)) {
+                riscv_clic_clean_pending(env, cause);
             }
         }
         env->pc = riscv_intr_pc(env, env->mtvec, env->mtvt, async,
@@ -2485,7 +3141,6 @@ void riscv_cpu_do_interrupt(CPUState *cs)
     env->elp = NO_LP_EXPECTED;
     env->two_stage_lookup = false;
     env->two_stage_indirect_lookup = false;
-    env->exccode = 0;
 #endif
     cs->exception_index = RISCV_EXCP_NONE; /* mark handled to qemu */
 }

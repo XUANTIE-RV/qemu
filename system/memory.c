@@ -477,6 +477,51 @@ static MemTxResult memory_region_read_with_attrs_accessor(MemoryRegion *mr,
     return r;
 }
 
+static MemTxResult memory_region_fetch_accessor(MemoryRegion *mr,
+                                                hwaddr addr,
+                                                uint64_t *value,
+                                                unsigned size,
+                                                signed shift,
+                                                uint64_t mask,
+                                                MemTxAttrs attrs)
+{
+    uint64_t tmp;
+
+    tmp = mr->ops->fetch(mr->opaque, addr, size);
+    if (mr->subpage) {
+        trace_memory_region_subpage_fetch(get_cpu_index(), mr, addr, tmp, size);
+    } else if (trace_event_get_state_backends(TRACE_MEMORY_REGION_OPS_FETCH)) {
+        hwaddr abs_addr = memory_region_to_absolute_addr(mr, addr);
+        trace_memory_region_ops_fetch(get_cpu_index(), mr, abs_addr, tmp, size,
+                                     memory_region_name(mr));
+    }
+    memory_region_shift_read_access(value, shift, mask, tmp);
+    return MEMTX_OK;
+}
+
+static MemTxResult memory_region_fetch_with_attrs_accessor(MemoryRegion *mr,
+                                                          hwaddr addr,
+                                                          uint64_t *value,
+                                                          unsigned size,
+                                                          signed shift,
+                                                          uint64_t mask,
+                                                          MemTxAttrs attrs)
+{
+    uint64_t tmp = 0;
+    MemTxResult r;
+
+    r = mr->ops->fetch_with_attrs(mr->opaque, addr, &tmp, size, attrs);
+    if (mr->subpage) {
+        trace_memory_region_subpage_fetch(get_cpu_index(), mr, addr, tmp, size);
+    } else if (trace_event_get_state_backends(TRACE_MEMORY_REGION_OPS_FETCH)) {
+        hwaddr abs_addr = memory_region_to_absolute_addr(mr, addr);
+        trace_memory_region_ops_fetch(get_cpu_index(), mr, abs_addr, tmp, size,
+                                      memory_region_name(mr));
+    }
+    memory_region_shift_read_access(value, shift, mask, tmp);
+    return r;
+}
+
 static MemTxResult memory_region_write_accessor(MemoryRegion *mr,
                                                 hwaddr addr,
                                                 uint64_t *value,
@@ -1457,6 +1502,65 @@ MemTxResult memory_region_dispatch_read(MemoryRegion *mr,
     }
 
     r = memory_region_dispatch_read1(mr, addr, pval, size, attrs);
+    adjust_endianness(mr, pval, op);
+    return r;
+}
+
+static MemTxResult memory_region_dispatch_fetch1(MemoryRegion *mr,
+                                                hwaddr addr,
+                                                uint64_t *pval,
+                                                unsigned size,
+                                                MemTxAttrs attrs)
+{
+    *pval = 0;
+
+    if (mr->ops->fetch) {
+        return access_with_adjusted_size(addr, pval, size,
+                                         mr->ops->impl.min_access_size,
+                                         mr->ops->impl.max_access_size,
+                                         memory_region_fetch_accessor,
+                                         mr, attrs);
+    } else if (mr->ops->fetch_with_attrs) {
+        return access_with_adjusted_size(addr, pval, size,
+            mr->ops->impl.min_access_size,
+            mr->ops->impl.max_access_size,
+            memory_region_fetch_with_attrs_accessor,
+            mr, attrs);
+    } else if (mr->ops->read) {
+        return access_with_adjusted_size(addr, pval, size,
+                                         mr->ops->impl.min_access_size,
+                                         mr->ops->impl.max_access_size,
+                                         memory_region_read_accessor,
+                                         mr, attrs);
+    } else {
+        return access_with_adjusted_size(addr, pval, size,
+                                         mr->ops->impl.min_access_size,
+                                         mr->ops->impl.max_access_size,
+                                         memory_region_read_with_attrs_accessor,
+                                         mr, attrs);
+    }
+}
+
+MemTxResult memory_region_dispatch_fetch(MemoryRegion *mr,
+                                        hwaddr addr,
+                                        uint64_t *pval,
+                                        MemOp op,
+                                        MemTxAttrs attrs)
+{
+    unsigned size = memop_size(op);
+    MemTxResult r;
+
+    if (mr->alias) {
+        return memory_region_dispatch_fetch(mr->alias,
+                                           mr->alias_offset + addr,
+                                           pval, op, attrs);
+    }
+    if (!memory_region_access_valid(mr, addr, size, false, attrs)) {
+        *pval = unassigned_mem_read(mr, addr, size);
+        return MEMTX_DECODE_ERROR;
+    }
+
+    r = memory_region_dispatch_fetch1(mr, addr, pval, size, attrs);
     adjust_endianness(mr, pval, op);
     return r;
 }

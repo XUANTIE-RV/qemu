@@ -19,6 +19,18 @@ QEMU_PLUGIN_EXPORT int qemu_plugin_version = QEMU_PLUGIN_VERSION;
 
 static bool do_inline;
 
+/* State machine for trigger_pc */
+typedef enum {
+    TRIGGER_DISABLED = 0,    /* trigger_pc not configured; profile from the start */
+    TRIGGER_ENABLED = 1,     /* trigger_pc set; waiting for the guest to reach it */
+    TRIGGER_ACTIVATED = 2    /* trigger_pc has been hit; profiling is now active */
+} TriggerState;
+
+/* trigger_pc state variables */
+static uint64_t trigger_pc = 0;
+static gint trigger_state = TRIGGER_DISABLED; /* manipulated via atomic ops */
+static qemu_plugin_id_t plugin_id;            /* saved for use in the reset callback */
+
 /* Plugins need to take care of their own locking */
 static GMutex lock;
 static GHashTable *hotblocks;
@@ -241,6 +253,17 @@ static void plugin_init(void)
     total = qemu_plugin_scoreboard_new(sizeof(uint64_t));
 }
 
+static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb);
+/*
+ * Called after qemu_plugin_reset() completes: all vCPUs are quiescent and
+ * the TCG code cache has been flushed. Re-register the translation callback
+ * so that only TBs translated from trigger_pc onwards are instrumented.
+ */
+static void plugin_reset_cb(qemu_plugin_id_t id)
+{
+    qemu_plugin_register_vcpu_tb_trans_cb(id, vcpu_tb_trans);
+}
+
 static void vcpu_tb_exec(unsigned int cpu_index, void *udata)
 {
     ExecCount *cnt = (ExecCount *)udata;
@@ -271,8 +294,49 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
 {
     ExecCount *cnt;
     uint64_t pc = qemu_plugin_tb_vaddr(tb);
+
+    /*
+     * trigger_pc guard: skip instrumentation until the guest reaches the
+     * configured address. A CAS is used so that only one vCPU fires the
+     * reset even under MTTCG.
+     */
+    if (g_atomic_int_get(&trigger_state) == TRIGGER_ENABLED) {
+        if (pc == trigger_pc) {
+            if (g_atomic_int_compare_and_exchange(&trigger_state, TRIGGER_ENABLED, TRIGGER_ACTIVATED)) {
+                fprintf(stderr, "hotblocks: trigger_pc 0x%" PRIx64 " reached, flushing TCG code cache\n", pc);
+                /*
+                 * qemu_plugin_reset() unregisters all callbacks and then
+                 * flushes the TCG code cache while all vCPUs are quiescent.
+                 * plugin_reset_cb() re-registers vcpu_tb_trans so that only
+                 * TBs translated after this point are instrumented.
+                 */
+                qemu_plugin_reset(id, plugin_reset_cb);
+            }
+        } else {
+            return; /* trigger_pc not yet reached; skip this TB */
+        }
+    }
+
     size_t insns = qemu_plugin_tb_n_insns(tb);
     uint64_t hash = ((uint64_t)insns << 54) | ((pc << 9) >> 9);
+
+    /*
+     * Pre-allocate ExecCount and FuncCount outside the lock.
+     *
+     * qemu_plugin_scoreboard_new() may acquire plugin.lock internally and
+     * can trigger tb_flush() which requires mmap_lock. Since vcpu_tb_trans
+     * is called from the translation path with mmap_lock already held,
+     * calling scoreboard_new() while holding our GMutex lock can cause an
+     * ABBA deadlock between mmap_lock and GMutex lock. Pre-allocating
+     * avoids this lock order inversion.
+     */
+    ExecCount *new_cnt = g_new0(ExecCount, 1);
+    new_cnt->exec_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
+    new_cnt->total_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
+
+    FuncCount *new_fcnt = g_new0(FuncCount, 1);
+    new_fcnt->calls = qemu_plugin_scoreboard_new(sizeof(uint64_t));
+    new_fcnt->total = qemu_plugin_scoreboard_new(sizeof(uint64_t));
 
     g_mutex_lock(&lock);
     cnt = (ExecCount *) g_hash_table_lookup(hotblocks, (gconstpointer) hash);
@@ -280,30 +344,40 @@ static void vcpu_tb_trans(qemu_plugin_id_t id, struct qemu_plugin_tb *tb)
         assert((pc == cnt->start_addr) && (cnt->insns == insns));
         cnt->trans_count++;
     } else {
-        cnt = g_new0(ExecCount, 1);
+        cnt = new_cnt;
         cnt->start_addr = pc;
         cnt->trans_count = 1;
         cnt->insns = insns;
-        cnt->exec_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
-        cnt->total_count = qemu_plugin_scoreboard_new(sizeof(uint64_t));
         cnt->symbol = qemu_plugin_insn_symbol(qemu_plugin_tb_get_insn(tb, 0));
         if (cnt->symbol == NULL) {
             cnt->symbol = "__undefine";
         }
         FuncCount *fcnt = g_hash_table_lookup(hotfuncs, cnt->symbol);
         if (fcnt == NULL) {
-            fcnt = g_new0(FuncCount, 1);
-            fcnt->calls = qemu_plugin_scoreboard_new(sizeof(uint64_t));
-            fcnt->total = qemu_plugin_scoreboard_new(sizeof(uint64_t));
+            fcnt = new_fcnt;
             fcnt->entry = pc;
             fcnt->symbol = cnt->symbol;
             g_hash_table_insert(hotfuncs, cnt->symbol, (gpointer)fcnt);
+            new_fcnt = NULL; /* ownership transferred, don't free */
         }
         cnt->f = fcnt;
         g_hash_table_insert(hotblocks, (gpointer) hash, (gpointer) cnt);
+        new_cnt = NULL; /* ownership transferred, don't free */
     }
 
     g_mutex_unlock(&lock);
+
+    /* Free pre-allocated objects if they were not used (cache hit case) */
+    if (new_cnt) {
+        qemu_plugin_scoreboard_free(new_cnt->exec_count);
+        qemu_plugin_scoreboard_free(new_cnt->total_count);
+        g_free(new_cnt);
+    }
+    if (new_fcnt) {
+        qemu_plugin_scoreboard_free(new_fcnt->calls);
+        qemu_plugin_scoreboard_free(new_fcnt->total);
+        g_free(new_fcnt);
+    }
 
     if (do_inline) {
         qemu_plugin_register_vcpu_tb_exec_inline_per_vcpu(
@@ -320,6 +394,7 @@ QEMU_PLUGIN_EXPORT
 int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
                         int argc, char **argv)
 {
+    plugin_id = id;
     for (int i = 0; i < argc; i++) {
         char *opt = argv[i];
         g_auto(GStrv) tokens = g_strsplit(opt, "=", 2);
@@ -334,6 +409,15 @@ int qemu_plugin_install(qemu_plugin_id_t id, const qemu_info_t *info,
             func_limit = g_ascii_strtoull(tokens[1], NULL, 10);
         } else if (g_strcmp0(tokens[0], "filter_by_func") == 0) {
             func_filter = g_strdup(tokens[1]);
+        } else if (g_str_has_prefix(opt, "trigger_pc")) {
+            gchar *endptr;
+            trigger_pc = g_ascii_strtoull(tokens[1],&endptr, 0);
+            if (*endptr != '\0') {
+                fprintf(stderr, "Invalid trigger_pc value: %s\n", tokens[1]);
+                return -1;
+            }
+            trigger_state = TRIGGER_ENABLED;
+            fprintf(stderr, "trigger pc: 0x%" PRIx64 " \n", trigger_pc);
         } else {
             fprintf(stderr, "option parsing failed: %s\n", opt);
             return -1;

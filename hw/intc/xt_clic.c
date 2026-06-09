@@ -56,18 +56,24 @@ xt_clic_is_edge_triggered(XTCLICState *clic, size_t irq_offset)
 static inline bool
 xt_clic_is_shv_interrupt(XTCLICState *clic, size_t irq_offset)
 {
-    return (clic->clicintattr[irq_offset] & 0x1) && clic->nvbits;
+    return clic->nvbits && (clic->clicintattr[irq_offset] & 0x1);
 }
 
 static uint8_t
 xt_clic_get_interrupt_level(XTCLICState *clic, int hartid, uint8_t intctl)
 {
-    int nlbits = clic->nlbits[hartid];
+    /*
+     * CLIC v0.8 level decoding also depends on nmbits/nlbits placement.
+     *
+     * For the current v0.8 implementation, which follows the Xuantie R908 CLIC
+     * model, nmbits is fixed to 0, so it does not need to be considered when
+     * decoding the interrupt level.
+     */
 
-    uint8_t mask_il = ((1 << nlbits) - 1) << (8 - nlbits);
-    uint8_t mask_padding = (1 << (8 - nlbits)) - 1;
+    int nlbits = MIN(clic->nlbits[hartid], clic->clicintctlbits);
+
     /* unused level bits are set to 1 */
-    return (intctl & mask_il) | mask_padding;
+    return intctl | ((1 << (8 - nlbits)) - 1);
 }
 
 static uint8_t
@@ -93,6 +99,61 @@ xt_clic_intcfg_decode(XTCLICState *clic, int hartid, uint16_t intcfg,
     *priority = xt_clic_get_interrupt_priority(clic, hartid, intcfg & 0xff);
 }
 
+/*
+ * Find the 'suitable' pending interrupt to implement Tail-Chaining.
+ * Returns encode if an interrupt is found, otherwise 0.
+ *
+ * The suitable means:
+ * 1. Must be a software vectored interrupt.
+ * 2. Must be a horizontal interrupt.
+ * 3. Must have a level greater than the saved interrupt level
+ *    (held in mcause.mpil).
+ *
+ * Note: xcause.mpil is for Tail-Chaining, while mintstatus.m/sil is
+ * for Interrupt Preemption.
+ */
+target_ulong xt_clic_find_suitable_interrupt(CPURISCVState *env,
+                                                    uint8_t write_mode)
+{
+    /* Get sorted list of enabled interrupts for this hart */
+    XTCLICState *clic = env->xt_clic_v0p8;
+    CPUState *cs = env_cpu(env);
+    int hartid = cs->cpu_index;
+    size_t hart_offset = hartid * clic->num_sources;
+    CLICActiveInterrupt *active = &clic->active_list[hart_offset];
+    size_t active_count = clic->active_count[hartid];
+    uint8_t mode, level, priority;
+
+    /* Loop through the enabled interrupts sorted by mode + level + priority */
+    while (active_count) {
+        size_t irq_offset;
+        irq_offset = active->irq + hartid * clic->num_sources;
+        xt_clic_intcfg_decode(clic, hartid, active->intcfg, &mode, &level,
+                                    &priority);
+        if (write_mode != mode) {
+            goto find_next;
+        }
+        /* Check pending interrupt */
+        if (clic->clicintip[irq_offset]) {
+            int il = MAX(get_field(env->mcause, MCAUSE_MPIL),
+                     get_field(env->mintthresh, MINTTHRESH_MTH));
+
+            if (level <= il || xt_clic_shv_interrupt(clic, active->irq)) {
+                /*
+                * No pending interrupts is suitable
+                */
+                goto find_next;
+            }
+            return active->irq | mode << 12 | level << 14;
+        }
+find_next:
+        /* Check next enabled interrupt */
+        active_count--;
+        active++;
+    }
+    return 0;
+}
+
 static void xt_clic_next_interrupt(void *opaque, int hartid)
 {
     /*
@@ -104,7 +165,8 @@ static void xt_clic_next_interrupt(void *opaque, int hartid)
     CPURISCVState *env = &cpu->env;
     XTCLICState *clic = (XTCLICState *)opaque;
 
-    int il = MAX(get_field(env->mintstatus, MINTSTATUS_MIL), clic->mintthresh[hartid]);
+    int il = MAX(get_field(env->mintstatus, MINTSTATUS_MIL),
+                 get_field(clic->mintthresh[hartid], MINTTHRESH_MTH));
 
     /* Get sorted list of enabled interrupts for this hart */
     size_t hart_offset = hartid * clic->num_sources;
@@ -112,20 +174,20 @@ static void xt_clic_next_interrupt(void *opaque, int hartid)
     size_t active_count = clic->active_count[hartid];
     uint8_t mode, level, priority;
 
-    /* Loop through the enabled interrupts sorted by mode+priority+level */
+    /* Loop through the enabled interrupts sorted by mode + level + priority */
     while (active_count) {
         size_t irq_offset;
         xt_clic_intcfg_decode(clic, hartid, active->intcfg, &mode, &level,
                               &priority);
         if (level <= il) {
             /*
-             * No pending interrupts with high enough mode+priority+level
+             * No pending interrupts with high enough mode + level + priority
              * break and clear pending interrupt for this hart
              */
             break;
         }
         irq_offset = active->irq + hartid * clic->num_sources;
-        /* Check pending interrupt with high enough mode+priority+level */
+        /* Check pending interrupt with high enough mode + level + priority */
         if (clic->clicintip[irq_offset]) {
             /* Post pending interrupt for this hart */
             env->exccode = active->irq | PRV_M << 12 | level << 14;
@@ -136,6 +198,7 @@ static void xt_clic_next_interrupt(void *opaque, int hartid)
         active_count--;
         active++;
     }
+    cpu_reset_interrupt(CPU(cpu), CPU_INTERRUPT_CLIC);
 }
 
 /*
@@ -461,7 +524,7 @@ static uint64_t xt_clic_read(void *opaque, hwaddr addr, unsigned size)
     return 0;
 }
 
-static void xt_clic_set_irq(void *opaque, int irq, int level)
+void xt_clic_set_irq(void *opaque, int irq, int level)
 {
     XTCLICState *clic = opaque;
     TRIG_TYPE type;
@@ -544,7 +607,7 @@ static void xt_clic_realize(DeviceState *dev, Error **errp)
     qdev_init_gpio_in(dev, xt_clic_set_irq, irqs);
     for (int i = 0; i < clic->num_harts; i++) {
         RISCVCPU *cpu = RISCV_CPU(qemu_get_cpu(i));
-        cpu->env.clic = clic;
+        cpu->env.xt_clic_v0p8 = clic;
         cpu->env.mclicbase = clic->mclicbase;
     }
 }
@@ -616,7 +679,9 @@ DeviceState *xt_clic_create(hwaddr addr, bool vector, uint32_t num_harts,
 void xt_clic_get_next_interrupt(void *opaque)
 {
     XTCLICState *clic = opaque;
-    xt_clic_next_interrupt(clic, current_cpu->cpu_index);
+    if (current_cpu) {
+        xt_clic_next_interrupt(clic, current_cpu->cpu_index);
+    }
 }
 
 bool xt_clic_shv_interrupt(void *opaque, int irq)
@@ -641,6 +706,7 @@ void xt_clic_clean_pending(void *opaque, int irq)
     size_t irq_offset = irq + clic->num_sources *
                               xt_clic_get_hartid();
     clic->clicintip[irq_offset] = 0;
+    xt_clic_next_interrupt(clic, current_cpu->cpu_index);
 }
 
 /*
@@ -649,14 +715,10 @@ void xt_clic_clean_pending(void *opaque, int irq)
  */
 bool xt_clic_is_clic_mode(CPURISCVState *env)
 {
-    target_ulong xtvec = (env->priv == PRV_M) ? env->mtvec : env->stvec;
-    return env->clic && ((xtvec & 0x3) == 3);
-}
-
-void xt_clic_decode_exccode(uint32_t exccode, int *mode,
-                            int *il, int *irq)
-{
-    *irq = extract32(exccode, 0, 12);
-    *mode = extract32(exccode, 12, 2);
-    *il = extract32(exccode, 14, 8);
+    /*
+     * CLIC mode is a global setting: when mtvec.mode == 0b11 and
+     * submode == 0000, all privilege levels run in CLIC mode.
+     * Always check mtvec regardless of current privilege level.
+     */
+    return env->xt_clic_v0p8 && ((env->mtvec & 0x3f) == 0x3);
 }

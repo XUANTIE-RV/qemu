@@ -31,6 +31,7 @@ riscv_ss.add(files(
   'vcrypto_helper.c',
   'cfi_helper.c',
   'dsa_helper.c',
+  'xt_reduction.c',
 ))
 
 riscv_system_ss = ss.source_set()
@@ -46,6 +47,8 @@ riscv_system_ss.add(files(
   'time_helper.c',
   'riscv-qmp-cmds.c',
   'riscv-power.c',
+  'riscv_xt_clic.c',
+  'spmp.c',
 ))
 
 subdir('tcg')

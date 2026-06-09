@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Board name="smarth" arch="riscv64" cskysimv="2.0">
-    <cpu_info cpu="c910v" endian="little" abi="riscv64"></cpu_info>
+    <cpu_info cpu="c910" endian="little" abi="riscv64"></cpu_info>
     <dyndev shm="on">
         <dev name="csky_plic" filename="builtin" addr="0x4000000000" type="INTC" extra="" irq=""></dev>
         <dev name="csky_clint" filename="builtin" addr="0x4004000000" type="INTC" extra="" irq=""></dev>

@@ -543,6 +543,7 @@ typedef struct {
     bool nan_as_normal;
     bool nan_no1s_as_normal;
     bool zero_as_normal;
+    bool inf_as_nan;
     OCPFormat ocp;
 } FloatFmt;
 
@@ -619,7 +620,7 @@ static const FloatFmt float6e3_params = {
 
 static const FloatFmt float8e0_params = {
     FLOAT_PARAMS(8, 0),
-    .inf_as_normal = true,
+    .inf_as_nan = true,
     .nan_no1s_as_normal = true,
     .zero_as_normal = true,
     .ocp = OCP_E8M0,
@@ -3387,6 +3388,15 @@ float8e4 bfloat16_to_float8e4(bfloat16 a, float_status *s)
     bfloat16_unpack_canonical(&p, a, s);
     parts_float_to_float(&p, s);
     return float8e4_round_pack_canonical(&p, s);
+}
+
+float4e2 bfloat16_to_float4e2(bfloat16 a, float_status *s)
+{
+    FloatParts64 p;
+
+    bfloat16_unpack_canonical(&p, a, s);
+    parts_float_to_float(&p, s);
+    return float4e2_round_pack_canonical(&p, s);
 }
 
 float8e0 bfloat16_to_float8e0(bfloat16 a, float_status *s)
@@ -6536,4 +6546,286 @@ static void __attribute__((constructor)) softfloat_init(void)
     if (ur.s != 0x0020000000000001ULL) {
         force_soft_fma = true;
     }
+}
+
+/*
+ * Set p to represent +0.0
+ */
+static void set_to_zero(FloatParts64 *p)
+{
+    p->cls = float_class_zero;
+    frac_clear(p);
+    p->exp = 0;
+    p->sign = 0;
+}
+
+/*
+ * Set p to represent -0.0
+ */
+static void set_to_negative_zero(FloatParts64 *p)
+{
+    p->cls = float_class_zero;
+    frac_clear(p);
+    p->exp = 0;
+    p->sign = true;
+}
+
+/*
+ * Set p to represent +1.0
+ */
+static void set_to_one(FloatParts64 *p)
+{
+    p->exp = 0;
+    p->frac_hi = 0;
+    p->frac_lo = DECOMPOSED_IMPLICIT_BIT;
+    p->sign = 0;
+}
+
+/*
+ * Set p to represent -1.0
+ */
+static void set_to_negative_one(FloatParts64 *p)
+{
+    p->exp = 0;
+    p->frac_hi = 0;
+    p->frac_lo = DECOMPOSED_IMPLICIT_BIT;
+    p->sign = 1;
+}
+
+/*
+ * Set p to represent -2.0
+ */
+static void set_to_negative_two(FloatParts64 *p)
+{
+    p->exp = 1;
+    p->frac_hi = 0;
+    p->frac_lo = DECOMPOSED_IMPLICIT_BIT;
+    p->sign = 1;
+}
+
+/*
+ * Set p to represent +2.0
+ */
+static void set_to_two(FloatParts64 *p)
+{
+    p->exp = 1;
+    p->frac_hi = 0;
+    p->frac_lo = DECOMPOSED_IMPLICIT_BIT;
+    p->sign = 0;
+}
+
+/*
+ * floor_normal(x):
+ * ├── if exp <= 0:
+ * │   ├── 正数:
+ * │   │   ├── exp == 0 → 2 > x ≥ 1 → float = 1
+ * │   │   └── exp <  0 → 0 < x < 1 → floor = 0
+ * │   └── 负数:
+ * │       ├── exp == 0 & frac != 0 → -2 < x < -1 → floor = -2
+ * │       ├── exp == 0 & frac == 0 →  x == -1 → floor = -1
+ * │       └── exp <  0 → -1 < x < 0 → floor = -1
+ * │
+ * └── if exp > 0:
+ *     ├── 正数: 截断小数部分（trunc = floor）
+ *     └── 负数: 若有小数部分，则整数部分 -1（向 -∞）
+ */
+static void floor_normal(FloatParts64 *p)
+{
+    if (p->exp < 0) {
+		if (p->sign) {
+            /* -1 < x < 0 --> floor(x) = -1 */
+            set_to_negative_one(p);
+        } else {
+            /* 0 < x < 1 --> floor(x) = 0 */
+            set_to_zero(p);
+        }
+    } else if (p->exp == 0) {
+		if (p->sign) {
+            /* x ∈ (-2, -1) --> floor(x) = -2 */
+            if (p->frac_lo != DECOMPOSED_IMPLICIT_BIT) {
+                set_to_negative_two(p);
+            }
+        } else {
+            /* x ∈ [1, 2) --> floor(x) = 1 */
+            set_to_one(p);
+        }
+    } else {
+        uint64_t frac_mask = MAKE_64BIT_MASK(0, 63 - p->exp);
+        bool is_frac = (p->frac_lo & frac_mask) && (p->exp < 63);
+        if (p->sign && is_frac) {
+            /* neg, +1, may overflow */
+            if (frac_addi(p, p, 1ULL << (63 - p->exp))) {
+                p->exp++;
+                p->frac_lo |= DECOMPOSED_IMPLICIT_BIT;
+            }
+        }
+        if (is_frac) {
+            p->frac_lo &= ~frac_mask;
+        }
+    }
+}
+
+/* Floor and ceil */
+float16 float16_floor(float16 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float16_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        floor_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float16_round_pack_canonical(&pa, status);
+}
+
+bfloat16 bfloat16_floor(bfloat16 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    bfloat16_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        floor_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return bfloat16_round_pack_canonical(&pa, status);
+}
+
+float32 float32_floor(float32 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float32_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        floor_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float32_round_pack_canonical(&pa, status);
+}
+
+float64 float64_floor(float64 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float64_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        floor_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float64_round_pack_canonical(&pa, status);
+}
+
+/*
+ * ceil_normal(x):
+ * ├── if exp <= 0:
+ * │   ├── 正数:
+ * │   │   ├── exp == 0 && frac != 0 → 1 < x < 2 → ceil = 2
+ * │   │   ├── exp == 0 && frac == 0 → 1 == x → ceil = 1
+ * │   │   └── exp <  0 → 0 < x < 1 → ceil = 1
+ * │   └── 负数:
+ * │       ├── exp == 0 → -2 < x ≤ -1 → ceil = -1
+ * │       └── exp <  0 → -1 < x < 0 → ceil = 0
+ * │
+ * └── if exp > 0:
+ *     └── 正数: 若有小数部分，则整数部分 +1（向 +∞）
+ *     └── 负数: 截断小数部分（trunc = ceil）
+ */
+
+static void ceil_normal(FloatParts64 *p)
+{
+    if (p->exp < 0) {
+		if (p->sign) {
+            /* -1 < x < 0 --> ceil(x) = -0 */
+            set_to_negative_zero(p);
+        } else {
+            /* 0 < x < 1 --> ceil(x) = 1 */
+            set_to_one(p);
+        }
+    } else if (p->exp == 0) {
+		if (p->sign) {
+            /* x ∈ (-2, -1] --> ceil(x) = -1 */
+            set_to_negative_one(p);
+        } else {
+            /* x ∈ (1, 2) --> floor(x) = 1 */
+            if (p->frac_lo != DECOMPOSED_IMPLICIT_BIT) {
+                set_to_two(p);
+            }
+        }
+    } else {
+        uint64_t frac_mask = MAKE_64BIT_MASK(0, 63 - p->exp);
+        bool is_frac = (p->frac_lo & frac_mask) && (p->exp < 63);
+        if (!p->sign && is_frac) {
+            /* pos, +1, may overflow */
+            if (frac_addi(p, p, 1ULL << (63 - p->exp))) {
+                p->exp++;
+                p->frac_lo |= DECOMPOSED_IMPLICIT_BIT;
+            }
+        }
+        if (is_frac) {
+            p->frac_lo &= ~frac_mask;
+        }
+    }
+}
+
+float16 float16_ceil(float16 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float16_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        ceil_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float16_round_pack_canonical(&pa, status);
+}
+
+bfloat16 bfloat16_ceil(bfloat16 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    bfloat16_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        ceil_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return bfloat16_round_pack_canonical(&pa, status);
+}
+
+float32 float32_ceil(float32 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float32_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        ceil_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float32_round_pack_canonical(&pa, status);
+}
+
+float64 float64_ceil(float64 a, float_status *status)
+{
+    FloatParts64 pa;
+
+    float64_unpack_canonical(&pa, a, status);
+    if (pa.cls == float_class_normal) {
+        ceil_normal(&pa);
+    } else if ((pa.cls == float_class_snan) ||
+               (pa.cls == float_class_qnan)) {
+        parts_return_nan(&pa, status);
+    }
+    return float64_round_pack_canonical(&pa, status);
 }

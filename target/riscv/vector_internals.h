@@ -93,6 +93,11 @@ static inline uint32_t vext_vta_all_1s(uint32_t desc)
     return FIELD_EX32(simd_data(desc), VDATA, VTA_ALL_1S);
 }
 
+static inline uint32_t vext_altfmt(uint32_t desc)
+{
+    return FIELD_EX32(simd_data(desc), VDATA, ALTFMT);
+}
+
 /*
  * Earlier designs (pre-0.9) had a varying number of bits
  * per mask value (MLEN). In the 0.9 design, MLEN=1.
@@ -120,9 +125,32 @@ static inline uint32_t vext_get_total_elems(CPURISCVState *env, uint32_t desc,
     return (vlenb << emul) / esz;
 }
 
+static inline uint32_t vext_get_group_length(CPURISCVState *env, uint32_t desc)
+{
+    uint32_t vlenb = simd_maxsz(desc);
+    int32_t lmul = vext_lmul(desc);
+    if (lmul < 0) {
+        return vlenb;
+    } else {
+        return vlenb << lmul;
+    }
+}
+
 /* set agnostic elements to 1s */
 void vext_set_elems_1s(void *base, uint32_t is_agnostic, uint32_t cnt,
                        uint32_t tot);
+/* set agnostic fp6 elements to 1s */
+void vext_set_fp6_1s(void *base, uint32_t is_agnostic,
+                     uint32_t index, uint32_t tot);
+
+/* set agnostic fp6 elements to 1s by index */
+void vext_set_fp6_1s_by_index(void *base, uint32_t is_agnostic, int index);
+
+/* set fp6 element */
+void vext_set_fp6_elem(void *base, int index, uint8_t val, CPURISCVState *env);
+
+/* get fp6 element */
+uint8_t vext_get_fp6_elem(void *base, int index, CPURISCVState *env);
 
 /* expand macro args before macro */
 #define RVVCALL(macro, ...)  macro(__VA_ARGS__)
@@ -135,9 +163,10 @@ void vext_set_elems_1s(void *base, uint32_t is_agnostic, uint32_t cnt,
 #define WOP_UU_B uint16_t, uint8_t,  uint8_t
 #define WOP_UU_H uint32_t, uint16_t, uint16_t
 #define WOP_UU_W uint64_t, uint32_t, uint32_t
-#define NOP_UU_B uint8_t,  uint16_t, uint32_t
+#define NOP_UU_B uint8_t,  uint16_t, uint16_t
 #define NOP_UU_H uint16_t, uint32_t, uint32_t
 #define NOP_UU_W uint32_t, uint64_t, uint64_t
+#define NOP_UU_Q uint8_t, uint32_t, uint32_t
 
 /* (TD, T1, T2, TX1, TX2) */
 #define OP_UUU_B uint8_t, uint8_t, uint8_t, uint8_t, uint8_t
@@ -152,6 +181,10 @@ void vext_set_elems_1s(void *base, uint32_t is_agnostic, uint32_t cnt,
 #define OP_SUS_H int16_t, uint16_t, int16_t, uint16_t, int16_t
 #define OP_SUS_W int32_t, uint32_t, int32_t, uint32_t, int32_t
 #define OP_SUS_D int64_t, uint64_t, int64_t, uint64_t, int64_t
+#define OP_USS_B uint8_t, int8_t, int8_t, int8_t, int8_t
+#define OP_USS_H uint16_t, int16_t, int16_t, int16_t, int16_t
+#define OP_USS_W uint32_t, int32_t, int32_t, int32_t, int32_t
+#define OP_USS_D uint64_t, int64_t, int64_t, int64_t, int64_t
 
 #define OPIVV1(NAME, TD, T2, TX2, HD, HS2, OP)         \
 static void do_##NAME(void *vd, void *vs2, int i)      \
@@ -267,25 +300,13 @@ void HELPER(NAME)(void *vd, void *v0, target_ulong s1,    \
 #define NOP_UUU_B uint8_t, uint8_t, uint16_t, uint8_t, uint16_t
 #define NOP_UUU_H uint16_t, uint16_t, uint32_t, uint16_t, uint32_t
 #define NOP_UUU_W uint32_t, uint32_t, uint64_t, uint32_t, uint64_t
+#define WOP_USS_B uint16_t, int8_t, int8_t, int16_t, int16_t
+#define WOP_USS_H uint32_t, int16_t, int16_t, int32_t, int32_t
+#define WOP_USS_W uint64_t, int32_t, int32_t, int64_t, int64_t
 
 /* share functions */
-static inline target_ulong adjust_addr(CPURISCVState *env, target_ulong addr)
-{
-    RISCVPmPmm pmm = riscv_pm_get_pmm(env);
-    if (pmm == PMM_FIELD_DISABLED) {
-        return addr;
-    }
-    int pmlen = riscv_pm_get_pmlen(pmm);
-    bool signext = riscv_cpu_virt_mem_enabled(env);
-    addr = addr << pmlen;
-    /* sign/zero extend masked address by N-1 bit */
-    if (signext) {
-        addr = (target_long)addr >> pmlen;
-    } else {
-        addr = addr >> pmlen;
-    }
-    return addr;
-}
+
+/* adjust_addr() is now defined in internals.h as adjust_addr_body() */
 
 target_ulong idx_b(target_ulong base, uint32_t idx, void *vs2);
 target_ulong idx_h(target_ulong base, uint32_t idx, void *vs2);

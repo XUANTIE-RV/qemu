@@ -38,7 +38,8 @@ typedef struct THEADCLINTCState {
     QEMUTimer **timer;
     MemoryRegion mmio;
     qemu_irq *pirq;
+    uint64_t freq;
 } THEADCLINTState;
 DeviceState *thead_clint_create(hwaddr addr, qemu_irq *pirq,
-                                int64_t num_harts);
+                                int64_t num_harts, uint64_t freq);
 #endif

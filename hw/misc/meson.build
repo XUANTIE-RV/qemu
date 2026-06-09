@@ -35,6 +35,7 @@ system_ss.add(when: 'CONFIG_SIFIVE_E_AON', if_true: files('sifive_e_aon.c'))
 system_ss.add(when: 'CONFIG_SIFIVE_U_OTP', if_true: files('sifive_u_otp.c'))
 system_ss.add(when: 'CONFIG_SIFIVE_U_PRCI', if_true: files('sifive_u_prci.c'))
 specific_ss.add(when: 'CONFIG_RISCV_IOPMP', if_true: files('riscv_iopmp.c'))
+specific_ss.add(when: 'CONFIG_RISCV_IOPMP', if_true: files('riscv_iopmp_dispatcher.c'))
 
 subdir('macio')
 
@@ -161,6 +162,7 @@ system_ss.add(when: 'CONFIG_LASI', if_true: files('lasi.c'))
 # CSKY devices
 system_ss.add(when: 'CONFIG_CSKY_EXIT', if_true: files('csky_exit.c'))
 system_ss.add(when: 'CONFIG_XIAOHUI_CPR', if_true: files('xiaohui_ahb_cpr.c'))
+system_ss.add(when: 'CONFIG_XIAOHUI_PCU', if_true: files('xiaohui_pcu.c'))
 system_ss.add(when: 'CONFIG_CSKY_MEMLOG', if_true: files('csky_memlog.c'))
 system_ss.add(when: 'CONFIG_CSKY_FFT', if_true: files('csky_fft.c'))
 system_ss.add(when: 'CONFIG_CSKY_MCA', if_true: files('csky_mca.c'))

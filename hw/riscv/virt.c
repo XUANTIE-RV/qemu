@@ -57,7 +57,9 @@
 #include "hw/riscv/cbqri.h"
 #include "qapi/qapi-visit-common.h"
 #include "hw/virtio/virtio-iommu.h"
+#include "hw/riscv/riscv_tpe.h"
 #include "hw/misc/riscv_iopmp.h"
+#include "hw/misc/riscv_iopmp_dispatcher.h"
 
 /* KVM AIA only supports APLIC MSI. APLIC Wired is always emulated by QEMU. */
 static bool virt_use_kvm_aia(RISCVVirtState *s)
@@ -93,6 +95,11 @@ static const MemMapEntry virt_memmap[] = {
     [VIRT_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
     [VIRT_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
     [VIRT_DRAM] =         { 0x80000000,           0x0 },
+};
+
+static const MemMapEntry iopmp_protect_memmap[] = {
+    /* IOPMP protect all regions by default */
+    {0x0, 0xFFFFFFFF},
 };
 
 /* PCIe high mmio is fixed for RV32 */
@@ -1273,7 +1280,7 @@ static DeviceState *virt_create_aia(RISCVVirtAIAType aia_type, int aia_guests,
                                      (msimode) ? 0 : hart_count,
                                      VIRT_IRQCHIP_NUM_SOURCES,
                                      VIRT_IRQCHIP_NUM_PRIO_BITS,
-                                     msimode, true, NULL);
+                                     msimode, true, NULL, false);
     }
 
     /* Per-socket S-level APLIC */
@@ -1284,7 +1291,7 @@ static DeviceState *virt_create_aia(RISCVVirtAIAType aia_type, int aia_guests,
                                  (msimode) ? 0 : hart_count,
                                  VIRT_IRQCHIP_NUM_SOURCES,
                                  VIRT_IRQCHIP_NUM_PRIO_BITS,
-                                 msimode, false, aplic_m);
+                                 msimode, false, aplic_m, false);
 
     return kvm_enabled() ? aplic_s : aplic_m;
 }
@@ -1455,9 +1462,11 @@ static void virt_machine_init(MachineState *machine)
     RISCVVirtState *s = RISCV_VIRT_MACHINE(machine);
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *mask_rom = g_new(MemoryRegion, 1);
-    DeviceState *mmio_irqchip, *virtio_irqchip, *pcie_irqchip, *gpex_dev;
+    DeviceState *mmio_irqchip, *virtio_irqchip, *pcie_irqchip;
     int i, base_hartid, hart_count;
     int socket_count = riscv_socket_count(machine);
+    DeviceState *iopmp_dev, *iopmp_disp_dev;
+    StreamSink *iopmp_ss, *iopmp_disp_ss;
 
     /* Check socket count limit */
     if (VIRT_SOCKETS_MAX < socket_count) {
@@ -1565,6 +1574,12 @@ static void virt_machine_init(MachineState *machine)
         if (i == 2) {
             pcie_irqchip = s->irqchip[i];
         }
+        /* Create TPE devices */
+       if (s->have_tpe) {
+            for (int j = 0; j < hart_count; j++) {
+                riscv_tpe_create(base_hartid + j, 1, 320 * 1024);
+            }
+       }
     }
 
     if (kvm_enabled() && virt_use_kvm_aia(s)) {
@@ -1621,8 +1636,7 @@ static void virt_machine_init(MachineState *machine)
             qdev_get_gpio_in(virtio_irqchip, VIRTIO_IRQ + i));
     }
 
-    gpex_dev = gpex_pcie_init(system_memory, pcie_irqchip, s);
-
+    gpex_pcie_init(system_memory, pcie_irqchip, s);
     create_platform_bus(s, mmio_irqchip);
 
     serial_mm_init(system_memory, memmap[VIRT_UART0].base,
@@ -1638,14 +1652,6 @@ static void virt_machine_init(MachineState *machine)
     sysbus_create_simple("goldfish_rtc", memmap[VIRT_RTC].base,
         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
 
-    if (s->have_iopmp) {
-        DeviceState *iopmp_dev = sysbus_create_simple(TYPE_IOPMP,
-            memmap[VIRT_IOPMP].base,
-            qdev_get_gpio_in(DEVICE(mmio_irqchip), IOPMP_IRQ));
-
-        iopmp_setup_pci(iopmp_dev, PCI_HOST_BRIDGE(gpex_dev)->bus);
-    }
-
     for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
         /* Map legacy -drive if=pflash to machine properties */
         pflash_cfi01_legacy_drive(s->flash[i],
@@ -1654,6 +1660,28 @@ static void virt_machine_init(MachineState *machine)
     virt_flash_map(s, system_memory);
 
     example_soc_cbqri_init();
+    if (s->have_iopmp) {
+        iopmp_dev = iopmp_create(memmap[VIRT_IOPMP].base,
+            qdev_get_gpio_in(DEVICE(mmio_irqchip), IOPMP_IRQ), NULL, 16);
+
+        iopmp_setup_system_memory(iopmp_dev, &iopmp_protect_memmap[0], 1, 0);
+
+        iopmp_disp_dev = qdev_new(TYPE_RISCV_IOPMP_DISP);
+        qdev_prop_set_uint32(DEVICE(iopmp_disp_dev), "target-num", 1);
+        qdev_prop_set_uint32(DEVICE(iopmp_disp_dev), "stage-num", 1);
+        qdev_realize(DEVICE(iopmp_disp_dev), NULL, &error_fatal);
+
+        /* Add memmap inforamtion to dispatcher */
+        iopmp_ss = (StreamSink *)&(RISCV_IOPMP(iopmp_dev)->txn_info_sink);
+        iopmp_dispatcher_add_target(DEVICE(iopmp_disp_dev), iopmp_ss,
+                                    iopmp_protect_memmap[0].base,
+                                    iopmp_protect_memmap[0].size,
+                                    0, 0);
+
+        iopmp_disp_ss =
+            (StreamSink *)&(RISCV_IOPMP_DISP(iopmp_disp_dev)->txn_info_sink);
+        iopmp_setup_sink(iopmp_dev, iopmp_disp_ss);
+    }
 
     /* load/create device tree */
     if (machine->dtb) {
@@ -1753,6 +1781,20 @@ static void virt_set_aclint(Object *obj, bool value, Error **errp)
     s->have_aclint = value;
 }
 
+static bool virt_get_tpe(Object *obj, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    return s->have_tpe;
+}
+
+static void virt_set_tpe(Object *obj, bool value, Error **errp)
+{
+    RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
+
+    s->have_tpe = value;
+}
+
 static bool virt_get_iopmp(Object *obj, Error **errp)
 {
     RISCVVirtState *s = RISCV_VIRT_MACHINE(obj);
@@ -1766,7 +1808,6 @@ static void virt_set_iopmp(Object *obj, bool value, Error **errp)
 
     s->have_iopmp = value;
 }
-
 
 bool virt_is_acpi_enabled(RISCVVirtState *s)
 {
@@ -1862,6 +1903,12 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                                           "(TCG only) Set on/off to "
                                           "enable/disable emulating "
                                           "ACLINT devices");
+    object_class_property_add_bool(oc, "tpe", virt_get_tpe,
+                                   virt_set_tpe);
+    object_class_property_set_description(oc, "tpe",
+                                          "Set on/off to "
+                                          "enable/disable emulating "
+                                          "Xuantie TPE devices");
 
     object_class_property_add_str(oc, "aia", virt_get_aia,
                                   virt_set_aia);
@@ -1881,7 +1928,6 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
                               NULL, NULL);
     object_class_property_set_description(oc, "acpi",
                                           "Enable ACPI");
-
     object_class_property_add_bool(oc, "iopmp", virt_get_iopmp,
                                    virt_set_iopmp);
     object_class_property_set_description(oc, "iopmp",

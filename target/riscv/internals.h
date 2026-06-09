@@ -72,6 +72,7 @@ FIELD(VDATA, VTA_ALL_1S, 5, 1)
 FIELD(VDATA, VMA, 6, 1)
 FIELD(VDATA, NF, 7, 4)
 FIELD(VDATA, WD, 7, 1)
+FIELD(VDATA, ALTFMT, 11, 1)
 
 /*
  * XTheadVector need mlen in addition, and does not need
@@ -185,6 +186,55 @@ static inline target_ulong get_mrows(CPURISCVState *env)
 static inline target_ulong get_mlenb(CPURISCVState *env)
 {
     return get_mrows(env) * get_rlenb(env);
+}
+
+/*
+ * Zjpm pointer masking address adjustment.
+ * Upstream reference: 4d1600934a6 + fb9d616819a (pmlen ordering fix)
+ */
+static inline target_ulong adjust_addr_body(CPURISCVState *env,
+                                            target_ulong addr,
+                                            bool is_virt_addr)
+{
+    RISCVPmPmm pmm;
+    uint32_t pmlen;
+    bool signext = false;
+
+    if (riscv_cpu_mxl(env) == MXL_RV32) {
+        return addr;
+    }
+
+    pmm = is_virt_addr ? riscv_pm_get_virt_pmm(env)
+                       : riscv_pm_get_pmm(env);
+    if (pmm == PMM_FIELD_DISABLED) {
+        return addr;
+    }
+
+    if (!is_virt_addr) {
+        signext = riscv_cpu_virt_mem_enabled(env);
+    }
+
+    pmlen = riscv_pm_get_pmlen(pmm);
+    addr = addr << pmlen;
+    if (signext) {
+        addr = (target_long)addr >> pmlen;
+    } else {
+        addr = addr >> pmlen;
+    }
+
+    return addr;
+}
+
+static inline target_ulong adjust_addr(CPURISCVState *env,
+                                       target_ulong addr)
+{
+    return adjust_addr_body(env, addr, false);
+}
+
+static inline target_ulong adjust_addr_virt(CPURISCVState *env,
+                                            target_ulong addr)
+{
+    return adjust_addr_body(env, addr, true);
 }
 
 #endif

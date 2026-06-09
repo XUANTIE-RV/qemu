@@ -976,7 +976,7 @@ static DeviceState *rvsp_ref_create_aia(int aia_guests,
                                  (msimode) ? 0 : hart_count,
                                  RVSP_IRQCHIP_NUM_SOURCES,
                                  RVSP_IRQCHIP_NUM_PRIO_BITS,
-                                 msimode, true, NULL);
+                                 msimode, true, NULL, false);
 
     /* Per-socket S-level APLIC */
     aplic_s = riscv_aplic_create(memmap[RVSP_APLIC_S].base +
@@ -986,7 +986,7 @@ static DeviceState *rvsp_ref_create_aia(int aia_guests,
                                  (msimode) ? 0 : hart_count,
                                  RVSP_IRQCHIP_NUM_SOURCES,
                                  RVSP_IRQCHIP_NUM_PRIO_BITS,
-                                 msimode, false, aplic_m);
+                                 msimode, false, aplic_m, false);
 
     (void)aplic_s;
     return aplic_m;
@@ -1207,6 +1207,7 @@ static void rvsp_ref_machine_class_init(ObjectClass *oc, void *data)
     MachineClass *mc = MACHINE_CLASS(oc);
     static const char * const valid_cpu_types[] = {
         TYPE_RISCV_CPU_RVSP_REF,
+        TYPE_RISCV_CPU_C930V,
     };
 
     mc->desc = "RISC-V Server SoC Reference board";

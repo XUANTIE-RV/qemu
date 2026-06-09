@@ -125,14 +125,14 @@ static void smartm_init(MachineState *machine)
         pirq[3] = irqs[SMARTM_CLIC_IRQ_NUMS + 7];
     }
     thead_clint_create(smartm_memmap[SMARTM_CLINT].base, pirq,
-                       machine->smp.cpus);
+                       machine->smp.cpus, 20000000);
 
     /* Create CSKY UART */
     csky_uart_create(smartm_memmap[SMARTM_UART].base, irqs[0x10], NULL,
                      serial_hd(0));
 
     /* Create CSKY timer */
-    csky_timer_set_freq(1000000000ll);
+    csky_timer_set_freq(20000000);
     csky_timer_create(smartm_memmap[SMARTM_TIMER].base, &irqs[0x12], NULL,
                       machine->smp.cpus, 0);
     if (machine->smp.cpus > 1) {

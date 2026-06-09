@@ -75,10 +75,13 @@ struct RISCVCPUConfig {
     bool ext_zihintpause;
     bool ext_ssqosid;
     bool ext_zihpm;
+    bool ext_zilsd;
+    bool ext_zclsd;
     bool ext_zimop;
     bool ext_zcmop;
     bool ext_ztso;
     bool ext_smstateen;
+    bool ext_ssdtso;
     bool ext_sstc;
     bool ext_smcntrpmf;
     bool ext_smcsrind;
@@ -91,6 +94,8 @@ struct RISCVCPUConfig {
     bool ext_svinval;
     bool ext_svnapot;
     bool ext_svpbmt;
+    bool ext_svrsw60t59b;
+    bool ext_svvptc;
     bool ext_zdinx;
     bool ext_zaamo;
     bool ext_zacas;
@@ -145,9 +150,16 @@ struct RISCVCPUConfig {
     bool ext_smmpm;
     bool ext_smsdid;
     bool ext_smmtt;
+    bool ext_smpmpdeleg;
+    bool ext_xtheadmpmpswitch;
     bool rvv_ta_all_1s;
     bool rvv_ma_all_1s;
-
+    bool ext_zvqdotq;
+    bool ext_smclic_v0p8;
+    bool ext_smclic_v0p10;
+    bool ext_smclicconfig;
+    bool ext_smclicshv;
+    bool ext_ssclic_v0p10;
     uint32_t mvendorid;
     uint64_t marchid;
     uint64_t mimpid;
@@ -171,9 +183,11 @@ struct RISCVCPUConfig {
     bool ext_xtheadbs;
     bool ext_xtheadcmo;
     bool ext_xtheadcondmov;
+    bool ext_xtheadcbi;
     bool ext_xtheadcei;
     bool ext_xtheadcef;
     bool ext_xtheadcev;
+    bool ext_xtheadcvwn;
     bool ext_xtheadfmemidx;
     bool ext_xtheadfmv;
     bool ext_xtheadmac;
@@ -188,6 +202,7 @@ struct RISCVCPUConfig {
     bool ext_XVentanaCondOps;
     bool ext_matrix;
     bool ext_xtheadvsfa;
+    bool ext_xtheadvsfb;
     bool ext_xtheadlpw;
     bool ext_xtheadvfcvt;
     bool ext_xtheadvfreduction;
@@ -196,6 +211,45 @@ struct RISCVCPUConfig {
     bool ext_xtheadvcoder;
     bool ext_xtheadvarith;
     bool ext_xtheadcbop;
+    bool ext_xtheadaioe;
+    bool ext_xtheadcrc;
+    bool ext_xtheadvfofp6min;
+    bool ext_xtheadvfofp4min;
+    bool ext_xtheadvfoe8m0min;
+    bool ext_xtheadvfofp8min;
+    bool ext_xtheadcacherpl;
+    /* Xuantie Matrix */
+    bool ext_xtheadmpwfp;
+    bool ext_xtheadmmhp;
+    bool ext_xtheadmfp_int_cvt;
+    bool ext_xtheadmsf;
+    bool ext_xtheadmdma;
+    bool ext_xtheadmred;
+    bool ext_xtheadmew4b;
+    bool ext_xtheadmew8b;
+    bool ext_xtheadmew16b;
+    bool ext_xtheadmew32b;
+    bool ext_xtheadmew64b;
+    bool ext_xtheadmpwint;
+    bool ext_xtheadmmxf8mxf4;
+    bool ext_xtheadmmxf8;
+    bool ext_xtheadmmxf4;
+    bool ext_xtheadmf4f32;
+    bool ext_xtheadmf4bf16;
+    bool ext_xtheadmf4f16;
+    bool ext_xtheadmf8bf16;
+    bool ext_xtheadmbf20f32;
+    bool ext_xtheadmf8f32;
+    bool ext_xtheadmf8f16;
+    bool ext_xtheadmf32f64;
+    bool ext_xtheadmf16f32;
+    bool ext_xtheadmf64f64;
+    bool ext_xtheadmf32f32;
+    bool ext_xtheadmf16f16;
+    bool ext_xtheadmbf16bf16;
+    bool ext_xtheadmbf16f32;
+    bool ext_xtheadmi8i32;
+    bool ext_xtheadmi4i32;
 
     uint32_t pmu_mask;
     uint16_t vlenb;
@@ -208,6 +262,10 @@ struct RISCVCPUConfig {
     bool pmp;
     bool debug;
     bool misa_w;
+    bool iopmp;
+    bool tcm_split;
+    uint32_t iopmp_rrid;
+    bool iopmp_xtvmid_en;
 
     bool short_isa_string;
     bool frac_elen_check;
@@ -244,8 +302,11 @@ static inline bool has_xthead_p(const RISCVCPUConfig *cfg)
            cfg->ext_xtheadvfcvt || cfg->ext_xtheadvfreduction ||
            cfg->ext_xtheadfastm || cfg->ext_xtheadpbmt ||
            cfg->ext_xtheadvcrypto || cfg->ext_xtheadvcoder ||
-           cfg->ext_xtheadvarith || cfg->ext_xtheadcbop;
-
+           cfg->ext_xtheadvarith || cfg->ext_xtheadcbop ||
+           cfg->ext_xtheadvfofp6min || cfg->ext_xtheadvfofp4min ||
+           cfg->ext_xtheadvfoe8m0min || cfg->ext_xtheadvfofp8min ||
+           cfg->ext_xtheadcrc ||
+           cfg->ext_xtheadcvwn;
 }
 
 #define MATERIALISE_EXT_PREDICATE(ext) \
@@ -278,4 +339,10 @@ MATERIALISE_EXT_PREDICATE(xtheadvcrypto)
 MATERIALISE_EXT_PREDICATE(xtheadvcoder)
 MATERIALISE_EXT_PREDICATE(xtheadvarith)
 MATERIALISE_EXT_PREDICATE(xtheadcbop)
+MATERIALISE_EXT_PREDICATE(xtheadvfofp6min)
+MATERIALISE_EXT_PREDICATE(xtheadvfofp4min)
+MATERIALISE_EXT_PREDICATE(xtheadvfoe8m0min)
+MATERIALISE_EXT_PREDICATE(xtheadvfofp8min)
+MATERIALISE_EXT_PREDICATE(xtheadcrc)
+MATERIALISE_EXT_PREDICATE(xtheadcvwn)
 #endif

@@ -32,9 +32,10 @@
 #include "qemu/main-loop.h"
 #include "qapi/error.h"
 #include "internals.h"
+#include "qemu/error-report.h"
 
 #if !defined(CONFIG_USER_ONLY)
-#include "hw/intc/xt_clic.h"
+#include "riscv_xt_clic.h"
 #include "mtt.h"
 #endif
 
@@ -56,6 +57,9 @@ RISCVException smstateen_acc_ok(CPURISCVState *env, int index, uint64_t bit)
     bool virt = env->virt_enabled;
 
     if (env->priv == PRV_M || !riscv_cpu_cfg(env)->ext_smstateen) {
+        return RISCV_EXCP_NONE;
+    }
+    if (env->debugger) {
         return RISCV_EXCP_NONE;
     }
 
@@ -118,7 +122,8 @@ RISCVException vs(CPURISCVState *env, int csrno)
         return RISCV_EXCP_NONE;
     }
 
-    if (riscv_cpu_cfg(env)->ext_zve32x) {
+    if (riscv_cpu_cfg(env)->ext_zve32x
+        || riscv_cpu_cfg(env)->ext_xtheadvector) {
 #if !defined(CONFIG_USER_ONLY)
         if (!env->debugger && !riscv_cpu_vector_enabled(env)) {
             return RISCV_EXCP_ILLEGAL_INST;
@@ -331,6 +336,14 @@ RISCVException smode(CPURISCVState *env, int csrno)
     return RISCV_EXCP_ILLEGAL_INST;
 }
 
+static RISCVException tpe(CPURISCVState *env, int csrno)
+{
+    if (!(env->xmisa & MATRIX_MDMA)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return smode(env, csrno);
+}
+
 static RISCVException sxcsrind_any(CPURISCVState *env, int csrno)
 {
     RISCVCPU *cpu = env_archcpu(env);
@@ -388,12 +401,7 @@ static RISCVException aia_smode32(CPURISCVState *env, int csrno)
     if (!riscv_cpu_cfg(env)->ext_ssaia) {
         return RISCV_EXCP_ILLEGAL_INST;
     }
-
     ret = smstateen_acc_ok(env, 0, SMSTATEEN0_AIA);
-    if (ret != RISCV_EXCP_NONE) {
-        return ret;
-    }
-
     if (ret != RISCV_EXCP_NONE) {
         return ret;
     }
@@ -407,10 +415,6 @@ static RISCVException scountinhibit_pred(CPURISCVState *env, int csrno)
 
     if (!cpu->cfg.ext_ssccfg || !cpu->cfg.ext_smcdeleg) {
         return RISCV_EXCP_ILLEGAL_INST;
-    }
-
-    if (env->virt_enabled) {
-        return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
     }
 
     return smode(env, csrno);
@@ -573,7 +577,7 @@ static RISCVException sstc(CPURISCVState *env, int csrno)
 {
     bool hmode_check = false;
 
-    if (!riscv_cpu_cfg(env)->ext_sstc || !env->rdtime_fn) {
+    if (!riscv_cpu_cfg(env)->ext_sstc) {
         return RISCV_EXCP_ILLEGAL_INST;
     }
 
@@ -592,6 +596,14 @@ static RISCVException sstc(CPURISCVState *env, int csrno)
 
     if (env->priv == PRV_M) {
         return RISCV_EXCP_NONE;
+    }
+
+    /*
+     * Check rdtime_fn after debugger check to allow GDB registration
+     * during CPU realize before rdtime_fn is initialized by board code.
+     */
+    if (!env->rdtime_fn) {
+        return RISCV_EXCP_ILLEGAL_INST;
     }
 
     /*
@@ -754,7 +766,7 @@ static RISCVException dbltrp_hmode(CPURISCVState *env, int csrno)
 static RISCVException pmp(CPURISCVState *env, int csrno)
 {
     if (riscv_cpu_cfg(env)->pmp) {
-        if (csrno <= CSR_PMPCFG3) {
+        if (csrno <= CSR_PMPCFG15) {
             uint32_t reg_index = csrno - CSR_PMPCFG0;
 
             /* TODO: RV128 restriction check */
@@ -763,6 +775,15 @@ static RISCVException pmp(CPURISCVState *env, int csrno)
             }
         }
 
+        return RISCV_EXCP_NONE;
+    }
+
+    return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException smpmpdeleg(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_smpmpdeleg) {
         return RISCV_EXCP_NONE;
     }
 
@@ -809,6 +830,30 @@ static RISCVException sctx(CPURISCVState *env, int csrno)
         return ret;
     }
     return debug(env, csrno);
+}
+
+static RISCVException mcachelock(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_xtheadcacherpl) {
+        return RISCV_EXCP_NONE;
+    }
+    return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException scachelock(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_xtheadcacherpl) {
+        return smode(env, csrno);
+    }
+    return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException ucachelock(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_xtheadcacherpl) {
+        return umode(env, csrno);
+    }
+    return RISCV_EXCP_ILLEGAL_INST;
 }
 #endif
 
@@ -1003,11 +1048,14 @@ static RISCVException read_xmcsr(CPURISCVState *env, int csrno,
 static RISCVException write_xmcsr(CPURISCVState *env, int csrno,
                                   target_ulong val)
 {
-    env->mcsr = val & (MCSR_RM | MCSR_SAT | MCSR_FFLAGS | MCSR_FRM);
+    env->mcsr = val & (MCSR_RM | MCSR_SAT | MCSR_FFLAGS | MCSR_FRM | MCSR_XMSATEN);
     env->mxrm = get_field(val, MCSR_RM);
+    env->mfrm = get_field(val, MCSR_FRM);
     env->mxsat = get_field(val, MCSR_SAT);
+    env->xmsaten = get_field(val, MCSR_XMSATEN);
     riscv_cpu_set_mfflags(env, get_field(val, MCSR_FFLAGS));
     riscv_cpu_set_mfrm(env, get_field(val, MCSR_FRM));
+    riscv_cpu_set_xmsaten(env, env->xmsaten);
 #if !defined(CONFIG_USER_ONLY)
     if (!(env->mxstatus & MXSTATUS_MSD)) {
         env->mstatus |= MSTATUS_TH_MS;
@@ -1015,6 +1063,144 @@ static RISCVException write_xmcsr(CPURISCVState *env, int csrno,
 #endif
     return RISCV_EXCP_NONE;
 }
+
+static RISCVException read_xmxrm(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = env->mxrm;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmxrm(CPURISCVState *env, int csrno,
+                                 target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->mxrm = val;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmsat(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = env->mxsat;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmsat(CPURISCVState *env, int csrno,
+                                  target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->mxsat = val;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmxadesc(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->ma_blksize | (env->ma_colidx << CSR_XMXADESC_COLIDX_SHIFT);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmxadesc(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->ma_blksize = val & CSR_XMXADESC_BLOCKSIZE;
+    env->ma_colidx = (val >> CSR_XMXADESC_COLIDX_SHIFT) & CSR_XMXADESC_COLIDX;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmxbdesc(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->mb_blksize | (env->mb_colidx << CSR_XMXADESC_COLIDX_SHIFT);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmxbdesc(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->mb_blksize = val & CSR_XMXADESC_BLOCKSIZE;
+    env->mb_colidx = (val >> CSR_XMXADESC_COLIDX_SHIFT) & CSR_XMXADESC_COLIDX;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmfflags(CPURISCVState *env, int csrno,
+                                  target_ulong *val)
+{
+    *val = riscv_cpu_get_mfflags(env);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmfflags(CPURISCVState *env, int csrno,
+                                   target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    riscv_cpu_set_mfflags(env, val & (MCSR_FFLAGS >> MCSR_FFLAGS_SHIFT));
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmfrm(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = env->mfrm;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmfrm(CPURISCVState *env, int csrno,
+                                  target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->mfrm = val & (MCSR_FRM >> MCSR_FRM_SHIFT);
+    riscv_cpu_set_mfrm(env, env->mfrm);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_xmsaten(CPURISCVState *env, int csrno,
+                                   target_ulong *val)
+{
+    *val = env->xmsaten;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_xmsaten(CPURISCVState *env, int csrno,
+                                    target_ulong val)
+{
+#if !defined(CONFIG_USER_ONLY)
+    if (!(env->mxstatus & MXSTATUS_MSD)) {
+        env->mstatus |= MSTATUS_TH_MS;
+    }
+#endif
+    env->xmsaten = val & (MCSR_XMSATEN >> MCSR_XMSATEN_SHIFT);
+    riscv_cpu_set_xmsaten(env, env->xmsaten);
+    return RISCV_EXCP_NONE;
+}
+
 static RISCVException read_xmsize(CPURISCVState *env, int csrno,
                                   target_ulong *val)
 {
@@ -1657,6 +1843,8 @@ static RISCVException read_time(CPURISCVState *env, int csrno,
                                 target_ulong *val)
 {
     uint64_t delta = env->virt_enabled ? env->htimedelta : 0;
+    assert(!env->virt_enabled || !env->xt_vmid_en);
+    delta = env->xt_vmid_en ? env->xt_mtimedelta : delta;
 
     if (!env->rdtime_fn) {
         return RISCV_EXCP_ILLEGAL_INST;
@@ -1670,6 +1858,8 @@ static RISCVException read_timeh(CPURISCVState *env, int csrno,
                                  target_ulong *val)
 {
     uint64_t delta = env->virt_enabled ? env->htimedelta : 0;
+    assert(!env->virt_enabled || !env->xt_vmid_en);
+    delta = env->xt_vmid_en ? env->xt_mtimedelta : delta;
 
     if (!env->rdtime_fn) {
         return RISCV_EXCP_ILLEGAL_INST;
@@ -1759,8 +1949,12 @@ static RISCVException write_stimecmp(CPURISCVState *env, int csrno,
     } else {
         env->stimecmp = val;
     }
-
-    riscv_timer_write_timecmp(env, env->stimer, env->stimecmp, 0, MIP_STIP);
+    if (env->xt_vmid_en) {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp,
+                                  env->xt_mtimedelta, MIP_STIP);
+    } else {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp, 0, MIP_STIP);
+    }
 
     return RISCV_EXCP_NONE;
 }
@@ -1776,17 +1970,21 @@ static RISCVException write_stimecmph(CPURISCVState *env, int csrno,
     }
 
     env->stimecmp = deposit64(env->stimecmp, 32, 32, (uint64_t)val);
-    riscv_timer_write_timecmp(env, env->stimer, env->stimecmp, 0, MIP_STIP);
-
+    if (env->xt_vmid_en) {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp,
+                                  env->xt_mtimedelta, MIP_STIP);
+    } else {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp, 0, MIP_STIP);
+    }
     return RISCV_EXCP_NONE;
 }
 
 #define VSTOPI_NUM_SRCS 5
 
-#define LOCAL_INTERRUPTS (~0x1FFF)
+#define LOCAL_INTERRUPTS (~(target_ulong)0x1FFF)
 
 static const uint64_t delegable_ints =
-    S_MODE_INTERRUPTS | VS_MODE_INTERRUPTS | MIP_LCOFIP;
+    S_MODE_INTERRUPTS | VS_MODE_INTERRUPTS | MIP_LCOFIP | MIP_TPE_DMA;
 static const uint64_t vs_delegable_ints =
     VS_MODE_INTERRUPTS | LOCAL_INTERRUPTS;
 static const uint64_t all_ints = M_MODE_INTERRUPTS | S_MODE_INTERRUPTS |
@@ -2063,6 +2261,14 @@ RISCVException write_mstatus(CPURISCVState *env, int csrno,
     if (env->debugger) {
         env->xl = cpu_recompute_xl(env);
     }
+    bool lock = bql_locked();
+    if (!lock) {
+        bql_lock();
+    }
+    riscv_clic_get_next_interrupt(env);
+    if (!lock) {
+        bql_unlock();
+    }
 
     return RISCV_EXCP_NONE;
 }
@@ -2264,15 +2470,15 @@ static RISCVException rmw_mie64(CPURISCVState *env, int csrno,
                                 uint64_t new_val, uint64_t wr_mask)
 {
     uint64_t mask = wr_mask & all_ints;
+    bool clic = xt_clic_is_clic_mode(env) || xt_clic_v0p10_is_clic_mode(env);
 
     if (ret_val) {
         /* The xie CSR appears hardwired to zero in CLIC mode, (Section 4.3) */
-        *ret_val = (xt_clic_is_clic_mode(env) && (!env->clint_clic)) ?
-                   0 : env->mie;
+        *ret_val = clic ? 0 : env->mie;
     }
 
     /* Writes to xie will be ignored and will not trap. (Section 4.3) */
-    if (xt_clic_is_clic_mode(env)) {
+    if (clic) {
         return RISCV_EXCP_NONE;
     }
     env->mie = (env->mie & ~mask) | (new_val & mask);
@@ -2456,10 +2662,7 @@ static RISCVException rmw_xiselect(CPURISCVState *env, int csrno,
     if (val) {
         *val = *iselect;
     }
-
-    if (riscv_cpu_cfg(env)->ext_smcsrind || riscv_cpu_cfg(env)->ext_sscsrind) {
-        wr_mask &= ISELECT_MASK_SXCSRIND;
-    } else {
+    if (!riscv_cpu_cfg(env)->ext_smcsrind && !riscv_cpu_cfg(env)->ext_sscsrind) {
         wr_mask &= ISELECT_MASK_AIA;
     }
 
@@ -2485,6 +2688,41 @@ static bool xiselect_ctr_range(target_ulong isel)
 {
     return (CTR_ENTRIES_FIRST <= isel && isel <= CTR_ENTRIES_LAST);
 }
+
+static bool xiselect_clic_range(target_ulong isel)
+{
+    return (XT_CLIC_ENTRIES_FIRST <= isel && isel <= XT_CLIC_ENTRIES_LAST);
+}
+
+static bool xiselect_spmp_range(target_ulong isel)
+{
+    return (CSR_SPMPADDR0 <= isel && isel <= XT_CSR_MPMPDELEG);
+}
+
+static bool xiselect_mpmpswitch_range(target_ulong isel)
+{
+    return (isel == CSR_MPMPSWITCH0 || isel == CSR_MPMPSWITCH1);
+}
+
+#if defined(TARGET_RISCV64)
+static bool xiselect_xt_custom_range(target_ulong isel)
+{
+    switch (isel)
+    {
+    case CSR_XT_MHINT3:
+    case CSR_XT_MHINT7:
+    case CSR_XT_MNASTATUS:
+        return true;
+    default:
+        return false;
+    }
+}
+#else
+static bool xiselect_xt_custom_range(target_ulong isel)
+{
+    return false;
+}
+#endif
 
 static int rmw_iprio(target_ulong xlen,
                      target_ulong iselect, uint8_t *iprio,
@@ -2733,14 +2971,49 @@ done:
 
 static int rmw_xireg_cd(CPURISCVState *env, int csrno,
                         target_ulong isel, target_ulong *val,
-                        target_ulong new_val, target_ulong wr_mask)
+                        target_ulong new_val, target_ulong wr_mask,
+                        bool *shadow_virt)
 {
     int ret = -EINVAL;
     int ctr_index = isel - ISELECT_CD_FIRST;
     int isel_hpm_start = ISELECT_CD_FIRST + 3;
+    bool virt = (csrno >= CSR_VSIREG) && (csrno <= CSR_VSIREG6);
 
     if (!riscv_cpu_cfg(env)->ext_smcdeleg || !riscv_cpu_cfg(env)->ext_ssccfg) {
         return RISCV_EXCP_ILLEGAL_INST;
+    }
+    /*
+     * An attempt to access any vsireg* from M or S mode raises an illegal
+     * instruction exception
+     */
+    if (virt && ((env->priv == PRV_M) ||
+                 ((env->priv == PRV_S) && !env->virt_enabled))) {
+        *shadow_virt = true;
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    /*
+     * An attempt from VS-mode to access any sireg* (really vsireg*)
+     * raises an illegal instruction exception if menvcfg.CDE = 0
+     */
+    if (virt && env->virt_enabled) {
+       if (!get_field(env->menvcfg, MENVCFG_CDE)) {
+            *shadow_virt = true;
+            return RISCV_EXCP_ILLEGAL_INST;
+       } else {
+            goto done;
+       }
+    }
+    /* sireg rules below */
+    /*
+     * When the counter selected by siselect is not delegated to S-mode
+     * (the corresponding bit in mcounteren = 0)
+     */
+    if (!get_field(env->mcounteren, BIT(ctr_index))) {
+        goto done;
+    }
+    /* Attempts to access any sireg* when menvcfg.CDE = 0 */
+    if (!get_field(env->menvcfg, MENVCFG_CDE)) {
+        goto done;
     }
 
     /* Invalid siselect value for reserved */
@@ -2751,7 +3024,7 @@ static int rmw_xireg_cd(CPURISCVState *env, int csrno,
     /* sireg4 and sireg5 provides access RV32 only CSRs */
     if (((csrno == CSR_SIREG5) || (csrno == CSR_SIREG4)) &&
         (riscv_cpu_mxl(env) != MXL_RV32)) {
-        return RISCV_EXCP_ILLEGAL_INST;
+        goto done;
     }
 
     /* Check Sscofpmf dependancy */
@@ -2764,11 +3037,6 @@ static int rmw_xireg_cd(CPURISCVState *env, int csrno,
     if (!riscv_cpu_cfg(env)->ext_smcntrpmf &&
         (csrno == CSR_SIREG2 || csrno == CSR_SIREG5) &&
         (ISELECT_CD_FIRST <= isel && isel < isel_hpm_start)) {
-        goto done;
-    }
-
-    if (!get_field(env->mcounteren, BIT(ctr_index)) ||
-        !get_field(env->menvcfg, MENVCFG_CDE)) {
         goto done;
     }
 
@@ -2833,6 +3101,761 @@ static int rmw_xireg_ctr(CPURISCVState *env, int csrno,
     return ret;
 }
 
+static int rmw_xireg_xmtcmcsr(CPURISCVState *env, int csrno,
+                              target_ulong *val,
+                              target_ulong new_val,
+                              target_ulong wr_mask)
+{
+    uint64_t xmtcmcsr_mask = XMTCMCSR_MCA_MASK | XMTCMCSR_MTCMEN_MASK;
+    *val = env->xmtcmcsr & xmtcmcsr_mask;
+    env->xmtcmcsr = ((env->xmtcmcsr & ~wr_mask) | (new_val & wr_mask)) &
+                    xmtcmcsr_mask;
+    return 0;
+}
+
+static bool xt_indirect_csr_ignore(int csrno, uint64_t isel)
+{
+    switch(isel) {
+    case CSR_XT_PMACFG0:
+    case CSR_XT_PMACFG2:
+    case CSR_XT_PMAADDR0_64 ... CSR_XT_PMAADDR15_64:
+    case CSR_XT_PMAADDR0_32 ... CSR_XT_PMAADDR31_32:
+    case CSR_XT_L3_BADDR:
+    case CSR_XT_MHINT4:
+    case CSR_XT_MLOCKCNT:
+    case CSR_XT_MTWCOUNTER:
+        if (csrno == CSR_MIREG) {
+            return true;
+        }
+        break;
+    case CSR_XT_MEM_MCTRL:
+        if ((csrno == CSR_MIREG) || (csrno == CSR_MIREG2) ||
+            (csrno == CSR_MIREG3) || (csrno == CSR_MIREG4)) {
+            return true;
+        }
+        break;
+    case CSR_XT_L2_FLUSH:
+        if (csrno == CSR_MIREG || csrno == CSR_MIREG2) {
+            return true;
+        }
+        break;
+    default:
+        return false;
+    }
+    return false;
+}
+
+/*
+ * Generic helper to process a packed CLIC register word.
+ * It iterates through 4 interrupts, checks permissions, and performs
+ * read/write operations using function pointers.
+ */
+static int process_packed_clic_word(CPURISCVState *env,
+                                    uint32_t base_irq,
+                                    target_ulong *val, target_ulong new_val,
+                                    target_ulong wr_mask, int csrno,
+                                    uint8_t (*getter)(void *, int, int),
+                                    void (*setter)(void *, int, int, uint8_t))
+{
+    uint32_t read_val = 0;
+    CPUState *cs = env_cpu(env);
+    XTCLICV0P10State *clic = env->xt_clic_v0p10;
+
+    /* Read phase */
+    for (int j = 0; j < 4; j++) {
+        uint32_t irq = base_irq + j;
+        bool s_mode_csr = (csrno == CSR_SIREG || csrno == CSR_SIREG2);
+        bool can_access = !s_mode_csr ||
+                          (xt_clic_v0p10_get_intpriv(clic, cs->cpu_index, irq)
+                            <= PRV_S);
+
+        if (can_access) {
+            read_val |= (uint32_t)getter(clic, cs->cpu_index, irq) << (j * 8);
+        }
+    }
+    if (val) {
+        *val = read_val;
+    }
+    /* Write phase */
+    if (wr_mask) {
+        new_val &= wr_mask;
+        for (int j = 0; j < 4; j++) {
+            uint32_t irq = base_irq + j;
+            bool s_mode_csr = (csrno == CSR_SIREG || csrno == CSR_SIREG2);
+            bool can_access = !s_mode_csr ||
+                              (xt_clic_v0p10_get_intpriv(clic, cs->cpu_index, irq)
+                                <= PRV_S);
+
+            if (can_access) {
+                uint8_t write_byte = (new_val >> (j * 8)) & 0xFF;
+                setter(clic, cs->cpu_index, irq, write_byte);
+            }
+        }
+        xt_clic_v0p10_next_interrupt(clic, cs->cpu_index);
+    }
+    return 0;
+}
+
+/*
+ * Handles access to clicintctl and clicintattr registers.
+ * These registers are packed, with each 32-bit word controlling 4 interrupts.
+ */
+static inline int rmw_clic_intctl_attr(CPURISCVState *env, int csrno,
+                                       target_ulong isel, target_ulong *val,
+                                       target_ulong new_val,
+                                       target_ulong wr_mask)
+{
+    uint32_t i = isel - 0x1000;
+    uint32_t base_irq = i * 4;
+
+    if (base_irq + 3 >= CLIC_MAX_IRQS) {
+        if (val) {
+            *val = 0;
+        }
+        return -EINVAL;
+    }
+
+    if (csrno == CSR_MIREG || csrno == CSR_SIREG) {
+        /*
+         * Accessing clicintctl via mireg/sireg.
+         * Note: S-mode cannot directly access M-mode CSRs. The logic
+         * here assumes a CSR read/write function already trapped illegal
+         * S-mode access to CSR_MIREG.
+         */
+        return process_packed_clic_word(env, base_irq, val, new_val, wr_mask,
+                                        csrno,
+                                        xt_clic_v0p10_get_intctl,
+                                        xt_clic_v0p10_update_intctl);
+    } else if (csrno == CSR_MIREG2 || csrno == CSR_SIREG2) {
+        /* Accessing clicintattr via mireg2/sireg2 */
+        return process_packed_clic_word(env, base_irq, val, new_val, wr_mask,
+                                        csrno,
+                                        xt_clic_v0p10_get_intattr,
+                                        xt_clic_v0p10_update_intattr);
+    }
+
+    /* Should not be reached if called from the dispatcher correctly */
+    if (val) {
+        *val = 0;
+    }
+    return -EINVAL;
+}
+
+/*
+ * Generic helper to process a 32-bit packed CLIC bitmap (ip or ie).
+ * It iterates through 32 interrupts, checks permissions, and performs
+ * read/write operations using function pointers.
+ */
+static int process_packed_clic_bitmap(CPURISCVState *env, int csrno,
+                                      uint32_t base_irq,
+                                      target_ulong *val, target_ulong new_val,
+                                      target_ulong wr_mask,
+                                      uint8_t (*getter)(void *, int, int),
+                                      void (*setter)(void *, int, int, uint8_t))
+{
+    uint32_t read_val = 0;
+    CPUState *cs = env_cpu(env);
+    bool is_s_mode_csr = (csrno == CSR_SIREG || csrno == CSR_SIREG2);
+    XTCLICV0P10State *clic = env->xt_clic_v0p10;
+    /* Read phase */
+    for (int j = 0; j < 32; j++) {
+        uint32_t irq = base_irq + j;
+        if (irq >= CLIC_MAX_IRQS) {
+            break; /* Stop if we exceed the max IRQ number */
+        }
+
+        bool can_access = !is_s_mode_csr ||
+                          (xt_clic_v0p10_get_intpriv(clic, cs->cpu_index, irq)
+                            <= PRV_S);
+
+        if (can_access && getter(clic, cs->cpu_index, irq)) {
+            read_val |= (1U << j);
+        }
+    }
+    if (val) {
+        *val = read_val;
+    }
+
+    /* Write phase */
+    if (wr_mask) {
+        new_val &= wr_mask;
+        for (int j = 0; j < 32; j++) {
+            uint32_t irq = base_irq + j;
+            if (irq >= CLIC_MAX_IRQS) {
+                break;
+            }
+
+            bool can_access = !is_s_mode_csr ||
+                              (xt_clic_v0p10_get_intpriv(clic, cs->cpu_index, irq)
+                                <= PRV_S);
+
+            if (can_access) {
+                uint8_t bit_val = (new_val >> j) & 1;
+                setter(clic, cs->cpu_index, irq, bit_val);
+            }
+        }
+        xt_clic_v0p10_next_interrupt(clic, cs->cpu_index);
+    }
+
+    return 0;
+}
+
+/*
+ * Specific setter for clicintip, which is only writable for
+ * edge-triggered interrupts.
+ */
+static void xt_clic_update_intip_conditional(void *clic, int hartid, int irq,
+                                             uint8_t val)
+{
+    /* Assumes clicintattr[irq] bit 1 is trig[0] (0=level, 1=edge) */
+    bool is_edge_triggered = (xt_clic_v0p10_get_intattr(clic, hartid, irq) & 2);
+    if (is_edge_triggered) {
+        xt_clic_v0p10_update_intip(clic, hartid, irq, val);
+    }
+}
+
+/*
+ * Handles access to clicintip and clicintie registers.
+ * These registers are packed, with each 32-bit word controlling 32 interrupts.
+ */
+static inline int rmw_clic_intip_ie(CPURISCVState *env, int csrno,
+                                    target_ulong isel, target_ulong *val,
+                                    target_ulong new_val,
+                                    target_ulong wr_mask)
+{
+    uint32_t i = isel - 0x1400;
+    uint32_t base_irq = i * 32;
+
+    if (base_irq >= CLIC_MAX_IRQS) {
+        if (val) {
+            *val = 0;
+        }
+        return -EINVAL;
+    }
+
+    if (csrno == CSR_MIREG || csrno == CSR_SIREG) {
+        /* Accessing clicintip via mireg/sireg */
+        return process_packed_clic_bitmap(env, csrno, base_irq, val,
+                                          new_val, wr_mask,
+                                          xt_clic_v0p10_get_intip,
+                                          xt_clic_update_intip_conditional);
+    } else if (csrno == CSR_MIREG2 || csrno == CSR_SIREG2) {
+        /* Accessing clicintie via mireg2/sireg2 */
+        return process_packed_clic_bitmap(env, csrno, base_irq, val,
+                                          new_val, wr_mask,
+                                          xt_clic_v0p10_get_intie,
+                                          xt_clic_v0p10_update_intie);
+    }
+
+    /* Should not be reached if called from the dispatcher correctly */
+    if (val) {
+        *val = 0;
+    }
+    return -EINVAL;
+}
+
+/*
+ * Handles access to clicinttrig registers.
+ * This is a placeholder as the trigger functionality is often optional.
+ */
+static inline int rmw_clic_inttrig(CPURISCVState *env, int csrno, target_ulong isel,
+                                   target_ulong *val, target_ulong new_val,
+                                   target_ulong wr_mask)
+{
+    uint32_t i = isel - 0x1480;
+
+    if (i >= CLIC_MAX_IRQS) {
+        if (val) {
+            *val = 0;
+        }
+        return -EINVAL;
+    }
+
+    /*
+     * The clicinttrig registers are optional and their implementation
+     * can be complex. For now, treat as RAZ/WI (Read-As-Zero, Write-Ignored).
+     */
+    if (val) {
+        *val = 0;
+    }
+    return 0;
+}
+
+/*
+ * Handles access to mcliccfg and scliccfg registers.
+ * This is only applicable if the smclicconfig extension is implemented.
+ */
+static inline int rmw_clic_cfg(CPURISCVState *env, int csrno, target_ulong isel,
+                               target_ulong *val, target_ulong new_val,
+                               target_ulong wr_mask)
+{
+    CPUState *cs = env_cpu(env);
+    XTCLICV0P10State *clic = env->xt_clic_v0p10;
+
+    bool is_s_mode_csr = (csrno == CSR_SIREG);
+    if (is_s_mode_csr) {
+        if (val) {
+            *val = xt_clic_v0p10_get_scliccfg(clic, cs->cpu_index);
+        }
+        if (wr_mask) {
+            new_val &= wr_mask;
+            xt_clic_v0p10_update_scliccfg(clic, cs->cpu_index, new_val);
+        }
+    } else {
+        if (val) {
+            *val = xt_clic_v0p10_get_mcliccfg(clic, cs->cpu_index);
+        }
+        if (wr_mask) {
+            new_val &= wr_mask;
+            /* M-mode writes the full mcliccfg */
+            xt_clic_v0p10_update_mcliccfg(clic, cs->cpu_index, new_val);
+        }
+    }
+    return 0;
+}
+
+/*
+ * Implements read-modify-write for CLIC indirect CSRs (xireg/xireg2).
+ * This function acts as a dispatcher based on the value of xiselect.
+ *
+ * @env:     The CPU state.
+ * @csrno:   The CSR number being accessed (e.g., CSR_MIREG).
+ * @isel:    The current value of the corresponding xiselect CSR.
+ * @val:     Pointer to store the value read from the CSR.
+ * @new_val: The new value to be written.
+ * @wr_mask: A mask indicating which bits of the CSR are being written.
+ *           If zero, this is a read-only operation.
+ *
+ * Returns 0 on success, or -EINVAL for an invalid access.
+ */
+static int rmw_xireg_clic(CPURISCVState *env, int csrno,
+                          target_ulong isel, target_ulong *val,
+                          target_ulong new_val, target_ulong wr_mask)
+{
+    /*
+     * FIXME: If an interrupt 'i' is not present in hardware, the
+     * corresponding clicintip[i], clicintie[i], clicintattr[i], and
+     * clicintctl[i] should appear as hardwired to zero.
+     */
+
+    g_assert(!env->virt_enabled);
+    int ret = -EINVAL;
+    bool lock = bql_locked();
+    if (!lock) {
+        bql_lock();
+    }
+
+    if (isel >= 0x1000 && isel <= 0x13FF) {
+        ret = rmw_clic_intctl_attr(env, csrno, isel, val, new_val, wr_mask);
+    } else if (isel >= 0x1400 && isel <= 0x147F) {
+        ret = rmw_clic_intip_ie(env, csrno, isel, val, new_val, wr_mask);
+    } else if (isel >= 0x1480 && isel <= 0x149F) {
+        ret = rmw_clic_inttrig(env, csrno, isel, val, new_val, wr_mask);
+    } else if (isel == 0x14A0) {
+        ret = rmw_clic_cfg(env, csrno, isel, val, new_val, wr_mask);
+    } else {
+        /* Access to reserved or unimplemented regions. */
+        if (val) {
+            *val = 0;
+        }
+    }
+    if (!lock) {
+        bql_unlock();
+    }
+    return ret;
+}
+
+/**
+ * get_spmpswitch_write_mask - Helper function to calculate the writable bits.
+ * @env: A pointer to the CPU state.
+ *
+ * This function calculates a 64-bit mask representing the writable bits
+ * of the spmpswitch register. A bit is writable only if the corresponding
+ * SPMP entry is delegated and not locked (L-bit is 0).
+ *
+ * @return: A 64-bit mask where a '1' indicates a writable bit.
+ */
+static uint64_t get_spmpswitch_write_mask(CPURISCVState *env)
+{
+    pmp_table_t *pmp_state = &env->pmp_state;
+    uint64_t write_enable_mask = 0;
+    int num_spmp_entries = MAX_RISCV_PMPS - pmp_state->spmp_start;
+
+    for (int i = 0; i < num_spmp_entries; i++) {
+        /* SPMP entries are re-indexed from 0 from the S-mode perspective. */
+        int global_idx = pmp_state->spmp_start + i;
+
+        /* A bit in spmpswitch is read-only if the corresponding L-bit is set. */
+        if (!(pmp_state->pmp[global_idx].cfg_reg & PMP_LOCK)) {
+            write_enable_mask |= (1ULL << i);
+        }
+    }
+    return write_enable_mask;
+}
+
+static int rmw_spmpcfg(CPURISCVState *env, int csrno,
+                       target_ulong isel, target_ulong *val,
+                       target_ulong new_val, target_ulong wr_mask)
+{
+    uint32_t reg_index = isel - CSR_SPMPADDR0;
+    bool smode = (csrno == CSR_SIREG2);
+    pmp_table_t *pmp_state = &env->pmp_state;
+    int num_spmp_entries = MAX_RISCV_PMPS - pmp_state->spmp_start;
+    int global_idx = pmp_state->spmp_start + reg_index;
+
+    if (reg_index >= num_spmp_entries) {
+        if (val) {
+            *val = 0;
+        }
+        return 0;
+    }
+    if (val) {
+        *val = spmpcfg_csr_read(env, global_idx);
+    }
+    new_val = new_val & wr_mask;
+    if (smode) {
+        if ((pmp_state->pmp[global_idx].cfg_reg & PMP_LOCK)) {
+            return 0;
+        }
+    }
+    if (wr_mask) {
+        spmpcfg_csr_write(env, global_idx, new_val);
+    }
+    return 0;
+}
+
+static int rmw_spmpaddr(CPURISCVState *env, int csrno,
+                        target_ulong isel, target_ulong *val,
+                        target_ulong new_val, target_ulong wr_mask)
+{
+    target_ulong reg_index = isel - CSR_SPMPADDR0;
+    bool smode = (csrno == CSR_SIREG);
+    pmp_table_t *pmp_state = &env->pmp_state;
+    int num_spmp_entries = MAX_RISCV_PMPS - pmp_state->spmp_start;
+    target_ulong global_idx = pmp_state->spmp_start + reg_index;
+
+    if (reg_index >= num_spmp_entries) {
+        if (val) {
+            *val = 0;
+        }
+        return 0;
+    }
+    if (val) {
+        *val = spmpaddr_csr_read(env, global_idx);
+    }
+    new_val = new_val & wr_mask;
+    if (smode) {
+        if ((pmp_state->pmp[global_idx].cfg_reg & PMP_LOCK)) {
+            return 0;
+        }
+        if (global_idx + 1 < MAX_RISCV_PMPS) {
+            uint8_t next_cfg = pmp_state->pmp[global_idx + 1].cfg_reg;
+            bool is_next_tor = (pmp_get_a_field(next_cfg) == PMP_AMATCH_TOR);
+
+            if (is_next_tor && (next_cfg & PMP_LOCK)) {
+                /*
+                 * The next entry is a locked TOR. According to Spec 3.3,
+                 * writes to the preceding address register are ignored.
+                 */
+                return 0;
+            }
+        }
+    }
+    if (wr_mask) {
+        spmpaddr_csr_write(env, global_idx, new_val);
+    }
+    return 0;
+}
+
+static int rmw_spmp_ireg(CPURISCVState *env, int csrno,
+                         target_ulong isel, target_ulong *val,
+                         target_ulong new_val, target_ulong wr_mask)
+{
+    if ((csrno == CSR_SIREG) || (csrno == CSR_MIREG)) {
+        rmw_spmpaddr(env, csrno, isel, val, new_val, wr_mask);
+    } else if ((csrno >= CSR_SIREG2) && (csrno <= CSR_MIREG2)) {
+        rmw_spmpcfg(env, csrno, isel, val, new_val, wr_mask);
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+
+
+/**
+ * write_spmpswitch - CSR write handler for spmpswitch (low 32 or full 64 bits).
+ * @env:  A pointer to the CPU state.
+ * @val:  The new value being written to the CSR.
+ * @wr_mask:  The mask of bits being written to the CSR.
+ *
+ * For RV64, this handles the full 64-bit register.
+ * For RV32, this handles the lower 32 bits (spmpswitch).
+ */
+static int write_spmpswitch(CPURISCVState *env, target_ulong val,
+                             target_ulong wr_mask, bool is_mmode)
+{
+    uint64_t old_full_val = env->spmpswitch;
+    uint64_t new_full_val;
+    uint64_t final_full_val;
+
+    /*
+     * M-mode retains write access to all spmpswitch bits even when L=1
+     * (spec ch.4: "This restriction does not apply to the execution
+     * environment, which retains write access"). S-mode is filtered by
+     * the lock mask.
+     */
+    uint64_t write_mask = (is_mmode ? (uint64_t)-1 :
+                           get_spmpswitch_write_mask(env)) & wr_mask;
+
+    if (env->xl == MXL_RV32) {
+        /* RV32: We are only modifying the lower 32 bits. */
+        uint32_t new_low_32 = (uint32_t)val;
+        new_full_val = (old_full_val & 0xFFFFFFFF00000000ULL) | new_low_32;
+    } else {
+        /* RV64: We are modifying the full 64 bits. */
+        new_full_val = val;
+    }
+
+    /*
+     * Apply the lock-bit constraints: only allow changes to writable bits.
+     * - (old_full_val & ~write_mask): Preserves the original value of all
+     *   read-only (locked) bits.
+     * - (new_full_val & write_mask): Takes the new value for all writable bits.
+     */
+    final_full_val = (old_full_val & ~write_mask) | (new_full_val & write_mask);
+
+    env->spmpswitch = final_full_val;
+
+    return 0;
+}
+
+/**
+ * write_spmpswitchh - CSR write handler for spmpswitchh (RV32 only).
+ * @env:  A pointer to the CPU state.
+ * @val:  The new value being written to the CSR (upper 32 bits).
+ * @wr_mask:  The mask of bits being written to the CSR.
+ */
+static int write_spmpswitchh(CPURISCVState *env, target_ulong val,
+                              target_ulong wr_mask, bool is_mmode)
+{
+    uint64_t old_full_val = env->spmpswitch;
+    uint64_t new_full_val;
+    uint64_t final_full_val;
+
+    /* Get the 64-bit mask of which bits are fundamentally writable. */
+    uint64_t write_mask = (is_mmode ? (uint64_t)-1 :
+                           get_spmpswitch_write_mask(env)) &
+                          ((uint64_t)wr_mask << 32);
+
+    /* RV32: We are modifying the upper 32 bits. */
+    uint32_t new_high_32 = (uint32_t)val;
+    new_full_val = (old_full_val & 0x00000000FFFFFFFFULL) |
+                   ((uint64_t)new_high_32 << 32);
+
+    /* Apply the lock-bit constraints. */
+    final_full_val = (old_full_val & ~write_mask) | (new_full_val & write_mask);
+
+    env->spmpswitch = final_full_val;
+
+    return 0;
+}
+
+static int rmw_spmpswitch(CPURISCVState *env, int csrno,
+                          target_ulong isel, target_ulong *val,
+                          target_ulong new_val, target_ulong wr_mask)
+{
+    bool rv32 = env->xl == MXL_RV32;
+    bool is_mmode = (csrno == CSR_MIREG || csrno == CSR_MIREG2);
+    if (csrno == CSR_SIREG || csrno == CSR_MIREG) {
+        if (val) {
+            if (rv32) {
+                *val = (uint32_t)env->spmpswitch;
+            } else {
+                *val = env->spmpswitch;
+            }
+        }
+        write_spmpswitch(env, new_val, wr_mask, is_mmode);
+    } else if (csrno == CSR_SIREG2 || csrno == CSR_MIREG2) {
+        if (!rv32) {
+            return -EINVAL;
+        }
+        if (val) {
+            *val = (uint32_t)(env->spmpswitch >> 32);
+        }
+        write_spmpswitchh(env, new_val, wr_mask, is_mmode);
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+/*
+ * rmw_mpmpswitch - Indirect register access handler for mpmpswitch0/1.
+ *
+ * mpmpswitch0 (isel=0x800000c8) controls PMP entries 0-31.
+ * mpmpswitch1 (isel=0x800000c9) controls PMP entries 32-63.
+ * Only accessible from M-mode (via mireg).
+ */
+static int rmw_mpmpswitch(CPURISCVState *env, int csrno,
+                          target_ulong isel, target_ulong *val,
+                          target_ulong new_val, target_ulong wr_mask)
+{
+    if (!riscv_cpu_cfg(env)->ext_xtheadmpmpswitch ||
+        !riscv_cpu_cfg(env)->pmp) {
+        return -EINVAL;
+    }
+
+    if (csrno != CSR_MIREG) {
+        return -EINVAL;
+    }
+
+    if (isel == CSR_MPMPSWITCH0) {
+        if (val) {
+            *val = (uint32_t)env->pmpswitch;
+        }
+        if (wr_mask) {
+            uint32_t old_low = (uint32_t)env->pmpswitch;
+            uint32_t new_low = (new_val & wr_mask) | (old_low & ~wr_mask);
+            env->pmpswitch = (env->pmpswitch & 0xFFFFFFFF00000000ULL) |
+                             new_low;
+        }
+    } else if (isel == CSR_MPMPSWITCH1) {
+        if (val) {
+            *val = (uint32_t)(env->pmpswitch >> 32);
+        }
+        if (wr_mask) {
+            uint32_t old_high = (uint32_t)(env->pmpswitch >> 32);
+            uint32_t new_high = (new_val & wr_mask) | (old_high & ~wr_mask);
+            env->pmpswitch = (env->pmpswitch & 0x00000000FFFFFFFFULL) |
+                             ((uint64_t)new_high << 32);
+        }
+    } else {
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+static RISCVException write_mpmpdeleg(CPURISCVState *env, int csr,
+                                      target_ulong val)
+{
+    pmp_table_t *s = &env->pmp_state;
+    target_ulong pmpnum = val & 0x7f;
+    uint32_t locked_pmp = 0;
+
+    for (int i = 0; i < MAX_RISCV_PMPS; i++) {
+        if (s->pmp[i].cfg_reg & PMP_LOCK) {
+            locked_pmp = i;
+            break;
+        }
+    }
+    if (pmpnum <= locked_pmp) {
+        return RISCV_EXCP_NONE;
+    }
+
+    if (pmpnum > MAX_RISCV_PMPS) {
+        pmpnum = MAX_RISCV_PMPS;
+    }
+
+    s->spmp_start = pmpnum;
+    env->mpmpdeleg = pmpnum;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mpmpdeleg(CPURISCVState *env, int csr,
+                                     target_ulong *val)
+{
+    *val = env->mpmpdeleg;
+    return RISCV_EXCP_NONE;
+}
+
+static int rmw_mpmpdeleg(CPURISCVState *env, int csrno,
+                         target_ulong isel, target_ulong *val,
+                         target_ulong new_val, target_ulong wr_mask)
+{
+    if (csrno == CSR_MIREG) {
+        if (val) {
+            *val = env->mpmpdeleg;
+        }
+        write_mpmpdeleg(env, csrno, new_val & wr_mask);
+    } else {
+        return -EINVAL;
+    }
+    return 0;
+}
+
+static int rmw_xireg_spmp(CPURISCVState *env, int csrno,
+                          target_ulong isel, target_ulong *val,
+                          target_ulong new_val, target_ulong wr_mask)
+{
+    if (isel >= CSR_SPMPADDR0 && isel <= CSR_SPMPADDR0 + MAX_RISCV_PMPS - 1) {
+        return rmw_spmp_ireg(env, csrno, isel, val, new_val, wr_mask);
+    } else if (isel == CSR_SPMPSWITCH) {
+        return rmw_spmpswitch(env, csrno, isel, val, new_val, wr_mask);
+    } else if (isel == XT_CSR_MPMPDELEG) {
+        return rmw_mpmpdeleg(env, csrno, isel, val, new_val, wr_mask);
+    } else {
+        /* Access to reserved or unimplemented regions. */
+        if (val) {
+            *val = 0;
+        }
+        return -EINVAL;
+    }
+    return 0;
+}
+
+/*
+ * Handle custom Xuantie indirect CSRs
+ */
+#if defined(TARGET_RISCV64)
+static int rmw_xireg_xuantie_custom(CPURISCVState *env, int csrno,
+                                    target_ulong isel, target_ulong *val,
+                                    target_ulong new_val, target_ulong wr_mask)
+{
+    if (csrno == CSR_MIREG) {
+        if (isel == CSR_XT_MHINT3) {
+            if (val) {
+                *val = env->mhint3;
+            }
+            if (wr_mask) {
+                env->mhint3 = (env->mhint3 & ~wr_mask) | (new_val & wr_mask);
+            }
+            return 0;
+        }
+
+        if (isel == CSR_XT_MHINT7) {
+            if (val) {
+                *val = env->mhint7;
+            }
+            if (wr_mask) {
+                env->mhint7 = (env->mhint7 & ~wr_mask) | (new_val & wr_mask);
+            }
+            return 0;
+        }
+
+        if (isel == CSR_XT_MNASTATUS) {
+            if (val) {
+                *val = env->mnastatus;
+            }
+            if (wr_mask) {
+                env->mnastatus = (env->mnastatus & ~wr_mask) | (new_val & wr_mask);
+            }
+            return 0;
+        }
+    }
+
+    return -EINVAL;
+}
+#else
+static int rmw_xireg_xuantie_custom(CPURISCVState *env, int csrno,
+                                    target_ulong isel, target_ulong *val,
+                                    target_ulong new_val, target_ulong wr_mask)
+{
+    return -EINVAL;
+}
+#endif
+
 /*
  * rmw_xireg_sxcsrind: Perform indirect access to xireg and xireg2-xireg6
  *
@@ -2844,13 +3867,27 @@ static int rmw_xireg_sxcsrind(CPURISCVState *env, int csrno,
                               target_ulong isel, target_ulong *val,
                               target_ulong new_val, target_ulong wr_mask)
 {
-    bool virt = csrno == CSR_VSIREG ? true : false;
+    bool virt = (csrno >= CSR_VSIREG) && (csrno <= CSR_VSIREG6);
     int ret = -EINVAL;
+    bool shadow_virt = false;
 
     if (xiselect_cd_range(isel)) {
-        ret = rmw_xireg_cd(env, csrno, isel, val, new_val, wr_mask);
+        ret = rmw_xireg_cd(env, csrno, isel, val, new_val, wr_mask,
+                           &shadow_virt);
     } else if (xiselect_ctr_range(isel)) {
         ret = rmw_xireg_ctr(env, csrno, isel, val, new_val, wr_mask);
+    } else if (env->xt_clic_v0p10 && xiselect_clic_range(isel)) {
+        ret = rmw_xireg_clic(env, csrno, isel, val, new_val, wr_mask);
+    } else if (xiselect_mpmpswitch_range(isel)) {
+        ret = rmw_mpmpswitch(env, csrno, isel, val, new_val, wr_mask);
+    } else if (xiselect_spmp_range(isel)) {
+        ret = rmw_xireg_spmp(env, csrno, isel, val, new_val, wr_mask);
+    } else if ((env->xmisa & MATRIX_MDMA) && (isel == (target_ulong)CSR_XMTCMCSR)) {
+        ret = rmw_xireg_xmtcmcsr(env, csrno, val, new_val, wr_mask);
+    } else if (xiselect_xt_custom_range(isel)) {
+        ret = rmw_xireg_xuantie_custom(env, csrno, isel, val, new_val, wr_mask);
+    } else if (xt_indirect_csr_ignore(csrno, isel)) {
+        ret = 0;
     } else {
         /*
          * As per the specification, access to unimplented region is undefined
@@ -2860,7 +3897,7 @@ static int rmw_xireg_sxcsrind(CPURISCVState *env, int csrno,
     }
 
     if (ret) {
-        return (env->virt_enabled && virt) ?
+        return (env->virt_enabled && virt && !shadow_virt) ?
                RISCV_EXCP_VIRT_INSTRUCTION_FAULT : RISCV_EXCP_ILLEGAL_INST;
     }
 
@@ -2882,13 +3919,13 @@ static int rmw_xiregi(CPURISCVState *env, int csrno, target_ulong *val,
     /* Translate CSR number for VS-mode */
     csrno = sxcsrind_xlate_vs_csrno(env, csrno);
 
-    if (CSR_MIREG <= csrno && csrno <= CSR_MIREG6 &&
+    if (CSR_MIREG < csrno && csrno <= CSR_MIREG6 &&
         csrno != CSR_MIREG4 - 1) {
         isel = env->miselect;
-    } else if (CSR_SIREG <= csrno && csrno <= CSR_SIREG6 &&
+    } else if (CSR_SIREG < csrno && csrno <= CSR_SIREG6 &&
                csrno != CSR_SIREG4 - 1) {
         isel = env->siselect;
-    } else if (CSR_VSIREG <= csrno && csrno <= CSR_VSIREG6 &&
+    } else if (CSR_VSIREG < csrno && csrno <= CSR_VSIREG6 &&
                csrno != CSR_VSIREG4 - 1) {
         isel = env->vsiselect;
         virt = true;
@@ -2899,11 +3936,8 @@ static int rmw_xiregi(CPURISCVState *env, int csrno, target_ulong *val,
     return rmw_xireg_sxcsrind(env, csrno, isel, val, new_val, wr_mask);
 
 done:
-    if (ret) {
-        return (env->virt_enabled && virt) ?
-               RISCV_EXCP_VIRT_INSTRUCTION_FAULT : RISCV_EXCP_ILLEGAL_INST;
-    }
-    return RISCV_EXCP_NONE;
+    return (env->virt_enabled && virt) ?
+           RISCV_EXCP_VIRT_INSTRUCTION_FAULT : RISCV_EXCP_ILLEGAL_INST;
 }
 
 static RISCVException rmw_xireg(CPURISCVState *env, int csrno,
@@ -2956,11 +3990,8 @@ static RISCVException rmw_xireg(CPURISCVState *env, int csrno,
     }
 
 done:
-    if (ret) {
-        return (env->virt_enabled && virt) ?
-               RISCV_EXCP_VIRT_INSTRUCTION_FAULT : RISCV_EXCP_ILLEGAL_INST;
-    }
-    return RISCV_EXCP_NONE;
+    return (env->virt_enabled && virt) ?
+           RISCV_EXCP_VIRT_INSTRUCTION_FAULT : RISCV_EXCP_ILLEGAL_INST;
 }
 
 static RISCVException rmw_xtopei(CPURISCVState *env, int csrno,
@@ -3036,23 +4067,51 @@ static RISCVException write_mtvec(CPURISCVState *env, int csrno,
                                   target_ulong val)
 {
     /*
-     * If only basic mode is supported, writes to bit 1 are ignored and
-     * it is always set to zero (current behavior).
-     * If only CLIC mode is supported, writes to bit 1 are also ignored and
-     * it is always set to one. CLIC mode hardwires xtvec bits 2-5 to zero
-     * (assuming no further CLIC extensions are supported).
+     * RISC-V CLIC xtvec Mode Configuration (Specification v0.10, v0.8)
+     *
+     * mode  submode  PC on interrupt
+     * ====  =======  ======================================================
+     * 00    xxxx     OBASE               # CLINT direct mode
+     * 01    xxxx     OBASE + 4*exccode   # CLINT vectored mode
+     * 11    0000     NBASE               # CLIC mode
+     * 10    0000     Reserved
+     * 1x    yyyy     Reserved
+     *
+     * where:
+     * OBASE = xtvec[XLEN-1:2] << 2   # CLINT mode vector base is at least 4-byte aligned
+     * NBASE = xtvec[XLEN-1:6] << 6   # CLIC mode vector base is at least 64-byte aligned
+     * x     = any value (don't care)
+     * yyyy  = any non-zero value
      */
-    if (env->clint_clic) {
-        if ((val & 0b111111) == 0b000011) {
-            env->mtvec = val;
-        } else if ((val & 0b10) == 0) {
-            env->mtvec = val;
+    target_ulong mode = val & 0b11;
+    switch (mode) {
+    case 0b00:
+    case 0b01:
+        env->mtvec = val;
+        break;
+    case 0b11:
+        if (env->xt_clic_v0p8 || env->xt_clic_v0p10) {
+            env->mtvec = val & ~0x3c;
+        } else {
+            error_report("CLIC mode is not supported in this case, please check the isa");
+            env->mtvec = (env->mtvec & 0x3) | (val & ~0x3);
         }
-    } else if (env->clic && (val & 0b10)) {
-        env->mtvec = (val & ~0x3f) | 0b000011;
-    } else {
-        env->mtvec = val & ~0x2;
+        break;
+    default:
+        /*
+         * Mode 0b10 is reserved. According to RISC-V spec, writes with
+         * reserved mode values should be ignored.
+         * This can happen when OpenSBI sets stvec to the kernel entry
+         * address temporarily, where the low bits may be 0b10.
+         */
+        if (env->xt_clic_v0p8 || env->xt_clic_v0p10) {
+            env->mtvec = (env->mtvec & 0x3f) | (val & ~0x3f);
+        } else {
+            env->mtvec = (env->mtvec & 0x3) | (val & ~0x3);
+        }
+        break;
     }
+
     return RISCV_EXCP_NONE;
 }
 
@@ -3134,6 +4193,12 @@ static RISCVException read_scountinhibit(CPURISCVState *env, int csrno,
                                          target_ulong *val)
 {
     /* S-mode can only access the bits delegated by M-mode */
+    if (!get_field(env->menvcfg, MENVCFG_CDE)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->virt_enabled) {
+        return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+    }
     *val = env->mcountinhibit & env->mcounteren;
     return RISCV_EXCP_NONE;
 }
@@ -3141,6 +4206,12 @@ static RISCVException read_scountinhibit(CPURISCVState *env, int csrno,
 static RISCVException write_scountinhibit(CPURISCVState *env, int csrno,
                                           target_ulong val)
 {
+    if (!get_field(env->menvcfg, MENVCFG_CDE)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->virt_enabled) {
+        return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+    }
     write_mcountinhibit(env, csrno, val & env->mcounteren);
     return RISCV_EXCP_NONE;
 }
@@ -3248,7 +4319,7 @@ static RISCVException write_menvcfg(CPURISCVState *env, int csrno,
 {
     const RISCVCPUConfig *cfg = riscv_cpu_cfg(env);
     uint64_t mask = MENVCFG_FIOM | MENVCFG_CBIE | MENVCFG_CBCFE |
-                    MENVCFG_CBZE | MENVCFG_CDE;
+                    MENVCFG_CBZE | MENVCFG_CDE | MENVCFG_DTSO;
 
     if (riscv_cpu_mxl(env) == MXL_RV64) {
         mask |= (cfg->ext_svpbmt ? MENVCFG_PBMTE : 0) |
@@ -3260,11 +4331,14 @@ static RISCVException write_menvcfg(CPURISCVState *env, int csrno,
 
     if (riscv_has_ext(env, RVS)) {
         mask |= (cfg->ext_zicfiss ? MENVCFG_SSE : 0);
+        mask |= (cfg->ext_xtheadaioe ? MENVCFG_SUENQ : 0);
     }
     mask |= (cfg->ext_zicfilp ? MENVCFG_LPE : 0);
 
-    /* Update PMM field only if the value is valid according to Zjpm v0.8 */
-    if (((val & MENVCFG_PMM) >> 32) != PMM_FIELD_RESERVED) {
+    /* Update PMM field only if the value is valid according to Zjpm v1.0 */
+    if (cfg->ext_smnpm &&
+        riscv_cpu_mxl(env) == MXL_RV64 &&
+        get_field(val, MENVCFG_PMM) != PMM_FIELD_RESERVED) {
         mask |= MENVCFG_PMM;
     }
     env->menvcfg = (env->menvcfg & ~mask) | (val & mask);
@@ -3313,9 +4387,12 @@ static RISCVException read_senvcfg(CPURISCVState *env, int csrno,
 static RISCVException write_senvcfg(CPURISCVState *env, int csrno,
                                     target_ulong val)
 {
-    uint64_t mask = SENVCFG_FIOM | SENVCFG_CBIE | SENVCFG_CBCFE | SENVCFG_CBZE;
-    /* Update PMM field only if the value is valid according to Zjpm v0.8 */
-    if (((val & SENVCFG_PMM) >> 32) != PMM_FIELD_RESERVED) {
+    uint64_t mask = SENVCFG_FIOM | SENVCFG_CBIE | SENVCFG_CBCFE | SENVCFG_CBZE |
+                    SENVCFG_DTSO;
+    /* Update PMM field only if the value is valid according to Zjpm v1.0 */
+    if (riscv_cpu_cfg(env)->ext_ssnpm &&
+        riscv_cpu_mxl(env) == MXL_RV64 &&
+        get_field(val, SENVCFG_PMM) != PMM_FIELD_RESERVED) {
         mask |= SENVCFG_PMM;
     }
     RISCVException ret;
@@ -3361,7 +4438,8 @@ static RISCVException read_henvcfg(CPURISCVState *env, int csrno,
 static RISCVException write_henvcfg(CPURISCVState *env, int csrno,
                                     target_ulong val)
 {
-    uint64_t mask = HENVCFG_FIOM | HENVCFG_CBIE | HENVCFG_CBCFE | HENVCFG_CBZE;
+    uint64_t mask = HENVCFG_FIOM | HENVCFG_CBIE | HENVCFG_CBCFE | HENVCFG_CBZE |
+                    HENVCFG_DTSO;
     uint64_t menvcfg_mask;
     RISCVException ret;
 
@@ -3384,6 +4462,17 @@ static RISCVException write_henvcfg(CPURISCVState *env, int csrno,
 
     if (riscv_cpu_cfg(env)->ext_zicfilp) {
         mask |= env->menvcfg & HENVCFG_LPE;
+    }
+
+    if (riscv_cpu_cfg(env)->ext_xtheadaioe) {
+        mask |= HENVCFG_SUENQ;
+    }
+
+    /* Update PMM field only if the value is valid according to Zjpm v1.0 */
+    if (riscv_cpu_cfg(env)->ext_ssnpm &&
+        riscv_cpu_mxl(env) == MXL_RV64 &&
+        get_field(val, HENVCFG_PMM) != PMM_FIELD_RESERVED) {
+        mask |= HENVCFG_PMM;
     }
 
     env->henvcfg = (env->henvcfg & ~mask) | (val & mask);
@@ -3747,9 +4836,10 @@ static RISCVException rmw_mip64(CPURISCVState *env, int csrno,
 {
     uint64_t old_mip, mask = wr_mask & delegable_ints;
     uint32_t gin;
+    bool clic = xt_clic_is_clic_mode(env) || xt_clic_v0p10_is_clic_mode(env);
 
     /* The xip CSR appears hardwired to zero in CLIC mode. (Section 4.3) */
-    if (xt_clic_is_clic_mode(env) && !env->clint_clic) {
+    if (clic) {
         if (ret_val) {
             *ret_val = 0;
         }
@@ -4164,30 +5254,68 @@ static RISCVException rmw_sieh(CPURISCVState *env, int csrno,
 static RISCVException read_stvec(CPURISCVState *env, int csrno,
                                  target_ulong *val)
 {
-    *val = env->stvec;
+    if (env->debugger && (env->priv == PRV_M) && env->virt_enabled) {
+        *val = env->stvec_hs;
+    } else {
+        *val = env->stvec;
+    }
     return RISCV_EXCP_NONE;
 }
 
 static RISCVException write_stvec(CPURISCVState *env, int csrno,
                                   target_ulong val)
 {
+    target_ulong stvec = env->stvec;
     /*
-     * If only basic mode is supported, writes to bit 1 are ignored and
-     * it is always set to zero (current behavior).
-     * If only CLIC mode is supported, writes to bit 1 are also ignored and
-     * it is always set to one. CLIC mode hardwires xtvec bits 2-5 to zero
-     * (assuming no further CLIC extensions are supported).
+     * RISC-V CLIC xtvec Mode Configuration (Specification v0.10, v0.8)
+     *
+     * mode  submode  PC on interrupt
+     * ====  =======  ======================================================
+     * 00    xxxx     OBASE               # CLINT direct mode
+     * 01    xxxx     OBASE + 4*exccode   # CLINT vectored mode
+     * 11    0000     NBASE               # CLIC mode
+     * 10    0000     Reserved
+     * 1x    yyyy     Reserved
+     *
+     * where:
+     * OBASE = xtvec[XLEN-1:2] << 2   # CLINT mode vector base is at least 4-byte aligned
+     * NBASE = xtvec[XLEN-1:6] << 6   # CLIC mode vector base is at least 64-byte aligned
+     * x     = any value (don't care)
+     * yyyy  = any non-zero value
      */
-    if (env->clint_clic) {
-        if ((val & 0b111111) == 0b000011) {
-            env->stvec = val;
-        } else if ((val & 0b10) == 0) {
-            env->stvec = val;
+    target_ulong mode = val & 0b11;
+    switch (mode) {
+    case 0b00:
+    case 0b01:
+        stvec = val;
+        break;
+    case 0b11:
+        if (env->xt_clic_v0p8 || env->xt_clic_v0p10) {
+            stvec = val & ~0x3c;
+        } else {
+            error_report("CLIC mode is not supported in this case, please check the isa");
+            stvec = (stvec & 0x3) | (val & ~0x3);
         }
-    } else if (env->clic && (val & 0b10)) {
-        env->stvec = (val & ~0x3f) | 0b000011;
+        break;
+    default:
+        /*
+         * Mode 0b10 is reserved. According to RISC-V spec, writes with
+         * reserved mode values should be ignored.
+         * This can happen when OpenSBI sets stvec to the kernel entry
+         * address temporarily, where the low bits may be 0b10.
+         */
+        if (env->xt_clic_v0p8 || env->xt_clic_v0p10) {
+            stvec = (stvec & 0x3f) | (val & ~0x3f);
+        } else {
+            stvec = (stvec & 0x3) | (val & ~0x3);
+        }
+        break;
+    }
+
+    if (env->debugger && (env->priv == PRV_M) && env->virt_enabled) {
+        env->stvec_hs = stvec;
     } else {
-        env->stvec = val & ~0x2;
+        env->stvec = stvec;
     }
     return RISCV_EXCP_NONE;
 }
@@ -4683,7 +5811,16 @@ static RISCVException read_hstatus(CPURISCVState *env, int csrno,
 static RISCVException write_hstatus(CPURISCVState *env, int csrno,
                                     target_ulong val)
 {
-    env->hstatus = val;
+    uint64_t mask = (target_ulong)-1;
+
+    /* Update HUPMM field only if the value is valid according to Zjpm v1.0 */
+    if (!riscv_cpu_cfg(env)->ext_ssnpm ||
+        riscv_cpu_mxl(env) != MXL_RV64 ||
+        get_field(val, HSTATUS_HUPMM) == PMM_FIELD_RESERVED) {
+        mask &= ~HSTATUS_HUPMM;
+    }
+    env->hstatus = (env->hstatus & ~mask) | (val & mask);
+
     if (riscv_cpu_mxl(env) != MXL_RV32 && get_field(val, HSTATUS_VSXL) != 2) {
         qemu_log_mask(LOG_UNIMP,
                       "QEMU does not support mixed HSXLEN options.");
@@ -5102,6 +6239,39 @@ static RISCVException write_htimedelta(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException read_mtimedelta(CPURISCVState *env, int csrno,
+                                      target_ulong *val)
+{
+    if (!env->rdtime_fn) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    *val = env->xt_mtimedelta;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mtimedelta(CPURISCVState *env, int csrno,
+                                       target_ulong val)
+{
+    if (!env->rdtime_fn) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    if (riscv_cpu_mxl(env) == MXL_RV32) {
+        env->xt_mtimedelta = deposit64(env->xt_mtimedelta, 0, 32,
+                                       (uint64_t)val);
+    } else {
+        env->xt_mtimedelta = val;
+    }
+
+    if (riscv_cpu_cfg(env)->ext_sstc && env->rdtime_fn) {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp,
+                                  env->xt_mtimedelta, MIP_STIP);
+    }
+
+    return RISCV_EXCP_NONE;
+}
+
 static RISCVException read_htimedeltah(CPURISCVState *env, int csrno,
                                        target_ulong *val)
 {
@@ -5125,6 +6295,49 @@ static RISCVException write_htimedeltah(CPURISCVState *env, int csrno,
     if (riscv_cpu_cfg(env)->ext_sstc && env->rdtime_fn) {
         riscv_timer_write_timecmp(env, env->vstimer, env->vstimecmp,
                                   env->htimedelta, MIP_VSTIP);
+    }
+
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mvmid(CPURISCVState *env, int csrno,
+                                 target_ulong *val)
+{
+    *val = ((uint32_t)env->xt_vmid_en << 31) | env->xt_vmid;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mvmid(CPURISCVState *env, int csrno,
+                                  target_ulong val)
+{
+    env->xt_vmid = val & XT_CSR_VMID_MASK;
+    env->xt_vmid_en = !!(val & XT_CSR_VMID_EN_MASK);
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_mtimedeltah(CPURISCVState *env, int csrno,
+                                       target_ulong *val)
+{
+    if (!env->rdtime_fn) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    *val = env->xt_mtimedelta >> 32;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_mtimedeltah(CPURISCVState *env, int csrno,
+                                        target_ulong val)
+{
+    if (!env->rdtime_fn) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    env->xt_mtimedelta = deposit64(env->xt_mtimedelta, 32, 32, (uint64_t)val);
+
+    if (riscv_cpu_cfg(env)->ext_sstc && env->rdtime_fn) {
+        riscv_timer_write_timecmp(env, env->stimer, env->stimecmp,
+                                  env->xt_mtimedelta, MIP_STIP);
     }
 
     return RISCV_EXCP_NONE;
@@ -5448,26 +6661,26 @@ static RISCVException write_pmpaddr(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException read_mttp(CPURISCVState *env, int csrno,
-                                   target_ulong *val)
+static RISCVException read_mmpt(CPURISCVState *env, int csrno,
+                                target_ulong *val)
 {
     if (riscv_cpu_xlen(env) == 32) {
         uint32_t value = 0;
-        value |= env->mttmode << MTTP_MODE_SHIFT_32;
-        value |= (env->sdid << MTTP_SDID_SHIFT_32) & MTTP_SDID_MASK_32;
-        value |= env->mttppn & MTTP_PPN_MASK_32;
+        value |= env->mttmode << MMPT_MODE_SHIFT_32;
+        value |= (env->sdid << MMPT_SDID_SHIFT_32) & MMPT_SDID_MASK_32;
+        value |= env->mttppn & MMPT_PPN_MASK_32;
         *val = value;
     } else if (riscv_cpu_xlen(env) == 64) {
         uint64_t value_64 = 0;
         uint32_t mode_value = env->mttmode;
         /* mtt_mode_t convert to mttp.mode value */
         if (mode_value) {
-            mode_value -= SMMTT46 - SMMTT34;
+            mode_value -= SMMTT43 - SMMTT34;
         }
-        value_64 |= (uint64_t)mode_value << MTTP_MODE_SHIFT_64;
-        value_64 |= ((uint64_t)env->sdid << MTTP_SDID_SHIFT_64)
-                    & MTTP_SDID_MASK_64;
-        value_64 |= (uint64_t)env->mttppn & MTTP_PPN_MASK_64;
+        value_64 |= (uint64_t)mode_value << MMPT_MODE_SHIFT_64;
+        value_64 |= ((uint64_t)env->sdid << MMPT_SDID_SHIFT_64)
+                    & MMPT_SDID_MASK_64;
+        value_64 |= (uint64_t)env->mttppn & MMPT_PPN_MASK_64;
         *val = value_64;
     } else {
         return RISCV_EXCP_ILLEGAL_INST;
@@ -5475,29 +6688,30 @@ static RISCVException read_mttp(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static RISCVException write_mttp(CPURISCVState *env, int csrno,
-                                    target_ulong val)
+static RISCVException write_mmpt(CPURISCVState *env, int csrno,
+                                 target_ulong val)
 {
+    /* Fixme: if mode is bare, the remaining fields in mmpt must be zero */
     if (riscv_cpu_xlen(env) == 32) {
         /* Only write the legal value */
-        uint32_t mode_value = (val & MTTP_MODE_MASK_32) >> MTTP_MODE_SHIFT_32;
+        uint32_t mode_value = (val & MMPT_MODE_MASK_32) >> MMPT_MODE_SHIFT_32;
         if (mode_value <= SMMTT34) {
             env->mttmode = mode_value;
         }
-        env->sdid = (val & MTTP_SDID_MASK_32) >> MTTP_SDID_SHIFT_32;
-        env->mttppn = val & MTTP_PPN_MASK_32;
+        env->sdid = (val & MMPT_SDID_MASK_32) >> MMPT_SDID_SHIFT_32;
+        env->mttppn = val & MMPT_PPN_MASK_32;
     } else if (riscv_cpu_xlen(env) == 64) {
-        uint32_t mode_value = (val & MTTP_MODE_MASK_64) >> MTTP_MODE_SHIFT_64;
+        uint32_t mode_value = (val & MMPT_MODE_MASK_64) >> MMPT_MODE_SHIFT_64;
         /* check legal value */
         if (mode_value < SMMTTMAX) {
             /* convert to mtt_mode_t */
             if (mode_value) {
-                mode_value += SMMTT46 - SMMTT34;
+                mode_value += SMMTT43 - SMMTT34;
             }
             env->mttmode = mode_value;
         }
-        env->sdid = (val & MTTP_SDID_MASK_64) >> MTTP_SDID_SHIFT_64;
-        env->mttppn = val & MTTP_PPN_MASK_64;
+        env->sdid = (val & MMPT_SDID_MASK_64) >> MMPT_SDID_SHIFT_64;
+        env->mttppn = val & MMPT_PPN_MASK_64;
     } else {
         return RISCV_EXCP_ILLEGAL_INST;
     }
@@ -5535,10 +6749,14 @@ static RISCVException write_tselect(CPURISCVState *env, int csrno,
 static RISCVException read_tdata(CPURISCVState *env, int csrno,
                                  target_ulong *val)
 {
-    /* return 0 in tdata1 to end the trigger enumeration */
-    if (env->trigger_cur >= RV_MAX_TRIGGERS && csrno == CSR_TDATA1) {
-        *val = 0;
-        return RISCV_EXCP_NONE;
+    if (env->trigger_cur >= RV_MAX_TRIGGERS) {
+        /* return 0 in tdata1 to end the trigger enumeration */
+       if (csrno == CSR_TDATA1) {
+           *val = 0;
+           return RISCV_EXCP_NONE;
+       } else {
+           g_assert_not_reached();
+       }
     }
 
     if (!tdata_available(env, csrno - CSR_TDATA1)) {
@@ -5779,8 +6997,81 @@ static RISCVException riscv_csrrw_do64(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static bool xt_csr_ignore(int csrno)
+static bool xt_csr_e908a_ignore(int csrno)
 {
+    switch (csrno) {
+    /* S mode */
+    case CSR_SHCR:
+    case CSR_SHINT:
+    case CSR_SHINT2:
+    case CSR_SHPMCR:
+    case CSR_SHPMSR:
+    case CSR_SHPMER:
+    case CSR_SBEADDR:
+    case CSR_SCYCLE:
+    case CSR_SINSTRET:
+    case CSR_SHPMCOUNTER3 ... CSR_SHPMCOUNTER31:
+    case CSR_SCYCLEH:
+    case CSR_SINSTRETH:
+    case CSR_SHPMCOUNTER3H ... CSR_SHPMCOUNTER31H:
+    /* M mode */
+    case CSR_MHCR:
+    case CSR_MCOR:
+    case CSR_MCCR2:
+    case CSR_MHINT:
+    case CSR_MCOUNTERWEN:
+    case CSR_MHINT2H:
+    case CSR_MHINT2:
+    case CSR_MHINT3:
+    case CSR_MCINS:
+    case CSR_MCINDEX:
+    case CSR_MCDATA0:
+    case CSR_MCDATA1:
+    case CSR_MEICR:
+    case CSR_MBEADDR:
+    case CSR_MCPER:
+    case CSR_MCINDEXH:
+    case CSR_MCDATA0H:
+    case CSR_MCDATA1H:
+    case CSR_MIEBR:
+    case CSR_MDEBR:
+    case CSR_MHPMCR:
+    case CSR_MHPMSR:
+    case CSR_MHPMER:
+    case CSR_MHALTCAUSE:
+    case CSR_MDBGINFO:
+    case CSR_MPCFIFO:
+    case CSR_MDBGFIFO2:
+    case CSR_MFPPCR:
+    case CSR_MFLASHCR:
+    case CSR_MRASCR:
+    case CSR_MSTCCR:
+    case CSR_MWATCHDOG:
+    case CSR_MBUSTIME1:
+    case CSR_MBUSTIME2:
+    case CSR_MBUSTIME3:
+    case CSR_MERRINJ:
+    case CSR_MTEBR0:
+    case CSR_MTEBR1:
+        return true;
+        break;
+    default:
+        return false;
+        break;
+    }
+}
+
+static bool xt_csr_ignore(CPURISCVState *env, int csrno)
+{
+    CPUState *cs = env_cpu(env);
+
+    if (object_dynamic_cast(OBJECT(cs), TYPE_RISCV_CPU_XT_E908A1FDVKT)) {
+        if (xt_csr_e908a_ignore(csrno)) {
+            return true;
+        }
+        return false;
+    }
+
     switch (csrno) {
     case CSR_MHCR:
     case CSR_MCOR:
@@ -5813,7 +7104,7 @@ static bool xt_csr_ignore(int csrno)
     case CSR_SIESR:
     case CSR_SSBEPA:
     case CSR_SSBEPA2:
-    case CSR_CYCLE_C910 ... CSR_SHPMCOUNTER31:
+    case CSR_SCYCLE ... CSR_SHPMCOUNTER31:
     case CSR_MHINT3:
     case CSR_MHINT4:
     case CSR_MBEADDR:
@@ -5855,6 +7146,26 @@ static bool xt_csr_ignore(int csrno)
     case CSR_MTNADDR:
     case CSR_MDEBUG_TN_PC:
     case CSR_TNLOWPOWER:
+    case CSR_XT_CESTATUS:
+    case CSR_XT_SER:
+    case CSR_XT_MCDATA2:
+    case CSR_MIEBR:
+    case CSR_MDEBR:
+    case CSR_MFPPCR:
+    case CSR_MONCHIPBA:
+    case CSR_MFLASHCR:
+    case CSR_MRASCR:
+    case CSR_MSTCCR:
+    case CSR_MWATCHDOG:
+    case CSR_MBUSTIME1:
+    case CSR_MBUSTIME2:
+    case CSR_MBUSTIME3:
+    case CSR_MERRINJ:
+    case CSR_MTEBR0:
+    case CSR_MTEBR1:
+    case CSR_MLOCKWAY:
+    case CSR_MLOCKADDR:
+    case CSR_MUNLOCKCTL:
         return true;
         break;
     default:
@@ -5866,9 +7177,10 @@ static bool xt_csr_ignore(int csrno)
 RISCVException riscv_csrr(CPURISCVState *env, int csrno,
                            target_ulong *ret_value)
 {
-    if (xt_csr_ignore(csrno)) {
+    if (xt_csr_ignore(env, csrno)) {
         return RISCV_EXCP_NONE;
     }
+
     RISCVException ret = riscv_csrrw_check(env, csrno, false);
     if (ret != RISCV_EXCP_NONE) {
         return ret;
@@ -5881,7 +7193,7 @@ RISCVException riscv_csrrw(CPURISCVState *env, int csrno,
                            target_ulong *ret_value,
                            target_ulong new_value, target_ulong write_mask)
 {
-    if (xt_csr_ignore(csrno)) {
+    if (xt_csr_ignore(env, csrno)) {
         return RISCV_EXCP_NONE;
     }
 
@@ -6046,6 +7358,12 @@ static int read_mxstatus(CPURISCVState *env, int csrno, target_ulong *val)
 static int write_mxstatus(CPURISCVState *env, int csrno, target_ulong val)
 {
     env->mxstatus = val;
+    /*
+     * This extension does not affect instruction translation or register
+     * reads/writes; it only impacts page table walks. Therefore, it can
+     * be handled by updating the CPU configuration (CFG) only;
+     * otherwise the change would need to be propagated via tb_flags.
+     */
     bool *maee = (bool *)&(riscv_cpu_cfg(env)->ext_xtheadmaee);
     *maee = !!(val & TH_SXSTATUS_MAEE);
     return RISCV_EXCP_NONE;
@@ -6522,6 +7840,42 @@ static int write_smlo0(CPURISCVState *env, int csrno, target_ulong val)
     return RISCV_EXCP_NONE;
 }
 
+RISCVException suenq(CPURISCVState *env, int csrno)
+{
+    const RISCVCPUConfig *cfg = riscv_cpu_cfg(env);
+    if (!cfg->ext_xtheadaioe) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->debugger) {
+        return smode(env, csrno);
+    }
+    if (!get_field(env->menvcfg, MENVCFG_SUENQ) && env->priv != PRV_M) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (get_field(env->menvcfg, MENVCFG_SUENQ)) {
+        if (env->priv < PRV_S && env->virt_enabled) {
+            return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+        }
+        if (env->priv == PRV_S && env->virt_enabled
+            && !get_field(env->henvcfg, HENVCFG_SUENQ)) {
+            return RISCV_EXCP_VIRT_INSTRUCTION_FAULT;
+        }
+    }
+    return smode(env, csrno);
+}
+
+static int read_suenq(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    *val = env->suenq;
+    return RISCV_EXCP_NONE;
+}
+
+static int write_suenq(CPURISCVState *env, int csrno, target_ulong val)
+{
+    env->suenq = val & (CSR_SUENQ_DATA | CSR_SUENQ_DL);
+    return RISCV_EXCP_NONE;
+}
+
 static int read_cpuid(CPURISCVState *env, int csrno, target_ulong *val)
 {
     *val = env->cpuid;
@@ -6531,55 +7885,186 @@ static int read_cpuid(CPURISCVState *env, int csrno, target_ulong *val)
 
 /* CLIC CSR callbacks */
 #if !defined(CONFIG_USER_ONLY)
+
+static inline bool clic_device_exists(CPURISCVState *env)
+{
+    return env->xt_clic_v0p8 || env->xt_clic_v0p10;
+}
+
 RISCVException clic(CPURISCVState *env, int csrno)
 {
-    return (env->clic || env->clint_clic) ? RISCV_EXCP_NONE :
-                                            RISCV_EXCP_ILLEGAL_INST;
+    if (!riscv_cpu_cfg(env)->ext_smclic_v0p8 &&
+        !riscv_cpu_cfg(env)->ext_smclic_v0p10) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    return RISCV_EXCP_NONE;
+}
+
+RISCVException clic_v0p8(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_smclic_v0p8) {
+        return RISCV_EXCP_NONE;
+    }
+
+    return RISCV_EXCP_ILLEGAL_INST;
+}
+
+RISCVException clic_v0p10(CPURISCVState *env, int csrno)
+{
+    if (riscv_cpu_cfg(env)->ext_smclic_v0p10) {
+        return RISCV_EXCP_NONE;
+    }
+
+    return RISCV_EXCP_ILLEGAL_INST;
+}
+
+static RISCVException sclic(CPURISCVState *env, int csrno)
+{
+    if (!riscv_cpu_cfg(env)->ext_ssclic_v0p10 ||
+        !riscv_has_ext(env, RVS)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return clic(env, csrno);
+}
+
+static RISCVException sclic_v0p8(CPURISCVState *env, int csrno)
+{
+    if (!riscv_has_ext(env, RVS)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return clic_v0p8(env, csrno);
+}
+
+static RISCVException sclic_v0p10(CPURISCVState *env, int csrno)
+{
+    if (!riscv_cpu_cfg(env)->ext_ssclic_v0p10 ||
+        !riscv_has_ext(env, RVS)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    return clic_v0p10(env, csrno);
 }
 
 static int read_mintstatus(CPURISCVState *env, int csrno, target_ulong *val)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    switch (csrno) {
+    case CSR_MINTSTATUS_0p8:
+        if (!env->xt_clic_v0p8) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+        break;
+    case CSR_MINTSTATUS_0p10:
+        if (!env->xt_clic_v0p10) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+        break;
+    default:
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
     *val = env->mintstatus;
     return RISCV_EXCP_NONE;
 }
 
 static int read_sintstatus(CPURISCVState *env, int csrno, target_ulong *val)
 {
-    *val = 0;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    switch (csrno) {
+    case CSR_SINTSTATUS_0p8:
+        if (!env->xt_clic_v0p8) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+        break;
+    case CSR_SINTSTATUS_0p10:
+        if (!env->xt_clic_v0p10) {
+            return RISCV_EXCP_ILLEGAL_INST;
+        }
+        break;
+    default:
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+
+    *val = env->mintstatus & MINTSTATUS_SIL;
     return RISCV_EXCP_NONE;
 }
 
 static int read_mintthresh(CPURISCVState *env, int csrno, target_ulong *val)
 {
-    *val = env->mintthresh;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->xt_clic_v0p10) {
+        *val = env->mintthresh & MINTTHRESH_MTH_V0P10;
+    } else {
+        *val = env->mintthresh & MINTTHRESH_MTH;
+    }
     return RISCV_EXCP_NONE;
 }
 
 static int write_mintthresh(CPURISCVState *env, int csrno, target_ulong val)
 {
-    env->mintthresh = val;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->xt_clic_v0p10) {
+        /*
+        * The th field is held in the least-significant 8 bits of the CSR,
+        * and zero should be written to the upper bits.
+        */
+        env->mintthresh = val & MINTTHRESH_MTH_V0P10;
+    } else {
+        env->mintthresh = val & MINTTHRESH_MTH;
+    }
     return RISCV_EXCP_NONE;
 }
 
 static int read_sintthresh(CPURISCVState *env, int csrno, target_ulong *val)
 {
-    *val = 0;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    *val = env->sintthresh;
     return RISCV_EXCP_NONE;
 }
 
 static int write_sintthresh(CPURISCVState *env, int csrno, target_ulong val)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    if (env->xt_clic_v0p10) {
+        /*
+        * The th field is held in the least-significant 8 bits of the CSR,
+        * and zero should be written to the upper bits.
+        */
+        env->sintthresh = val & MINTTHRESH_MTH_V0P10;
+    } else {
+        env->sintthresh = val & MINTTHRESH_MTH;
+    }
     return RISCV_EXCP_NONE;
 }
 
 static int read_mtvt(CPURISCVState *env, int csrno, target_ulong *val)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
     *val = env->mtvt;
     return RISCV_EXCP_NONE;
 }
 
 static int write_mtvt(CPURISCVState *env, int csrno, target_ulong val)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
     env->mtvt = val & ~((1ULL << 6) - 1);
     return RISCV_EXCP_NONE;
 }
@@ -6589,6 +8074,9 @@ static RISCVException rmw_mscratchcsw(CPURISCVState *env, int csrno,
                                       target_ulong new_value,
                                       target_ulong write_mask)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
     target_ulong rs1 = (env->mscratch & ~write_mask) | (new_value & write_mask);
     target_ulong mpp = get_field(env->mcause, MSTATUS_MPP);
 
@@ -6609,6 +8097,9 @@ static RISCVException rmw_mscratchcsl(CPURISCVState *env, int csrno,
                                       target_ulong new_value,
                                       target_ulong write_mask)
 {
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
     target_ulong rs1 = (env->mscratch & ~write_mask) | (new_value & write_mask);
     target_ulong pil = get_field(env->mcause, MCAUSE_MPIL);
     target_ulong mil = get_field(env->mintstatus, MINTSTATUS_MIL);
@@ -6625,94 +8116,210 @@ static RISCVException rmw_mscratchcsl(CPURISCVState *env, int csrno,
     return RISCV_EXCP_NONE;
 }
 
-static bool get_xnxti_status(CPURISCVState *env)
+static RISCVException rmw_sscratchcsw(CPURISCVState *env, int csrno,
+                                      target_ulong *ret_value,
+                                      target_ulong new_value,
+                                      target_ulong write_mask)
 {
-    int clic_irq, clic_priv, clic_il, pil;
-
-    if (!env->exccode) { /* No interrupt */
-        return false;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
     }
-    /* The system is not in a CLIC mode */
-    if (!xt_clic_is_clic_mode(env)) {
-        return false;
+    target_ulong rs1 = (env->sscratch & ~write_mask) | (new_value & write_mask);
+
+    if (env->priv == PRV_S) {
+        /* Supervisor mode: check sstatus.SPP */
+        target_ulong spp = get_field(env->mstatus, SSTATUS_SPP);
+
+        if (spp) {
+            /* sstatus.SPP is set: rd = rs1, sscratch unchanged */
+            if (ret_value) {
+                *ret_value = rs1;
+            }
+        } else {
+            /* sstatus.SPP is clear: swap sscratch and rs1 */
+            if (ret_value) {
+                *ret_value = env->sscratch;
+            }
+            env->sscratch = rs1;
+        }
+    } else if (env->priv == PRV_M) {
+        /* Machine mode: check mstatus.MPP */
+        target_ulong mpp = get_field(env->mstatus, MSTATUS_MPP);
+        if (mpp == PRV_M) {
+            /* MPP is Machine: rd = rs1, sscratch unchanged */
+            if (ret_value) {
+                *ret_value = rs1;
+            }
+        } else {
+            /* MPP is Supervisor: swap sscratch and rs1 */
+            if (ret_value) {
+                *ret_value = env->sscratch;
+            }
+            env->sscratch = rs1;
+        }
     } else {
-        xt_clic_decode_exccode(env->exccode, &clic_priv, &clic_il,
-                               &clic_irq);
-
-        if (env->priv == PRV_M) {
-            pil = MAX(get_field(env->mcause, MCAUSE_MPIL), env->mintthresh);
-        } else {
-            qemu_log_mask(LOG_GUEST_ERROR,
-                          "CSR: rmw xnxti with unsupported mode\n");
-            exit(1);
-        }
-
-        if ((clic_il <= pil) || /* No higher level interrupt */
-            (xt_clic_shv_interrupt(env->clic, clic_irq))) {
-            return false;
-        } else {
-            return true;
-        }
+        g_assert_not_reached();
     }
+    return RISCV_EXCP_NONE;
 }
 
-static int rmw_mnxti(CPURISCVState *env, int csrno, target_ulong *ret_value,
-                     target_ulong new_value, target_ulong write_mask)
+static RISCVException rmw_sscratchcsl(CPURISCVState *env, int csrno,
+                                      target_ulong *ret_value,
+                                      target_ulong new_value,
+                                      target_ulong write_mask)
 {
-    int clic_priv, clic_il, clic_irq;
-    bool ready;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    target_ulong rs1 = (env->sscratch & ~write_mask) | (new_value & write_mask);
+    target_ulong spil = get_field(env->scause, SCAUSE_SPIL);
+    target_ulong sil = get_field(env->mintstatus, MINTSTATUS_SIL);
+    target_ulong pil = get_field(env->mcause, MCAUSE_MPIL);
+    target_ulong mil = get_field(env->mintstatus, MINTSTATUS_MIL);
+
+    if (env->priv == PRV_S) {
+        if ((spil == 0) != (sil == 0)) {
+            if (ret_value) {
+                *ret_value = env->sscratch;
+            }
+            env->sscratch = rs1;
+        } else if (ret_value) {
+            *ret_value = rs1;
+        }
+    } else if (env->priv == PRV_M) {
+        if ((pil == 0) != (mil == 0)) {
+            if (ret_value) {
+                *ret_value = env->sscratch;
+            }
+            env->sscratch = rs1;
+        } else if (ret_value) {
+            *ret_value = rs1;
+        }
+    } else {
+        g_assert_not_reached();
+    }
+
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException rmw_mnxti(CPURISCVState *env, int csrno,
+                                target_ulong *ret_value,
+                                target_ulong new_value, target_ulong write_mask)
+{
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    target_ulong clic_il, clic_irq;
+    target_ulong suitable_irq = 0;
+
+    if (!riscv_clic_is_clic_mode(env)) {
+        /*
+        * The system is not in a CLIC mode.
+        * According to hardware implementation, snxti and mnxti registers
+        * are accessible even in non-CLIC mode, so we return 0 instead of
+        * raising an illegal instruction exception.
+        */
+       if (ret_value) {
+           *ret_value = 0;
+       }
+        return RISCV_EXCP_NONE;
+    }
+
     if (write_mask) {
         env->mstatus |= new_value & (write_mask & MSTATUS_MIE);
     }
 
     BQL_LOCK_GUARD();
 
-    ready = get_xnxti_status(env);
-    if (ready) {
-        xt_clic_decode_exccode(env->exccode, &clic_priv, &clic_il,
-                                  &clic_irq);
+    if (csrno == CSR_MNXTI) {
+        suitable_irq = riscv_clic_find_suitable_interrupt(env, PRV_M);
+    } else if (csrno == CSR_SNXTI) {
+        suitable_irq = riscv_clic_find_suitable_interrupt(env, PRV_S);
+    } else {
+        qemu_log_mask(LOG_GUEST_ERROR,
+                        "CSR: rmw xnxti with unsupported mode\n");
+        exit(1);
+    }
+
+    if (suitable_irq) {
+        riscv_clic_decode_exccode(suitable_irq, NULL, &clic_il, &clic_irq);
         if (write_mask) {
-            bool edge = xt_clic_edge_triggered(env->clic, clic_irq);
+            bool edge = riscv_clic_edge_triggered(env, clic_irq);
             if (edge) {
-                xt_clic_clean_pending(env->clic, clic_irq);
+                riscv_clic_clean_pending(env, clic_irq);
             }
-            env->mintstatus = set_field(env->mintstatus,
-                                        MINTSTATUS_MIL, clic_il);
-            env->mcause = set_field(env->mcause, MCAUSE_EXCCODE, clic_irq);
+            if (csrno == CSR_MNXTI) {
+                env->mintstatus = set_field(env->mintstatus,
+                                            MINTSTATUS_MIL, clic_il);
+                env->mcause = set_field(env->mcause, MCAUSE_EXCCODE, clic_irq);
+            } else {
+                env->mintstatus = set_field(env->mintstatus,
+                                            MINTSTATUS_SIL, clic_il);
+                env->scause = set_field(env->scause, MCAUSE_EXCCODE, clic_irq);
+            }
         }
         if (ret_value) {
-            *ret_value = (env->mtvt & ~0x3f) + sizeof(target_ulong) * clic_irq;
+            *ret_value = (((csrno == CSR_MNXTI) ? env->mtvt : env->stvt) &
+                          ~0x3f) + sizeof(target_ulong) * clic_irq;
         }
     } else {
+        /* No interrupt or Not in a CLIC mode */
         if (ret_value) {
             *ret_value = 0;
         }
     }
-
     return RISCV_EXCP_NONE;
 }
 
 static int read_stvt(CPURISCVState *env, int csrno, target_ulong *val)
 {
-    *val = 0;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
+    }
+    *val = env->stvt;
     return RISCV_EXCP_NONE;
 }
 
 static int write_stvt(CPURISCVState *env, int csrno, target_ulong val)
 {
-    return RISCV_EXCP_NONE;
-}
-
-static int rmw_snxti(CPURISCVState *env, int csrno, target_ulong *ret_value,
-                     target_ulong new_value, target_ulong write_mask)
-{
-    if (ret_value) {
-        *ret_value = 0;
+    if (!clic_device_exists(env)) {
+        return RISCV_EXCP_ILLEGAL_INST;
     }
-
+    if (riscv_cpu_sxl(env) == MXL_RV32) {
+        env->stvt = val & STVT_MASK_RV32;
+    } else {
+        env->stvt = val & STVT_MASK_RV64;
+    }
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException rmw_snxti(CPURISCVState *env, int csrno,
+                                target_ulong *ret_value,
+                                target_ulong new_value, target_ulong write_mask)
+{
+    return rmw_mnxti(env, csrno, ret_value, new_value, write_mask);
+}
+
+static RISCVException
+rmw_rplcntl(CPURISCVState *env, int csrno,
+            target_ulong *ret_val, target_ulong new_val, target_ulong wr_mask)
+{
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+rmw_cachelock(CPURISCVState *env, int csrno,
+            target_ulong *ret_val, target_ulong new_val, target_ulong wr_mask)
+{
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+rmw_cacherplpri(CPURISCVState *env, int csrno,
+                target_ulong *ret_val, target_ulong new_val, target_ulong wr_mask)
+{
+    return RISCV_EXCP_NONE;
+}
 #endif
 
 static RISCVException zicfiss_ssp(CPURISCVState *env, int csrno)
@@ -6758,6 +8365,154 @@ write_ssp(CPURISCVState *env, int csrno, target_ulong val)
     return RISCV_EXCP_NONE;
 }
 
+static RISCVException
+read_xmdmaidle(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    *val = env->xmdmaidle & XMDMAIDLE_IDLE_MASK;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+read_xmsyncdsr(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    *val = env->tpe_sync_done;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+read_xmsynctr(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    *val = env->xmsynctr & (XMSYNCTR_CHAIN_NEXT_ID | XMSYNCTR_CHAIN_HEAD |
+                            XMSYNCTR_SEND_SEMA);;
+    return RISCV_EXCP_NONE;
+}
+
+
+/*
+ * Checks if all harts in the synchronization chain have marked themselves
+ * as ready. This function traverses the circular list of harts.
+ */
+static bool is_sync_chain_complete(int start_hartid)
+{
+    CPUState *cpu = cpu_by_arch_id(start_hartid);
+    RISCVCPU *rvcpu = RISCV_CPU(cpu);
+    CPURISCVState *next_env = &rvcpu->env;
+
+    if (!qatomic_load_acquire(&next_env->tpe_self_done)) {
+        return false;
+    }
+
+    /* Traverse the circular chain until we return to the start. */
+    while (cpu != current_cpu) {
+        /*
+         * Reading tpe_next_hartid after the acquire load is safe because
+         * the acquire semantics prevent memory reordering.
+         */
+        cpu = cpu_by_arch_id(next_env->tpe_next_hartid);
+        rvcpu = RISCV_CPU(cpu);
+        next_env = &rvcpu->env;
+        /*
+         * Use an acquire load to check the flag. This ensures that if we
+         * read 'true', we are guaranteed to see the 'tpe_next_hartid'
+         * value that was written before the flag was set.
+         */
+        if (!qatomic_load_acquire(&next_env->tpe_self_done)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/*
+ * Broadcasts the synchronization completion signal (tpe_sync_done = true)
+ * to all harts in the chain.
+ */
+static void broadcast_sync_completion(CPURISCVState *env)
+{
+    int next_hartid = env->tpe_next_hartid;
+    CPUState *cpu = cpu_by_arch_id(next_hartid);
+
+    /* Use a release store to make the completion signal visible. */
+    qatomic_store_release(&env->tpe_sync_done, true);
+
+    /* Traverse the chain and set the flag on all other harts. */
+    while (cpu != current_cpu) {
+        RISCVCPU *rvcpu = RISCV_CPU(cpu);
+        CPURISCVState *next_env = &rvcpu->env;
+
+        qatomic_store_release(&next_env->tpe_sync_done, true);
+        cpu = cpu_by_arch_id(next_env->tpe_next_hartid);
+    }
+}
+
+/*
+ * Handles writes to the xmsynctr CSR to coordinate hart synchronization.
+ * This is the entry point for a hart initiating a sync operation.
+ */
+static RISCVException write_xmsynctr(CPURISCVState *env, int csrno,
+                                     target_ulong val)
+{
+    int send_sema = (int)get_field(val, XMSYNCTR_SEND_SEMA);
+    int next_hartid = (int)get_field(val, XMSYNCTR_CHAIN_NEXT_ID);
+    env->xmsynctr = val & (XMSYNCTR_CHAIN_NEXT_ID | XMSYNCTR_CHAIN_HEAD |
+                           XMSYNCTR_SEND_SEMA);
+    /* Exit early if this write is not a synchronization start signal. */
+    if (!send_sema) {
+        return RISCV_EXCP_NONE;
+    }
+
+    /*
+     * Prepare this hart's state. The write to 'tpe_next_hartid' is a
+     * plain store, as its visibility is guaranteed by the release below.
+     */
+    env->tpe_sync_done = false;
+    env->tpe_next_hartid = next_hartid;
+
+    /*
+     * Use a release store to set the 'self_done' flag. This ensures
+     * that the write to 'tpe_next_hartid' above is visible to other
+     * harts before this flag is seen as true.
+     */
+    qatomic_store_release(&env->tpe_self_done, true);
+
+    /*
+     * Check if all other harts in the synchronization chain are also ready.
+     * If not, this hart has done its part and will simply wait.
+     */
+    if (!is_sync_chain_complete(next_hartid)) {
+        return RISCV_EXCP_NONE;
+    }
+    smp_mb();
+    /*
+     * All harts are now ready. This hart, being the last to signal,
+     * will broadcast the final completion signal to all harts.
+     */
+    broadcast_sync_completion(env);
+
+    return RISCV_EXCP_NONE;
+}
+
+#if !defined(CONFIG_USER_ONLY)
+static RISCVException
+read_xmdmaerrinfo(CPURISCVState *env, int csrno, target_ulong *val)
+{
+    uint64_t mask = XMDMAERRINFO_VEC_MASK | XMDMAERRINFO_TYPE_MASK |
+                    XMDMAERRINFO_ID_MASK | XMDMAERRINFO_V_MASK;
+    *val = env->xmdmaerrinfo & mask;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException
+write_xmdmaerrinfo(CPURISCVState *env, int csrno, target_ulong val)
+{
+    uint64_t mask = XMDMAERRINFO_VEC_MASK | XMDMAERRINFO_TYPE_MASK |
+                    XMDMAERRINFO_ID_MASK | XMDMAERRINFO_V_MASK;
+    env->xmdmaerrinfo = (env->xmdmaerrinfo & ~mask) | (val & mask);
+    return RISCV_EXCP_NONE;
+}
+#endif
+
 /*
  * Control and Status Register function table
  * riscv_csr_operations::predicate() must be provided for an implemented CSR
@@ -6802,10 +8557,23 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_MLENB]    = { "xrlenb",   ms,    read_xrlenb                },
     [CSR_XMISA]    = { "xmisa",    ms,    read_xmisa                 },
 
+    /* Matrix v0.5 CSRs */
+    [CSR_XMXRM]     = { "xmxrm",    ms,    read_xmxrm,    write_xmxrm   },
+    [CSR_XMSAT]     = { "xmsat",    ms,    read_xmsat,    write_xmsat   },
+    [CSR_XMFFLAGS]  = { "xmfflags", ms,    read_xmfflags, write_xmfflags   },
+    [CSR_XMFRM]     = { "xmfrm",    ms,    read_xmfrm,    write_xmfrm   },
+    [CSR_XMSATEN]   = { "xmsaten",  ms,    read_xmsaten,  write_xmsaten   },
+    [CSR_XMXADESC]  = { "xmxadesc", ms,    read_xmxadesc, write_xmxadesc   },
+    [CSR_XMXBDESC]  = { "xmxbdesc", ms,    read_xmxbdesc, write_xmxbdesc   },
+    [CSR_XMDMAIDLE] = { "xmdmaidle",  ms,  read_xmdmaidle },
+    [CSR_XMSYNCTR] =  { "xmsynctr",  any,  read_xmsynctr, write_xmsynctr},
+    [CSR_XMSYNCDSR] = { "xmsyncdsr",  any,  read_xmsyncdsr},
+
     /* Xuantie CSRs */
     [CSR_FXCR] =     { "fxcr",     fs,     read_fxcr,    write_fxcr   },
     /* Shadow Stack Pointer */
     [CSR_SSP]  = { "ssp",  zicfiss_ssp, read_ssp,  write_ssp },
+
 #if !defined(CONFIG_USER_ONLY)
     /* Machine Timers and Counters */
     [CSR_MCYCLE]    = { "mcycle",    any,   read_hpmcounter,
@@ -7130,6 +8898,30 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_PMPCFG1]    = { "pmpcfg1",   pmp, read_pmpcfg,  write_pmpcfg  },
     [CSR_PMPCFG2]    = { "pmpcfg2",   pmp, read_pmpcfg,  write_pmpcfg  },
     [CSR_PMPCFG3]    = { "pmpcfg3",   pmp, read_pmpcfg,  write_pmpcfg  },
+    [CSR_PMPCFG4]    = { "pmpcfg4",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG5]    = { "pmpcfg5",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG6]    = { "pmpcfg6",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG7]    = { "pmpcfg7",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG8]    = { "pmpcfg8",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG9]    = { "pmpcfg9",   pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG10]   = { "pmpcfg10",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG11]   = { "pmpcfg11",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG12]   = { "pmpcfg12",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG13]   = { "pmpcfg13",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG14]   = { "pmpcfg14",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPCFG15]   = { "pmpcfg15",  pmp, read_pmpcfg,  write_pmpcfg,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
     [CSR_PMPADDR0]   = { "pmpaddr0",  pmp, read_pmpaddr, write_pmpaddr },
     [CSR_PMPADDR1]   = { "pmpaddr1",  pmp, read_pmpaddr, write_pmpaddr },
     [CSR_PMPADDR2]   = { "pmpaddr2",  pmp, read_pmpaddr, write_pmpaddr },
@@ -7144,9 +8936,104 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_PMPADDR11]  = { "pmpaddr11", pmp, read_pmpaddr, write_pmpaddr },
     [CSR_PMPADDR12]  = { "pmpaddr12", pmp, read_pmpaddr, write_pmpaddr },
     [CSR_PMPADDR13]  = { "pmpaddr13", pmp, read_pmpaddr, write_pmpaddr },
-    [CSR_PMPADDR14] =  { "pmpaddr14", pmp, read_pmpaddr, write_pmpaddr },
-    [CSR_PMPADDR15] =  { "pmpaddr15", pmp, read_pmpaddr, write_pmpaddr },
-
+    [CSR_PMPADDR14]  = { "pmpaddr14", pmp, read_pmpaddr, write_pmpaddr },
+    [CSR_PMPADDR15]  = { "pmpaddr15", pmp, read_pmpaddr, write_pmpaddr },
+    [CSR_PMPADDR16]  = { "pmpaddr16", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR17]  = { "pmpaddr17", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR18]  = { "pmpaddr18", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR19]  = { "pmpaddr19", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR20]  = { "pmpaddr20", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR21]  = { "pmpaddr21", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR22]  = { "pmpaddr22", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR23]  = { "pmpaddr23", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR24]  = { "pmpaddr24", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR25]  = { "pmpaddr25", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR26]  = { "pmpaddr26", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR27]  = { "pmpaddr27", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR28]  = { "pmpaddr28", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR29]  = { "pmpaddr29", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR30]  = { "pmpaddr30", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR31]  = { "pmpaddr31", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR32]  = { "pmpaddr32", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR33]  = { "pmpaddr33", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR34]  = { "pmpaddr34", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR35]  = { "pmpaddr35", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR36]  = { "pmpaddr36", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR37]  = { "pmpaddr37", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR38]  = { "pmpaddr38", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR39]  = { "pmpaddr39", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR40]  = { "pmpaddr40", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR41]  = { "pmpaddr41", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR42]  = { "pmpaddr42", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR43]  = { "pmpaddr43", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR44]  = { "pmpaddr44", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR45]  = { "pmpaddr45", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR46]  = { "pmpaddr46", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR47]  = { "pmpaddr47", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR48]  = { "pmpaddr48", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR49]  = { "pmpaddr49", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR50]  = { "pmpaddr50", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR51]  = { "pmpaddr51", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR52]  = { "pmpaddr52", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR53]  = { "pmpaddr53", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR54]  = { "pmpaddr54", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR55]  = { "pmpaddr55", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR56]  = { "pmpaddr56", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR57]  = { "pmpaddr57", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR58]  = { "pmpaddr58", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR59]  = { "pmpaddr59", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR60]  = { "pmpaddr60", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR61]  = { "pmpaddr61", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR62]  = { "pmpaddr62", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
+    [CSR_PMPADDR63]  = { "pmpaddr63", pmp, read_pmpaddr, write_pmpaddr,
+                         .min_priv_ver = PRIV_VERSION_1_12_0           },
     /* Debug CSRs */
     [CSR_TSELECT]   =  { "tselect",  debug, read_tselect,  write_tselect  },
     [CSR_TDATA1]    =  { "tdata1",   debug, read_tdata,    write_tdata    },
@@ -7525,28 +9412,72 @@ riscv_csr_operations csr_ops[CSR_TABLE_SIZE] = {
     [CSR_SMEH] =       {"smeh", any, read_smeh, write_smeh                },
     [CSR_SMLO0] =      {"smlo0", any, read_smlo0, write_smlo0             },
     [CSR_MFASTM] =     {"mtnfastmba", xt_fastm, read_mfastm, write_mfastm   },
+    [CSR_SUENQ] =      {"suenq", suenq, read_suenq, write_suenq   },
 
     /* CLIC CSR */
     /* Machine Mode Core Level Interrupt Controller */
-    [CSR_MINTSTATUS] = { "mintstatus", clic,  read_mintstatus },
+    [CSR_MINTSTATUS_0p8] = { "mintstatus", clic_v0p8,  read_mintstatus },
+    [CSR_MINTSTATUS_0p10] = { "mintstatus", clic_v0p10,  read_mintstatus },
     [CSR_MINTTHRESH] = { "mintthresh", clic,  read_mintthresh,
                          write_mintthresh },
     [CSR_MNXTI]          = { "mnxti",      clic,  NULL, NULL, rmw_mnxti },
     [CSR_MTVT] = { "mtvt", clic,  read_mtvt,  write_mtvt      },
     [CSR_MSCRATCHCSW] =  { "mscratchcsw", clic,  NULL, NULL,  rmw_mscratchcsw },
-    [CSR_MSCRATCHCSL] =  { "mscratchcsl", clic,  NULL, NULL,  rmw_mscratchcsl },
+    [CSR_MSCRATCHCSL] =  { "mscratchcswl", clic,  NULL, NULL, rmw_mscratchcsl },
 
     /* Supervisor Mode Core Level Interrupt Controller */
-    [CSR_SINTSTATUS] = { "sintstatus", clic,  read_sintstatus },
-    [CSR_SINTTHRESH] = { "sintthresh", clic,  read_sintthresh,
+    [CSR_SINTSTATUS_0p8] = { "sintstatus", sclic_v0p8,  read_sintstatus },
+    [CSR_SINTSTATUS_0p10] = { "sintstatus", sclic_v0p10,  read_sintstatus },
+    [CSR_SINTTHRESH] = { "sintthresh", sclic,  read_sintthresh,
                          write_sintthresh },
-    [CSR_STVT] = { "stvt", clic,  read_stvt, write_stvt       },
+    [CSR_STVT] = { "stvt", sclic,  read_stvt, write_stvt       },
     [CSR_SNXTI]          = { "snxti",      clic,  NULL, NULL, rmw_snxti },
+    [CSR_SSCRATCHCSW] =  { "sscratchcsw", clic,  NULL, NULL,  rmw_sscratchcsw },
+    [CSR_SSCRATCHCSL] =  { "sscratchcswl", clic,  NULL, NULL, rmw_sscratchcsl },
 
     /* Supervisor Domain Identifier and Protection Registers */
-    [CSR_MTTP] =    { "mttp",   smsdid,  read_mttp,   write_mttp   },
+    [CSR_MMPT] =    { "mmpt",   smsdid,  read_mmpt,   write_mmpt   },
     [CSR_MSDCFG] =  { "msdcfg", smsdid,  read_msdcfg, write_msdcfg },
 
+    /* SPMP */
+    [CSR_MPMPDELEG] = { "mpmpdeleg", smpmpdeleg, read_mpmpdeleg, write_mpmpdeleg,
+                        .min_priv_ver = PRIV_VERSION_1_13_0        },
 
+    /* Matrix v0.5 CSRs */
+    [CSR_XMDMAERRINFO]     = { "xmdmaerrinfo",    tpe,    read_xmdmaerrinfo,
+                               write_xmdmaerrinfo  },
+    [XT_CSR_MTIMEDELTA]    = { "mtimedelta",    any,    read_mtimedelta,
+                               write_mtimedelta    },
+    [XT_CSR_MTIMEDELTAH]    = { "mtimedeltah",    any,    read_mtimedeltah,
+                               write_mtimedeltah    },
+    [XT_CSR_MVMID]    = { "mvmid",    any, read_mvmid, write_mvmid  },
+
+    /* Cache Lock CSRs */
+    [CSR_MRplCntlSt]    = { "mrplcntl",      mcachelock, NULL, NULL, rmw_rplcntl  },
+    [CSR_MCacheLock]    = { "mcachelock",    mcachelock, NULL, NULL, rmw_cachelock  },
+    [CSR_MCacheRplPri0] = { "mcacherplpri0", mcachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_MCacheRplPri1] = { "mcacherplpri1", mcachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_MCacheRplPri2] = { "mcacherplpri2", mcachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_MCacheRplPri3] = { "mcacherplpri3", mcachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_MCacheRplPri4] = { "mcacherplpri4", mcachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_MCacheRplPri5] = { "mcacherplpri5", mcachelock, NULL, NULL, rmw_cacherplpri  },
+
+    [CSR_SRplCntlSt]    = { "srplcntl",      scachelock, NULL, NULL, rmw_rplcntl  },
+    [CSR_SCacheLock]    = { "scachelock",    scachelock, NULL, NULL, rmw_cachelock  },
+    [CSR_SCacheRplPri0] = { "scacherplpri0", scachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_SCacheRplPri1] = { "scacherplpri1", scachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_SCacheRplPri2] = { "scacherplpri2", scachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_SCacheRplPri3] = { "scacherplpri3", scachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_SCacheRplPri4] = { "scacherplpri4", scachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_SCacheRplPri5] = { "scacherplpri5", scachelock, NULL, NULL, rmw_cacherplpri  },
+
+    [CSR_URplCntlSt]    = { "urplcntl",      ucachelock, NULL, NULL, rmw_rplcntl  },
+    [CSR_UCacheLock]    = { "ucachelock",    ucachelock, NULL, NULL, rmw_cachelock  },
+    [CSR_UCacheRplPri0] = { "ucacherplpri0", ucachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_UCacheRplPri1] = { "ucacherplpri1", ucachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_UCacheRplPri2] = { "ucacherplpri2", ucachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_UCacheRplPri3] = { "ucacherplpri3", ucachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_UCacheRplPri4] = { "ucacherplpri4", ucachelock, NULL, NULL, rmw_cacherplpri  },
+    [CSR_UCacheRplPri5] = { "ucacherplpri5", ucachelock, NULL, NULL, rmw_cacherplpri  },
 #endif /* !CONFIG_USER_ONLY */
 };

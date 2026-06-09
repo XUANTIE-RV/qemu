@@ -27,3 +27,6 @@ config REGISTER
 
 config SPLIT_IRQ
     bool
+
+config STREAM
+    bool

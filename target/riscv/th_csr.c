@@ -18,6 +18,7 @@
  */
 
 #include "qemu/osdep.h"
+#include "qemu/log.h"
 #include "cpu.h"
 #include "cpu_vendorid.h"
 
@@ -45,6 +46,16 @@ static int test_always_false(RISCVCPU *cpu)
 {
     return -1;
 }
+
+static int test_e908a(RISCVCPU *cpu)
+{
+    g_autofree char *cpuname = riscv_cpu_get_name(cpu);
+    /* Check if CPU name starts with "xt-e908a" */
+    if (strncmp(cpuname, "xt-e908a", 8) == 0) {
+        return 0;
+    }
+    return -1;
+}
 #endif /* !CONFIG_USER_ONLY */
 
 /*
@@ -58,7 +69,6 @@ static RISCVException th_vs(CPURISCVState *env, int csrno)
         if (csrno == CSR_VCSR) {
             return RISCV_EXCP_ILLEGAL_INST;
         }
-        return RISCV_EXCP_NONE;
     }
     return vs(env, csrno);
 }
@@ -214,6 +224,38 @@ static RISCVException read_mclicbase(CPURISCVState *env, int csrno,
     *val = env->mclicbase;
     return RISCV_EXCP_NONE;
 }
+
+static RISCVException read_mapbaddr(CPURISCVState *env, int csrno,
+                                    target_ulong *val)
+{
+    *val = env->xt_monchipba;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException read_monchipba(CPURISCVState *env, int csrno,
+                                     target_ulong *val)
+{
+    *val = env->xt_monchipba;
+    return RISCV_EXCP_NONE;
+}
+
+static RISCVException write_monchipba(CPURISCVState *env, int csrno,
+                                      target_ulong val)
+{
+    /*
+     * Bits [31:20]: Base Address (RW)
+     * Bits [19:4]: Reserved (RO, all zeros)
+     * Bits [3:1]: Size (RW)
+     * Bit [0]: EN (RW)
+     */
+    /* Base Address [31:20] + Size [3:1] + EN [0] */
+    target_ulong mask = 0xFFF0000F;
+    env->xt_monchipba = val & mask;
+    qemu_log_mask(LOG_GUEST_ERROR,
+		  "%s: Modify machine directly instead of write MONCHIPBA\n",
+		  __func__);
+    return RISCV_EXCP_NONE;
+}
 #endif
 
 static riscv_csr th_csr_list[] = {
@@ -283,16 +325,38 @@ static riscv_csr th_csr_list[] = {
         .insertion_test = sxcsrind_and_aia_disabled,
         .csr_ops = { "mclicbase", clic, read_mclicbase }
     },
+    {
+        .csrno = CSR_MAPBADDR,
+        .insertion_test = test_e908a,
+        .csr_ops = { "mapbaddr", any, read_mapbaddr }
+    },
+    {
+        .csrno = CSR_MONCHIPBA,
+        .insertion_test = test_e908a,
+        .csr_ops = { "monchipba", any, read_monchipba, write_monchipba }
+    },
 
 #endif /* !CONFIG_USER_ONLY */
 };
 
 void th_register_custom_csrs(RISCVCPU *cpu)
 {
+    static riscv_csr_operations orig_ops[ARRAY_SIZE(th_csr_list)];
+    static bool orig_saved;
+
+    if (!orig_saved) {
+        for (size_t i = 0; i < ARRAY_SIZE(th_csr_list); i++) {
+            riscv_get_csr_ops(th_csr_list[i].csrno, &orig_ops[i]);
+        }
+        orig_saved = true;
+    }
+
     for (size_t i = 0; i < ARRAY_SIZE(th_csr_list); i++) {
         int csrno = th_csr_list[i].csrno;
-        riscv_csr_operations *csr_ops = &th_csr_list[i].csr_ops;
-        if (!th_csr_list[i].insertion_test(cpu))
-            riscv_set_csr_ops(csrno, csr_ops);
+        if (!th_csr_list[i].insertion_test(cpu)) {
+            riscv_set_csr_ops(csrno, &th_csr_list[i].csr_ops);
+        } else {
+            riscv_set_csr_ops(csrno, &orig_ops[i]);
+        }
     }
 }

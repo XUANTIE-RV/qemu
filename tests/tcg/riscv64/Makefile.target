@@ -18,3 +18,15 @@ TESTS += test-fcvtmod
 test-fcvtmod: CFLAGS += -march=rv64imafdc
 test-fcvtmod: LDFLAGS += -static
 run-test-fcvtmod: QEMU_OPTS += -cpu rv64,d=true,zfa=true
+
+# Test for matrix v0.5
+TESTS += test-xt-matrix
+test-xt-matrix: CFLAGS += -march=rv64gcv_zfh_zvfh_zba_zbb_zbc_zbs_zicond_zfa_zifencei_zicsr_xtheadmatrix  -mabi=lp64d
+test-xt-matrix: LDFLAGS += -static
+run-test-fcvtmod: QEMU_OPTS += -cpu zhijiang
+
+# Test for vector turbo
+TESTS += test-xt-vector
+test-xt-matrix: CFLAGS += -mcpu=zhijiang
+test-xt-matrix: LDFLAGS += -static
+run-test-fcvtmod: QEMU_OPTS += -cpu zhijiang

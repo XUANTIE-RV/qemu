@@ -143,7 +143,7 @@ typedef enum {
 
 #define MMU_USER_IDX 3
 
-#define MAX_RISCV_PMPS (16)
+#define MAX_RISCV_PMPS (64)
 
 #if !defined(CONFIG_USER_ONLY)
 #include "pmp.h"
@@ -159,8 +159,8 @@ FIELD(VTYPE, VLMUL, 0, 3)
 FIELD(VTYPE, VSEW, 3, 3)
 FIELD(VTYPE, VTA, 6, 1)
 FIELD(VTYPE, VMA, 7, 1)
-FIELD(VTYPE, VEDIV, 8, 2)
-FIELD(VTYPE, RESERVED, 10, sizeof(target_ulong) * 8 - 11)
+FIELD(VTYPE, ALTFMT, 8, 1)
+FIELD(VTYPE, RESERVED, 9, sizeof(target_ulong) * 8 - 10)
 
 FIELD(MSIZE, SIZEM, 0, 8)
 FIELD(MSIZE, SIZEN, 8, 8)
@@ -175,7 +175,7 @@ FIELD(MSIZE, SIZEK, 16, 16)
 /* See the commentary above the TBFLAG field definitions.  */
 typedef struct CPURISCVTBFlags {
     uint32_t flags;
-    target_ulong flags2;
+    uint64_t flags2;
 } CPURISCVTBFlags;
 
 typedef struct PMUCTRState {
@@ -227,8 +227,19 @@ struct CPUArchState {
     target_ulong mcsr;
     target_ulong mxsat;
     target_ulong mxrm;
+    target_ulong mfrm;
+    bool         xmsaten;
     float_status mfp_status;
     target_ulong xmisa;
+    target_ulong xmdmaidle;
+    bool tpe_sync_done;
+    bool tpe_self_done;
+    int  tpe_next_hartid;
+    target_ulong xmsynctr;
+    target_ulong ma_blksize;
+    target_ulong mb_blksize;
+    target_ulong ma_colidx;
+    target_ulong mb_colidx;
     uint64_t mreg[8 * RV_RLEN_MAX / RV_MACC_LEN  * RV_RLEN_MAX / 64] QEMU_ALIGNED(16);
     target_ulong sizem;
     target_ulong sizen;
@@ -440,6 +451,9 @@ struct CPUArchState {
     /* physical memory protection */
     pmp_table_t pmp_state;
     uint64_t mseccfg;
+    target_ulong mpmpdeleg;
+    uint64_t spmpswitch;
+    uint64_t pmpswitch;
 
     /* trigger module */
     target_ulong trigger_cur;
@@ -494,10 +508,15 @@ struct CPUArchState {
     uint64_t smlo0;
     uint64_t smeh;
     uint64_t mexstatus;
+    uint64_t xt_mtimedelta;
     CPURISCVState *next_cpu;
     bool     in_reset;
-    bool     clint_clic;
+    bool     xt_vmid_en;
+    uint32_t  xt_vmid;
     target_ulong excp_vld;
+    uint64_t mhint3;
+    uint64_t mhint7;
+    uint64_t mnastatus;
 
     /* tcm */
     MemoryRegion *dtcm;
@@ -506,6 +525,7 @@ struct CPUArchState {
     target_ulong mitcmcr;
     uint64_t fastmcr;
     uint64_t fastmcr_old;
+    uint64_t suenq;
 
     /* CLIC */
     uint32_t mintstatus;
@@ -520,12 +540,15 @@ struct CPUArchState {
     uint32_t sdid;
     uint64_t mttppn;
     uint32_t msdcfg;
-
+    /* TPE */
+    target_ulong xmtcmcsr;
+    target_ulong xmdmaerrinfo;
 
 #endif
     /* Xuantie extends */
     bool bf16;
     bool utn_sat; /* Titan 2D reduce/conversion to fp8 saturation mode */
+    target_ulong xt_monchipba;
     uint64_t elf_start;
     uint32_t pctrace;
     uint32_t tb_trace;
@@ -567,8 +590,17 @@ struct CPUArchState {
     hwaddr fdt_addr;
 
     /* CLIC */
+    /*
+     * FIXME: Clic will be deprecated, clic is used for riscv_clic.c
+     * which is useless now.
+     */
     void *clic;
+    void *xt_clic_v0p8;
+    void *xt_clic_v0p10;
     uint32_t exccode; /* clic irq encode */
+
+    /* TPE */
+    void *tpe;
 
     bool dsa_en;
     riscv_dsa_ops *dsa_ops;
@@ -692,7 +724,7 @@ void riscv_cpu_swap_hypervisor_regs(CPURISCVState *env);
 int riscv_cpu_claim_interrupts(RISCVCPU *cpu, uint64_t interrupts);
 uint64_t riscv_cpu_update_mip(CPURISCVState *env, uint64_t mask,
                               uint64_t value);
-bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, int mode);
+bool riscv_cpu_local_irq_mode_enabled(CPURISCVState *env, target_ulong mode);
 void riscv_cpu_interrupt(CPURISCVState *env);
 #define BOOL_TO_MASK(x) (-!!(x)) /* helper for riscv_cpu_update_mip value */
 void riscv_cpu_set_rdtime_fn(CPURISCVState *env, uint64_t (*fn)(void *),
@@ -724,6 +756,7 @@ void riscv_cpu_set_fflags(CPURISCVState *env, target_ulong);
 target_ulong riscv_cpu_get_mfflags(CPURISCVState *env);
 void riscv_cpu_set_mfflags(CPURISCVState *env, target_ulong);
 void riscv_cpu_set_mfrm(CPURISCVState *env, uint32_t);
+void riscv_cpu_set_xmsaten(CPURISCVState *env, bool sat);
 
 #include "exec/cpu-all.h"
 
@@ -751,28 +784,30 @@ FIELD(TB_FLAGS_ANY, XSSE, 29, 1)
 FIELD(TB_FLAGS_ANY, ELP, 30, 1)
 
 /* matrix flags*/
-FIELD(TB_FLAGS_THEAD, PWFP, 0, 1)
-FIELD(TB_FLAGS_THEAD, PWINT, 1, 1)
-FIELD(TB_FLAGS_THEAD, I4I32, 2, 1)
-FIELD(TB_FLAGS_THEAD, I8I32, 3, 1)
-FIELD(TB_FLAGS_THEAD, I16I64, 4, 1)
-FIELD(TB_FLAGS_THEAD, F16F16, 5, 1)
-FIELD(TB_FLAGS_THEAD, F32F32, 6, 1)
-FIELD(TB_FLAGS_THEAD, F64F64, 7, 1)
-FIELD(TB_FLAGS_THEAD, MS, 8, 2)
-FIELD(TB_FLAGS_THEAD, MILL, 10, 1)
-FIELD(TB_FLAGS_THEAD, NILL, 11, 1)
-FIELD(TB_FLAGS_THEAD, KILL, 12, 1)
-FIELD(TB_FLAGS_THEAD, NPILL, 13, 1)
-FIELD(TB_FLAGS_THEAD, F16F32, 14, 1)
-FIELD(TB_FLAGS_THEAD, F32F64, 15, 1)
-FIELD(TB_FLAGS_THEAD, BF16, 20, 1)
-FIELD(TB_FLAGS_THEAD, MSD, 21, 1)
-FIELD(TB_FLAGS_THEAD, SPARSITYFP, 22, 1)
-FIELD(TB_FLAGS_THEAD, SPARSITYINT, 23, 1)
-FIELD(TB_FLAGS_THEAD, FPINTCVT, 24, 1)
-FIELD(TB_FLAGS_THEAD, F8F32, 25, 1)
-FIELD(TB_FLAGS_THEAD, F8F16, 26, 1)
+FIELD(TB_FLAGS_THEAD, MS, 0, 2)
+FIELD(TB_FLAGS_THEAD, MILL, 2, 1)
+FIELD(TB_FLAGS_THEAD, ME0, 3, 1)
+FIELD(TB_FLAGS_THEAD, NILL, 4, 1)
+FIELD(TB_FLAGS_THEAD, NX2, 5, 1)
+FIELD(TB_FLAGS_THEAD, KILL, 6, 1)
+FIELD(TB_FLAGS_THEAD, KE0, 7, 1)
+FIELD(TB_FLAGS_THEAD, KM2, 8, 1)
+FIELD(TB_FLAGS_THEAD, KM4, 9, 1)
+FIELD(TB_FLAGS_THEAD, KM8, 10, 1)
+FIELD(TB_FLAGS_THEAD, BF16, 11, 1)
+FIELD(TB_FLAGS_THEAD, MSD, 12, 1)
+FIELD(TB_FLAGS_THEAD, ALTFMT, 13, 1)
+FIELD(TB_FLAGS_THEAD, TCM, 14, 1)
+
+/* Xuantie C930 Custom Flags */
+FIELD(TB_FLAGS_THEAD, AIOE_EN, 15, 1)
+FIELD(TB_FLAGS_THEAD, CRC_DIS, 16, 1)
+FIELD(TB_FLAGS_THEAD, XTV_DIS, 17, 1)
+FIELD(TB_FLAGS_THEAD, CBOP_EN, 18, 1)
+FIELD(TB_FLAGS_THEAD, XTCP_EN, 19, 1)
+
+/* Unaligned access enable bit of Xuantie mxstatus */
+FIELD(TB_FLAGS_THEAD, MM, 20, 1)
 
 /*
  * Helpers for using the above.
@@ -809,6 +844,43 @@ static inline int cpu_address_mode(CPURISCVState *env)
         mode = get_field(env->mstatus, MSTATUS_MPP);
     }
     return mode;
+}
+
+/*
+ * Returns the current effective privilege mode.
+ *
+ * @env: CPURISCVState
+ * @priv: The returned effective privilege mode.
+ * @virt: The returned effective virtualization mode.
+ *
+ * Returns true if the effective privilege mode is modified.
+ */
+static inline QEMU_ALWAYS_INLINE
+bool riscv_cpu_eff_priv(CPURISCVState *env, int *priv, bool *virt)
+{
+    int mode = env->priv;
+    bool virt_enabled = false;
+    bool mode_modified = false;
+
+#ifndef CONFIG_USER_ONLY
+    if (mode == PRV_M && get_field(env->mstatus, MSTATUS_MPRV)) {
+        mode = get_field(env->mstatus, MSTATUS_MPP);
+        virt_enabled = get_field(env->mstatus, MSTATUS_MPV) && (mode != PRV_M);
+        mode_modified = true;
+    } else {
+        virt_enabled = env->virt_enabled;
+    }
+#endif
+
+    if (priv) {
+        *priv = mode;
+    }
+
+    if (virt) {
+        *virt = virt_enabled;
+    }
+
+    return mode_modified;
 }
 
 static inline RISCVMXL cpu_get_xl(CPURISCVState *env, target_ulong mode)
@@ -920,6 +992,7 @@ bool riscv_cpu_is_32bit(RISCVCPU *cpu);
 
 bool riscv_cpu_virt_mem_enabled(CPURISCVState *env);
 RISCVPmPmm riscv_pm_get_pmm(CPURISCVState *env);
+RISCVPmPmm riscv_pm_get_virt_pmm(CPURISCVState *env);
 int riscv_pm_get_pmlen(RISCVPmPmm pmm);
 
 RISCVException riscv_csrr(CPURISCVState *env, int csrno,
@@ -1034,6 +1107,9 @@ RISCVException vs(CPURISCVState *env, int csrno);
 RISCVException any(CPURISCVState *env, int csrno);
 RISCVException smode(CPURISCVState *env, int csrno);
 RISCVException clic(CPURISCVState *env, int csrno);
+RISCVException clic_v0p8(CPURISCVState *env, int csrno);
+RISCVException clic_v0p10(CPURISCVState *env, int csrno);
+RISCVException suenq(CPURISCVState *env, int csrno);
 RISCVException read_fcsr(CPURISCVState *env, int csrno,
                          target_ulong *val);
 RISCVException write_fcsr(CPURISCVState *env, int csrno,
@@ -1088,4 +1164,8 @@ const char *priv_spec_to_str(int priv_version);
 
 bool decode_dsa(CPURISCVState *env, uint32_t insn, uint32_t length);
 void dsa_finalize(RISCVCPU *cpu, Error **errp);
+
+bool riscv_get_pagelen(CPUState *cs, vaddr address, int size,
+                       MMUAccessType access_type, int mmu_idx,
+                       uint64_t *pagelen);
 #endif /* RISCV_CPU_H */

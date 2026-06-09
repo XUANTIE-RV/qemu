@@ -900,10 +900,11 @@ void HELPER(vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     env->vstart = 0;
 }
 
-void HELPER(th_vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
-                         uint32_t desc)
+void HELPER(th_vgmulxor_vv)(void *vd_vptr, void *vs1_vptr, void *vs2_vptr,
+                            CPURISCVState *env, uint32_t desc)
 {
     uint8_t *vd = vd_vptr;
+    uint8_t *vs1 = vs1_vptr;
     uint8_t *vs2 = vs2_vptr;
     uint32_t vta = vext_vta(desc);
     uint32_t total_elems = vext_get_total_elems(env, desc, 1);
@@ -911,8 +912,9 @@ void HELPER(th_vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     VSTART_CHECK_EARLY_EXIT(env);
 
     for (uint32_t i = env->vstart; i < env->vl; i++) {
-        uint8_t Y = brev8(vd[i]);
-        uint8_t H = brev8(vs2[i]);
+        uint8_t Y = vs1[i];
+        uint8_t H = vs2[i];
+        uint8_t result = vd[i];
         uint8_t Z = 0;
 
         for (int j = 0; j < 8; j++) {
@@ -925,7 +927,7 @@ void HELPER(th_vgmul_vv)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
                 H ^= 0x1d;
             }
         }
-        vd[i] = brev8(Z);
+        vd[i] = result ^ Z;
     }
     /* set tail elements to 1s */
     vext_set_elems_1s(vd, vta, env->vl, total_elems);
@@ -1007,38 +1009,6 @@ void HELPER(vgmul_vs)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
     }
     /* set tail elements to 1s */
     vext_set_elems_1s(vd, vta, env->vl * 4, total_elems * 4);
-    env->vstart = 0;
-}
-
-void HELPER(th_vgmul_vs)(void *vd_vptr, void *vs2_vptr, CPURISCVState *env,
-                         uint32_t desc)
-{
-    uint8_t *vd = vd_vptr;
-    uint8_t *vs2 = vs2_vptr;
-    uint32_t vta = vext_vta(desc);
-    uint32_t total_elems = vext_get_total_elems(env, desc, 1);
-
-    VSTART_CHECK_EARLY_EXIT(env);
-
-    for (uint32_t i = env->vstart; i < env->vl; i++) {
-        uint8_t Y = brev8(vd[i]);
-        uint8_t H = brev8(vs2[0]);
-        uint8_t Z = 0;
-
-        for (int j = 0; j < 8; j++) {
-            if ((Y >> j) & 1) {
-                Z ^= H;
-            }
-            bool reduce = (H >> 7) & 1;
-            H = H << 1;
-            if (reduce) {
-                H ^= 0x1d;
-            }
-        }
-        vd[i] = brev8(Z);
-    }
-    /* set tail elements to 1s */
-    vext_set_elems_1s(vd, vta, env->vl, total_elems);
     env->vstart = 0;
 }
 

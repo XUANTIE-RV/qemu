@@ -215,6 +215,7 @@ config XLNX_VERSAL_TRNG
 
 config RISCV_IOPMP
     bool
+    select STREAM
 
 source macio/Kconfig
 
@@ -222,6 +223,9 @@ config CSKY_EXIT
     bool
 
 config XIAOHUI_CPR
+    bool
+
+config XIAOHUI_PCU
     bool
 
 config CSKY_MEMLOG

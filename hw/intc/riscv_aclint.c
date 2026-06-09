@@ -35,6 +35,7 @@
 #include "migration/vmstate.h"
 #if !defined(CONFIG_USER_ONLY)
 #include "hw/intc/xt_clic.h"
+#include "hw/intc/xt_clic_v0p10.h"
 #endif
 
 typedef struct riscv_aclint_mtimer_callback {
@@ -140,8 +141,8 @@ static uint64_t riscv_aclint_mtimer_read(void *opaque, hwaddr addr,
 
     if (addr >= mtimer->timecmp_base &&
         addr < (mtimer->timecmp_base + (mtimer->num_harts << 3))) {
-        size_t hartid = mtimer->hartid_base +
-                        ((addr - mtimer->timecmp_base) >> 3);
+        size_t hartid_in_socket = (addr - mtimer->timecmp_base) >> 3;
+        size_t hartid = mtimer->hartid_base + hartid_in_socket;
         CPUState *cpu = cpu_by_arch_id(hartid);
         CPURISCVState *env = cpu ? cpu_env(cpu) : NULL;
         if (!env) {
@@ -149,11 +150,11 @@ static uint64_t riscv_aclint_mtimer_read(void *opaque, hwaddr addr,
                           "aclint-mtimer: invalid hartid: %zu", hartid);
         } else if ((addr & 0x7) == 0) {
             /* timecmp_lo for RV32/RV64 or timecmp for RV64 */
-            uint64_t timecmp = mtimer->timecmp[hartid];
+            uint64_t timecmp = mtimer->timecmp[hartid_in_socket];
             return (size == 4) ? (timecmp & 0xFFFFFFFF) : timecmp;
         } else if ((addr & 0x7) == 4) {
             /* timecmp_hi */
-            uint64_t timecmp = mtimer->timecmp[hartid];
+            uint64_t timecmp = mtimer->timecmp[hartid_in_socket];
             return (timecmp >> 32) & 0xFFFFFFFF;
         } else {
             qemu_log_mask(LOG_UNIMP,
@@ -184,8 +185,8 @@ static void riscv_aclint_mtimer_write(void *opaque, hwaddr addr,
 
     if (addr >= mtimer->timecmp_base &&
         addr < (mtimer->timecmp_base + (mtimer->num_harts << 3))) {
-        size_t hartid = mtimer->hartid_base +
-                        ((addr - mtimer->timecmp_base) >> 3);
+        size_t hartid_in_socket = (addr - mtimer->timecmp_base) >> 3;
+        size_t hartid = mtimer->hartid_base + hartid_in_socket;
         CPUState *cpu = cpu_by_arch_id(hartid);
         CPURISCVState *env = cpu ? cpu_env(cpu) : NULL;
         if (!env) {
@@ -194,7 +195,7 @@ static void riscv_aclint_mtimer_write(void *opaque, hwaddr addr,
         } else if ((addr & 0x7) == 0) {
             if (size == 4) {
                 /* timecmp_lo for RV32/RV64 */
-                uint64_t timecmp_hi = mtimer->timecmp[hartid] >> 32;
+                uint64_t timecmp_hi = mtimer->timecmp[hartid_in_socket] >> 32;
                 riscv_aclint_mtimer_write_timecmp(mtimer, RISCV_CPU(cpu), hartid,
                     timecmp_hi << 32 | (value & 0xFFFFFFFF));
             } else {
@@ -205,7 +206,7 @@ static void riscv_aclint_mtimer_write(void *opaque, hwaddr addr,
         } else if ((addr & 0x7) == 4) {
             if (size == 4) {
                 /* timecmp_hi for RV32/RV64 */
-                uint64_t timecmp_lo = mtimer->timecmp[hartid];
+                uint64_t timecmp_lo = mtimer->timecmp[hartid_in_socket];
                 riscv_aclint_mtimer_write_timecmp(mtimer, RISCV_CPU(cpu), hartid,
                     value << 32 | (timecmp_lo & 0xFFFFFFFF));
             } else {
@@ -414,12 +415,19 @@ DeviceState *riscv_aclint_mtimer_create(hwaddr addr, hwaddr size,
                               qdev_get_gpio_in(DEVICE(rvcpu),
                               time_base == UINT32_MAX ? IRQ_S_TIMER :
                                                         IRQ_M_TIMER));
-        if (env->clic) {
-            XTCLICState *clic = env->clic;
+        if (env->xt_clic_v0p8) {
+            XTCLICState *clic = env->xt_clic_v0p8;
             int s_timer = i * (clic->num_sources) + IRQ_S_TIMER;
             int m_timer = i * (clic->num_sources) + IRQ_M_TIMER;
             qdev_connect_gpio_out(dev, num_harts + i,
                     qdev_get_gpio_in(DEVICE(clic),
+                        time_base == UINT32_MAX ? s_timer : m_timer));
+        } else if (env->xt_clic_v0p10) {
+            XTCLICV0P10State *xt_clic_v0p10 = env->xt_clic_v0p10;
+            int s_timer = i * (xt_clic_v0p10->num_sources) + IRQ_S_TIMER;
+            int m_timer = i * (xt_clic_v0p10->num_sources) + IRQ_M_TIMER;
+            qdev_connect_gpio_out(dev, num_harts + i,
+                    qdev_get_gpio_in(DEVICE(xt_clic_v0p10),
                         time_base == UINT32_MAX ? s_timer : m_timer));
         }
     }
@@ -472,13 +480,11 @@ static void riscv_aclint_swi_write(void *opaque, hwaddr addr, uint64_t value,
                                                   swi->hartid_base]);
                 }
             } else {
-                if (!swi->sswi) {
-                    qemu_irq_lower(swi->soft_irqs[hartid - swi->hartid_base]);
-                    if (swi->soft_irqs[swi->num_harts + hartid -
-                        swi->hartid_base]) {
-                        qemu_irq_lower(swi->soft_irqs[swi->num_harts + hartid -
-                                                      swi->hartid_base]);
-                    }
+                qemu_irq_lower(swi->soft_irqs[hartid - swi->hartid_base]);
+                if (swi->soft_irqs[swi->num_harts + hartid -
+                    swi->hartid_base]) {
+                    qemu_irq_lower(swi->soft_irqs[swi->num_harts + hartid -
+                                                  swi->hartid_base]);
                 }
             }
             return;
@@ -598,12 +604,18 @@ DeviceState *riscv_aclint_swi_create(hwaddr addr, uint32_t hartid_base,
         qdev_connect_gpio_out(dev, i,
                               qdev_get_gpio_in(DEVICE(rvcpu),
                                   (sswi) ? IRQ_S_SOFT : IRQ_M_SOFT));
-        if (env->clic) {
-            XTCLICState *clic = env->clic;
+        if (env->xt_clic_v0p8) {
+            XTCLICState *clic = env->xt_clic_v0p8;
             qdev_connect_gpio_out(dev, num_harts + i,
                 qdev_get_gpio_in(DEVICE(clic),
                     (sswi) ? i * clic->num_sources + IRQ_S_SOFT :
                              i * clic->num_sources + IRQ_M_SOFT));
+        } else if (env->xt_clic_v0p10) {
+            XTCLICV0P10State *xt_clic_v0p10 = env->xt_clic_v0p10;
+            qdev_connect_gpio_out(dev, num_harts + i,
+                qdev_get_gpio_in(DEVICE(xt_clic_v0p10),
+                    (sswi) ? i * xt_clic_v0p10->num_sources + IRQ_S_SOFT :
+                             i * xt_clic_v0p10->num_sources + IRQ_M_SOFT));
         }
     }
     return dev;

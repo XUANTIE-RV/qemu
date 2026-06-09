@@ -21,6 +21,7 @@
 
 #include "hw/sysbus.h"
 #include "qom/object.h"
+#include "qemu/thread.h"
 
 #define TYPE_RISCV_IMSIC "riscv.imsic"
 
@@ -49,6 +50,7 @@ struct RISCVIMSICState {
     qemu_irq *external_irqs;
 
     /*< public >*/
+    QemuMutex set_pending_lock;
     MemoryRegion mmio;
     uint32_t num_eistate;
     uint32_t *eidelivery;

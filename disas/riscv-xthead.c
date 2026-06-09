@@ -125,6 +125,25 @@ typedef enum {
     rv_op_th_sync_i,
     rv_op_th_sync_is,
     rv_op_th_sync_s,
+    /* XTheadcvwn (Coprocessor Vector Widen/Narrow) */
+    rv_op_th_vwcpx0_vx,
+    rv_op_th_vwcpx1_vx,
+    rv_op_th_vwcpx2_vv,
+    rv_op_th_vwcpx3_vv,
+    rv_op_th_vncpx4_vv,
+    rv_op_th_vncpx5_vv,
+    rv_op_th_vfwqcpx6_vf,
+    rv_op_th_vfwqcpx7_vf,
+    rv_op_th_vwqcpx8_vv,
+    rv_op_th_vwqcpx9_vv,
+    rv_op_th_vnqcpx10_vv,
+    rv_op_th_vnqcpx11_vv,
+    rv_op_th_vwcpx12_vv,
+    rv_op_th_vwcpx13_vv,
+    rv_op_th_vncpx14_v,
+    rv_op_th_vnqcpx15_v,
+    rv_op_th_vncpx16_v,
+    rv_op_th_vnqcpx17_v,
 } rv_xthead_op;
 
 const rv_opcode_data xthead_opcode_data[] = {
@@ -244,6 +263,25 @@ const rv_opcode_data xthead_opcode_data[] = {
     { "th.sync.i", rv_codec_none, rv_fmt_none, NULL, 0, 0, 0 },
     { "th.sync.is", rv_codec_none, rv_fmt_none, NULL, 0, 0, 0 },
     { "th.sync.s", rv_codec_none, rv_fmt_none, NULL, 0, 0, 0 },
+    /* XTheadcvwn (Coprocessor Vector Widen/Narrow) */
+    { "th.vwcpx0.vx", rv_codec_v_r, rv_fmt_vd_vs2_rs1_vm, NULL, 0, 0, 0 },
+    { "th.vwcpx1.vx", rv_codec_v_r, rv_fmt_vd_vs2_rs1_vm, NULL, 0, 0, 0 },
+    { "th.vwcpx2.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vwcpx3.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vncpx4.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vncpx5.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vfwqcpx6.vf", rv_codec_v_r, rv_fmt_vd_vs2_fs1_vm, NULL, 0, 0, 0 },
+    { "th.vfwqcpx7.vf", rv_codec_v_r, rv_fmt_vd_vs2_fs1_vm, NULL, 0, 0, 0 },
+    { "th.vwqcpx8.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vwqcpx9.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vnqcpx10.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vnqcpx11.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vwcpx12.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vwcpx13.vv", rv_codec_v_r, rv_fmt_vd_vs2_vs1_vm, NULL, 0, 0, 0 },
+    { "th.vncpx14.v", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
+    { "th.vnqcpx15.v", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
+    { "th.vncpx16.v", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
+    { "th.vnqcpx17.v", rv_codec_v_r, rv_fmt_vd_vs2_vm, NULL, 0, 0, 0 },
 };
 
 void decode_xtheadba(rv_decode *dec, rv_isa isa)
@@ -700,6 +738,105 @@ void decode_xtheadsync(rv_decode *dec, rv_isa isa)
             }
             break;
             /* custom-0 */
+        }
+        break;
+    }
+
+    dec->op = op;
+}
+
+void decode_xtheadcvwn(rv_decode *dec, rv_isa isa)
+{
+    rv_inst inst = dec->inst;
+    rv_opcode op = rv_op_illegal;
+
+    switch (((inst >> 0) & 0b11)) {
+    case 3:
+        switch (((inst >> 2) & 0b11111)) {
+        case 0b10110:
+            /* custom-2/3 opcode 1011011 */
+            switch ((inst >> 12) & 0b111) {
+            case 0b010:
+                switch ((inst >> 26) & 0b1111) {
+                case 0b1000:
+                    op = rv_op_th_vwcpx0_vx;
+                    break;
+                case 0b1001:
+                    op = rv_op_th_vwcpx2_vv;
+                    break;
+                case 0b1010:
+                    if (((inst >> 7) & 0b11111) == 0) {
+                        op = rv_op_th_vncpx4_vv;
+                    }
+                    break;
+                case 0b1011:
+                    op = rv_op_th_vfwqcpx6_vf;
+                    break;
+                case 0b1100:
+                    if (((inst >> 7) & 0b11111) == 0) {
+                        op = rv_op_th_vwqcpx8_vv;
+                    }
+                    break;
+                case 0b1101:
+                    if (((inst >> 7) & 0b11111) == 0) {
+                        op = rv_op_th_vnqcpx10_vv;
+                    }
+                    break;
+                case 0b1110:
+                    if (((inst >> 7) & 0b11111) == 0) {
+                        op = rv_op_th_vwcpx12_vv;
+                    }
+                    break;
+                case 0b1111:
+                    if (((inst >> 7) & 0b11111) == 0) {
+                        switch ((inst >> 15) & 0b11111) {
+                        case 0b00000:
+                            op = rv_op_th_vncpx14_v;
+                            break;
+                        case 0b00001:
+                            op = rv_op_th_vnqcpx15_v;
+                            break;
+                        }
+                    } else {
+                        switch ((inst >> 15) & 0b11111) {
+                        case 0b10000:
+                            op = rv_op_th_vncpx16_v;
+                            break;
+                        case 0b10001:
+                            op = rv_op_th_vnqcpx17_v;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                break;
+            case 0b011:
+                switch ((inst >> 26) & 0b1111) {
+                case 0b1000:
+                    op = rv_op_th_vwcpx1_vx;
+                    break;
+                case 0b1001:
+                    op = rv_op_th_vwcpx3_vv;
+                    break;
+                case 0b1010:
+                    op = rv_op_th_vncpx5_vv;
+                    break;
+                case 0b1011:
+                    op = rv_op_th_vfwqcpx7_vf;
+                    break;
+                case 0b1100:
+                    op = rv_op_th_vwqcpx9_vv;
+                    break;
+                case 0b1101:
+                    op = rv_op_th_vnqcpx11_vv;
+                    break;
+                case 0b1110:
+                    op = rv_op_th_vwcpx13_vv;
+                    break;
+                }
+                break;
+            }
+            break;
         }
         break;
     }

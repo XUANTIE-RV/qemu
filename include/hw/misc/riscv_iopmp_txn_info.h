@@ -1,7 +1,12 @@
 /*
- * dump stub functions.
+ * QEMU RISC-V IOPMP transaction information
  *
- * Copyright (c) 2024 Alibaba Group. All rights reserved.
+ * The transaction information structure provides the complete transaction
+ * length to the IOPMP device
+ *
+ * Copyright (c) 2023-2025 Andes Tech. Corp.
+ *
+ * SPDX-License-Identifier: GPL-2.0-or-later
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -16,9 +21,18 @@
  * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "qemu/osdep.h"
-#include "hw/misc/sifive_test.h"
+#ifndef RISCV_IOPMP_TXN_INFO_H
+#define RISCV_IOPMP_TXN_INFO_H
 
-void sifive_save_context(uint32_t _seq) { }
+typedef struct {
+    /* The id of requestor */
+    uint32_t rrid:16;
+    /* The start address of transaction */
+    uint64_t start_addr;
+    /* The end address of transaction */
+    uint64_t end_addr;
+    /* The stage of cascading IOPMP */
+    uint32_t stage;
+} RISCVIOPMPTxnInfo;
 
-void sifive_save_next_pc(uint32_t _seq) { }
+#endif

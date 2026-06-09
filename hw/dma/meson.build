@@ -15,3 +15,7 @@ system_ss.add(when: 'CONFIG_RASPI', if_true: files('bcm2835_dma.c'))
 system_ss.add(when: 'CONFIG_SIFIVE_PDMA', if_true: files('sifive_pdma.c'))
 system_ss.add(when: 'CONFIG_XLNX_CSU_DMA', if_true: files('xlnx_csu_dma.c'))
 system_ss.add(when: 'CONFIG_CSKY_DMA', if_true: files('csky_dma.c'))
+specific_ss.add(when: 'CONFIG_DW_DMA_SW_AXI', if_true: files(
+                                        'dw_dma_sw_common.c', 'dw_dma_sw_axi.c'))
+specific_ss.add(when: 'CONFIG_DW_DMA_SW_AHB', if_true: files(
+                                        'dw_dma_sw_common.c', 'dw_dma_sw_ahb.c'))

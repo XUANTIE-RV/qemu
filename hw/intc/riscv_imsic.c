@@ -188,6 +188,7 @@ static int riscv_imsic_rmw(void *arg, target_ulong reg, target_ulong *val,
 {
     RISCVIMSICState *imsic = arg;
     uint32_t isel, priv, virt, vgein, xlen, page;
+    int ret;
 
     priv = AIA_IREG_PRIV(reg);
     virt = AIA_IREG_VIRT(reg);
@@ -227,9 +228,12 @@ static int riscv_imsic_rmw(void *arg, target_ulong reg, target_ulong *val,
     case ISELECT_IMSIC_TOPEI:
         return riscv_imsic_topei_rmw(imsic, page, val, new_val, wr_mask);
     case ISELECT_IMSIC_EIP0 ... ISELECT_IMSIC_EIP63:
-        return riscv_imsic_eix_rmw(imsic, xlen, page,
+        qemu_mutex_lock(&imsic->set_pending_lock);
+        ret = riscv_imsic_eix_rmw(imsic, xlen, page,
                                    isel - ISELECT_IMSIC_EIP0,
                                    true, val, new_val, wr_mask);
+        qemu_mutex_unlock(&imsic->set_pending_lock);
+        return ret;
     case ISELECT_IMSIC_EIE0 ... ISELECT_IMSIC_EIE63:
         return riscv_imsic_eix_rmw(imsic, xlen, page,
                                    isel - ISELECT_IMSIC_EIE0,
@@ -334,6 +338,7 @@ static void riscv_imsic_realize(DeviceState *dev, Error **errp)
     RISCVCPU *rcpu = RISCV_CPU(cpu_by_arch_id(imsic->hartid));
     CPUState *cpu = cpu_by_arch_id(imsic->hartid);
     CPURISCVState *env = cpu ? cpu_env(cpu) : NULL;
+    qemu_mutex_init(&imsic->set_pending_lock);
 
     if (!kvm_irqchip_in_kernel()) {
         imsic->num_eistate = imsic->num_pages * imsic->num_irqs;

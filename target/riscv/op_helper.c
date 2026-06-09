@@ -25,10 +25,9 @@
 #include "exec/cpu_ldst.h"
 #include "exec/helper-proto.h"
 #include "qemu/log.h"
-#include "qemu/plugin.h"
 
 #if !defined(CONFIG_USER_ONLY)
-#include "hw/intc/xt_clic.h"
+#include "riscv_xt_clic.h"
 #include "qemu/main-loop.h"
 #endif
 
@@ -303,6 +302,130 @@ void helper_cbo_inval(CPURISCVState *env, target_ulong address)
     /* We don't emulate the cache-hierarchy, so we're done. */
 }
 
+void helper_th_cbo_cleanp(CPURISCVState *env)
+{
+    uintptr_t ra = GETPC();
+    check_zicbo_envcfg(env, MENVCFG_CBCFE, ra);
+}
+
+/*
+ * check_suenq_envcfg
+ *
+ * Raise virtual exceptions and illegal instruction exceptions for
+ * xtheadaioe instructions based on the settings of [mh]envcfg as
+ * specified in c930.
+ */
+static void check_senq_envcfg(CPURISCVState *env, uintptr_t ra)
+{
+#ifndef CONFIG_USER_ONLY
+    if (env->priv < PRV_S && !env->virt_enabled) {
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
+        return;
+    }
+    if (env->priv != PRV_M && !get_field(env->menvcfg, MENVCFG_SUENQ)) {
+        riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, ra);
+        return;
+    }
+    if (get_field(env->menvcfg, MENVCFG_SUENQ)) {
+        if (env->priv < PRV_S && env->virt_enabled) {
+            riscv_raise_exception(env, RISCV_EXCP_VIRT_INSTRUCTION_FAULT, ra);
+            return;
+        }
+        if (env->priv == PRV_S && env->virt_enabled
+            && !get_field(env->henvcfg, HENVCFG_SUENQ)) {
+            riscv_raise_exception(env, RISCV_EXCP_VIRT_INSTRUCTION_FAULT, ra);
+            return;
+        }
+    }
+#endif
+}
+
+static void do_enq_64b(CPURISCVState *env, target_ulong address,
+                             target_ulong src, target_ulong dst,
+                             uintptr_t ra, bool smode)
+{
+    if (address % 64) {
+        if (dst != 0) {
+            env->gpr[dst] = 1;
+        }
+        riscv_raise_exception(env, RISCV_EXCP_STORE_AMO_ADDR_MIS, ra);
+    }
+#ifndef CONFIG_USER_ONLY
+    CPUTLBEntryFull *full;
+    int flags;
+    void *phost;
+    int mmu_idx = riscv_env_mmu_index(env, false);
+    flags = probe_access_full(env, address, 0, MMU_DATA_STORE,
+                              mmu_idx, false, &phost, &full, ra);
+    if (flags & TLB_MMIO) {
+        if (smode) {
+            memcpy(phost, &env->gpr[src], 64);
+        } else {
+            uint64_t tmp[8];
+            uint32_t dlen = (get_field(env->suenq, CSR_SUENQ_DL) + 1) * 8;
+            memcpy(tmp, &env->gpr[src], 64);
+            tmp[0] = deposit64(tmp[0], 0, dlen, env->suenq);
+            memcpy(phost, tmp, 64);
+        }
+        if (dst != 0) {
+            env->gpr[dst] = 0;
+        }
+    } else {
+        if (dst != 0) {
+            env->gpr[dst] = -1;
+        }
+        riscv_raise_exception(env, RISCV_EXCP_STORE_AMO_ACCESS_FAULT, ra);
+    }
+#endif
+}
+
+void helper_uenq_64b(CPURISCVState *env, target_ulong address,
+                     target_ulong src, target_ulong dst)
+{
+    do_enq_64b(env, address, src, dst, GETPC(), false);
+}
+
+void helper_senq_64b(CPURISCVState *env, target_ulong address,
+                     target_ulong src, target_ulong dst)
+{
+#ifdef CONFIG_USER_ONLY
+    riscv_raise_exception(env, RISCV_EXCP_ILLEGAL_INST, GETPC());
+#endif
+    check_senq_envcfg(env, GETPC());
+    do_enq_64b(env, address, src, dst, GETPC(), true);
+}
+
+static uint32_t do_crc32c(uint64_t x, int nbits)
+{
+    for (int i = 0; i < nbits; i++) {
+        if (x & 1) {
+            x = (x >> 1) ^ 0x82F63B78;
+        } else {
+            x = x >> 1;
+        }
+    }
+    return x & UINT32_MAX;
+}
+
+target_ulong helper_crc32_w(target_ulong rs1, target_ulong rs2)
+{
+    target_ulong result;
+    rs1 &= UINT32_MAX;
+    rs2 &= UINT32_MAX;
+    rs2 ^= rs1;
+    result = do_crc32c(rs2, 32);
+    return result;
+}
+
+target_ulong helper_crc32_d(target_ulong rs1, target_ulong rs2)
+{
+    target_ulong result;
+    rs1 &= UINT32_MAX;
+    rs2 ^= rs1;
+    result = do_crc32c(rs2, 64);
+    return result;
+}
+
 #ifndef CONFIG_USER_ONLY
 target_ulong helper_sret(CPURISCVState *env, target_ulong curr_pc)
 {
@@ -316,7 +439,7 @@ target_ulong helper_sret(CPURISCVState *env, target_ulong curr_pc)
     }
 
     target_ulong retpc = env->sepc;
-    if (!riscv_has_ext(env, RVC) && (retpc & 0x3)) {
+    if (!riscv_cpu_cfg(env)->ext_zca && (retpc & 0x3)) {
         riscv_raise_exception(env, RISCV_EXCP_INST_ADDR_MIS, GETPC());
     }
 
@@ -365,13 +488,13 @@ target_ulong helper_sret(CPURISCVState *env, target_ulong curr_pc)
         }
     }
 
-    if (xt_clic_is_clic_mode(env)) {
+    if (riscv_clic_is_clic_mode(env)) {
         target_ulong spil = get_field(env->scause, SCAUSE_SPIL);
         env->mintstatus = set_field(env->mintstatus, MINTSTATUS_SIL, spil);
         env->scause = set_field(env->scause, SCAUSE_SPIE, 1);
         env->scause = set_field(env->scause, SCAUSE_SPP, PRV_U);
         bql_lock();
-        xt_clic_get_next_interrupt(env->clic);
+        riscv_clic_get_next_interrupt(env);
         bql_unlock();
     }
     riscv_cpu_set_mode(env, prev_priv, prev_virt);
@@ -407,7 +530,7 @@ static target_ulong do_excp_return(CPURISCVState *env, target_ulong ra, target_u
     }
 
     target_ulong retpc = env->mepc;
-    if (!riscv_has_ext(env, RVC) && (retpc & 0x3)) {
+    if (!riscv_cpu_cfg(env)->ext_zca && (retpc & 0x3)) {
         riscv_raise_exception(env, RISCV_EXCP_INST_ADDR_MIS, GETPC());
     }
 
@@ -453,13 +576,13 @@ static target_ulong do_excp_return(CPURISCVState *env, target_ulong ra, target_u
     /* FIXME: Add Xuantie check */
     env->excp_vld = 0;
 
-    if (xt_clic_is_clic_mode(env)) {
+    if (riscv_clic_is_clic_mode(env)) {
         target_ulong mpil = get_field(env->mcause, MCAUSE_MPIL);
         env->mintstatus = set_field(env->mintstatus, MINTSTATUS_MIL, mpil);
         env->mcause = set_field(env->mcause, MCAUSE_MPIE, 1);
         env->mcause = set_field(env->mcause, MCAUSE_MPP, PRV_U);
         bql_lock();
-        xt_clic_get_next_interrupt(env->clic);
+        riscv_clic_get_next_interrupt(env);
         bql_unlock();
     }
     riscv_cpu_set_mode(env, prev_priv, prev_virt);
@@ -694,7 +817,7 @@ target_ulong helper_hyp_hlv_bu(CPURISCVState *env, target_ulong addr)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_UB, mmu_idx);
 
-    return cpu_ldb_mmu(env, addr, oi, ra);
+    return cpu_ldb_mmu(env, adjust_addr_virt(env, addr), oi, ra);
 }
 
 target_ulong helper_hyp_hlv_hu(CPURISCVState *env, target_ulong addr)
@@ -703,7 +826,7 @@ target_ulong helper_hyp_hlv_hu(CPURISCVState *env, target_ulong addr)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUW, mmu_idx);
 
-    return cpu_ldw_mmu(env, addr, oi, ra);
+    return cpu_ldw_mmu(env, adjust_addr_virt(env, addr), oi, ra);
 }
 
 target_ulong helper_hyp_hlv_wu(CPURISCVState *env, target_ulong addr)
@@ -712,7 +835,7 @@ target_ulong helper_hyp_hlv_wu(CPURISCVState *env, target_ulong addr)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUL, mmu_idx);
 
-    return cpu_ldl_mmu(env, addr, oi, ra);
+    return cpu_ldl_mmu(env, adjust_addr_virt(env, addr), oi, ra);
 }
 
 target_ulong helper_hyp_hlv_d(CPURISCVState *env, target_ulong addr)
@@ -721,7 +844,7 @@ target_ulong helper_hyp_hlv_d(CPURISCVState *env, target_ulong addr)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUQ, mmu_idx);
 
-    return cpu_ldq_mmu(env, addr, oi, ra);
+    return cpu_ldq_mmu(env, adjust_addr_virt(env, addr), oi, ra);
 }
 
 void helper_hyp_hsv_b(CPURISCVState *env, target_ulong addr, target_ulong val)
@@ -730,7 +853,7 @@ void helper_hyp_hsv_b(CPURISCVState *env, target_ulong addr, target_ulong val)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_UB, mmu_idx);
 
-    cpu_stb_mmu(env, addr, val, oi, ra);
+    cpu_stb_mmu(env, adjust_addr_virt(env, addr), val, oi, ra);
 }
 
 void helper_hyp_hsv_h(CPURISCVState *env, target_ulong addr, target_ulong val)
@@ -739,7 +862,7 @@ void helper_hyp_hsv_h(CPURISCVState *env, target_ulong addr, target_ulong val)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUW, mmu_idx);
 
-    cpu_stw_mmu(env, addr, val, oi, ra);
+    cpu_stw_mmu(env, adjust_addr_virt(env, addr), val, oi, ra);
 }
 
 void helper_hyp_hsv_w(CPURISCVState *env, target_ulong addr, target_ulong val)
@@ -748,7 +871,7 @@ void helper_hyp_hsv_w(CPURISCVState *env, target_ulong addr, target_ulong val)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUL, mmu_idx);
 
-    cpu_stl_mmu(env, addr, val, oi, ra);
+    cpu_stl_mmu(env, adjust_addr_virt(env, addr), val, oi, ra);
 }
 
 void helper_hyp_hsv_d(CPURISCVState *env, target_ulong addr, target_ulong val)
@@ -757,7 +880,7 @@ void helper_hyp_hsv_d(CPURISCVState *env, target_ulong addr, target_ulong val)
     int mmu_idx = check_access_hlsv(env, false, ra);
     MemOpIdx oi = make_memop_idx(MO_TEUQ, mmu_idx);
 
-    cpu_stq_mmu(env, addr, val, oi, ra);
+    cpu_stq_mmu(env, adjust_addr_virt(env, addr), val, oi, ra);
 }
 
 /*
